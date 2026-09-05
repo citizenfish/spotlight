@@ -1,2 +1,13 @@
 # JetBrains IDE project config
 .idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Spectrum build output (keep the directory, drop its contents)
+spectrum/build/*
+!spectrum/build/.gitkeep

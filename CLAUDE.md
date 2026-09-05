@@ -46,18 +46,59 @@ What this means in practice:
 - Vault notes use Obsidian conventions: `[[wikilinks]]` between notes, frontmatter
   where it helps. Prefer linking notes to duplicating content.
 
+## Layout
+
+```
+prototype/          Pygame prototype
+  spotlight/
+    core/           portable game logic — no pygame, no floats
+    frontend/       pygame window, keyboard, audio — the port replaces this
+    data/           level and entity data
+  tests/
+spectrum/           Z80 port (src/, build/) — empty, toolchain undecided
+assets/             source-of-truth art and level data
+tools/              converters: assets -> prototype and Spectrum formats
+```
+
+The `core` / `frontend` split is the load-bearing decision. `core` is written
+as if the Z80 were already the target, and `prototype/tests/test_portability.py`
+enforces that mechanically: the suite fails if anything under `core/` imports
+pygame or uses a float literal.
+
+`core.screen.Screen` models the real display — a 1-bit bitmap plus a 32x24 grid
+of hardware-format attribute bytes. Draw through it and attribute clash shows up
+in the prototype rather than at port time.
+
+Design documentation lives in the vault, not in this repo, so there is one home
+for it and no drift.
+
+## Commands
+
+```sh
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+cd prototype
+python -m spotlight        # run (--scale N for window size)
+pytest                     # 24 tests, headless-safe
+```
+
+Dependencies are a plain venv plus pinned `requirements.txt`; there is no
+pyproject and the package is not installed — `prototype/pytest.ini` sets
+`pythonpath` instead.
+
 ## Current state
 
-Greenfield. This repo contains only `README.md` and `LICENSE` — no source, no
-build, no tests yet. Nothing below describes existing code; it describes the
-target.
+Scaffolded, with a walking skeleton: a 50Hz loop that moves a light around the
+attribute grid. `core/game.py` is **not** a design — it exists to prove the loop
+runs end to end, and should be replaced by the first real spec from the vault.
 
 Decisions **not yet made** (record them in the vault when they are, then update
 this file):
 
-- Python/Pygame project layout, dependency management and test approach
 - Z80 assembler and toolchain, emulator, and target model (48K vs 128K)
 - Asset pipeline from prototype art to Spectrum screen/attribute data
+- Audio approach (48K beeper vs 128K AY)
 
 ## Designing for the port
 
@@ -87,16 +128,17 @@ in the vault.
 
 ## Environment
 
-- Python 3.12 is available. **Pygame is not currently installed** — install it
-  (and settle on how dependencies are managed) as part of the first
-  implementation issue.
-- **The `gh` CLI is not installed.** Issue creation currently has to happen via
-  the GitHub web UI, or by installing `gh` first. Do not assume `gh` commands
-  will work.
-- Both repos are on GitHub under `citizenfish`.
+- Python 3.12, with the venv at `.venv/` (gitignored). Pygame 2.6.1.
+- `gh` is installed and authenticated as `citizenfish`; git pushes use a token
+  in the macOS keychain. Both work without prompting.
+- **`citizenfish/spotlight` is public; `citizenfish/spotlight_kb` is private.**
+  Issue bodies should summarise what to build; the fuller design rationale stays
+  in the private vault. Do not paste vault content wholesale into public issues.
 
 ## Conventions
 
 - Reference the driving issue in commit messages (e.g. `Refs #12`).
-- Don't commit or push unless asked.
-- `.idea/` is JetBrains project config and is currently untracked in both repos.
+- Don't commit or push unless asked. When asked, commit straight to `main` —
+  these are solo repos and feature branches just add a merge step.
+- Keep `core/` free of pygame and floats; `test_portability.py` will catch it.
+- Tests must pass headless (`SDL_VIDEODRIVER=dummy`).
