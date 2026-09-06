@@ -83,9 +83,10 @@ def test_the_player_can_actually_move_from_the_start():
 
 def test_entities_are_placed_off_the_cell_grid():
     """They must straddle cells, or the two-tone question cannot be judged."""
-    off_grid = [(n, x, y) for n, x, y in scene.ENTITIES
-                if x % 8 or y % 8]
-    assert len(off_grid) >= 4, "most entities should sit at awkward offsets"
+    placed = ([(x, y) for _, x, y in scene.ENTITIES] + list(scene.WORKERS))
+    off_grid = [p for p in placed if p[0] % 8 or p[1] % 8]
+    assert len(off_grid) >= 4, "most things should sit at awkward offsets"
+    assert len(off_grid) < len(placed), "a couple aligned makes the contrast"
 
 
 def test_the_swarm_starts_on_floor_and_spread_out():
@@ -119,10 +120,8 @@ def test_a_cleg_starts_against_a_wall_and_another_does_not():
 
 def _a_worker():
     """A worker from the scene, at its awkward pixel offset."""
-    for name, x, y in scene.ENTITIES:
-        if name == "worker":
-            return x, y
-    raise AssertionError("the scene has no worker")
+    assert scene.WORKERS, "the scene has no workers to find"
+    return scene.WORKERS[0]
 
 
 def _light_over(x, y):
@@ -218,6 +217,32 @@ def test_every_entity_stands_somewhere_reachable():
     reachable = _reachable_from((player.cx, player.cy))
     for name, x, y in scene.ENTITIES:
         assert (x // CELL, y // CELL) in reachable, f"{name} is walled in"
+
+
+def test_every_worker_can_actually_be_reached():
+    """The objective has to be completable, or the evaluation asks nothing."""
+    from spikes.player import Player
+    from spikes.rescue import Worker
+    player = Player(*scene.PLAYER_START)
+    reachable = _reachable_from((player.cx, player.cy))
+    for x, y in scene.WORKERS:
+        standing = Worker(x, y).cells()
+        assert standing & reachable, f"worker at {x},{y} cannot be got to"
+        assert not any(scene.is_solid(*c) for c in standing), \
+            f"worker at {x},{y} is inside a wall"
+
+
+def test_there_are_enough_workers_to_make_looking_worthwhile():
+    assert len(scene.WORKERS) >= 5
+
+
+def test_the_workers_are_spread_out():
+    """Clustered workers would be one search, not seven."""
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    far = [1 for x, y in scene.WORKERS
+           if max(abs(x // CELL - player.cx), abs(y // CELL - player.cy)) > 9]
+    assert len(far) >= 3, "most workers are within a stone's throw of the start"
 
 
 def test_the_inner_room_is_entered_through_a_one_cell_doorway():

@@ -10,7 +10,7 @@ the room you are leaving, on a nest to stop it spawning, or on a fresh body
 before it turns.
 
 It has no effect at all on a Cleg that has already attached. Once one is on you,
-the damage is decided -- see the design notes on QuirkyClegs.
+the damage is decided -- see the design notes on Clegs.
 """
 
 from spotlight.core.constants import COLS

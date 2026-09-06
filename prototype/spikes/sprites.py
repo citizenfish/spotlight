@@ -72,7 +72,7 @@ WORKER = (
 
 # --- everything else, 8x8 --------------------------------------------------
 
-#: A QuirkyCleg: fat body, splayed legs.
+#: A Cleg: fat body, splayed legs.
 CLEG = (
     0x00,
     0x42,  # .#....#.   legs out

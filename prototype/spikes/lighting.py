@@ -197,8 +197,8 @@ class LightField:
         if memory > self._memory[idx]:
             self._memory[idx] = memory
             self._pending_hue[idx] = hue
-        if reveals:
-            self._reveal[idx] = 1
+        if reveals and level > self._reveal[idx]:
+            self._reveal[idx] = level
 
     def commit(self) -> None:
         """Decay everything, top up what was lit, then work out what shows.
@@ -239,6 +239,22 @@ class LightField:
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return False
         return bool(self._reveal[cy * COLS + cx])
+
+    def prey_at(self, cx: int, cy: int) -> bool:
+        """Is somebody standing here **plainly** lit, rather than glimpsed?
+
+        Your own glow shows you a worker at arm's length, and that is enough to
+        draw them -- but it is dim, and a person in the dark is ignored by
+        Clegs. Prey is somebody a *lit* revealing light is on, which is your
+        carried spotlight, a spotlight burning on the floor, or the searchlight
+        catching you out in the open.
+
+        Room lights are not on that list, and deliberately: they show the room
+        and not who is in it, to Clegs exactly as to the player. One rule.
+        """
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return False
+        return self._reveal[cy * COLS + cx] >= LIT
 
     def remembered_at(self, cx: int, cy: int) -> int:
         """What the cell would show with every source switched off."""

@@ -124,10 +124,32 @@ MOVERS = frozenset({"worker", "cleg"})
 #: Entities, at deliberately awkward pixel offsets so they straddle cells.
 #: (sprite name, x, y) in pixels.
 ENTITIES = (
-    ("worker", 14 * 8 + 3, 4 * 8 + 2),      # inside the inner room, dark
-    ("worker", 3 * 8 + 4, 2 * 8),           # under the room light
     ("body", 7 * 8 + 2, 17 * 8 + 4),
     ("nest", 27 * 8 + 5, 19 * 8 + 1),
+)
+
+#: Trapped workers, as (x, y) in pixels. **These are the reason to want light.**
+#:
+#: Spike 2 had nothing to look for, which made its own question unanswerable:
+#: you cannot judge whether switching the light on is worth it when there is
+#: nothing you need to see. Finding these is the objective -- no tail, no quota,
+#: no blood clocks, none of which spike 2 is building. Reaching one is enough.
+#:
+#: They are people, so they are only drawn where a light is on them, and the
+#: opening flash does not show them. You are given the shape of the room and
+#: not who is in it, which is exactly the bargain: the layout is free and the
+#: people cost you light, and light costs you blood.
+#:
+#: Spread into corners the player has to commit to, and one behind the inner
+#: room's single doorway.
+WORKERS = (
+    (14 * 8 + 3, 4 * 8 + 2),        # inside the inner room, through one door
+    (3 * 8 + 4, 2 * 8),             # top left
+    (28 * 8, 1 * 8),                # top right, by the door
+    (2 * 8 + 3, 19 * 8),            # bottom left
+    (29 * 8, 19 * 8),               # bottom right, behind the low wall
+    (17 * 8 + 5, 16 * 8),           # open floor, easy
+    (7 * 8 + 2, 11 * 8),            # mid left
 )
 
 #: Where the swarm starts, in cells. Clegs live on the cell grid -- they have

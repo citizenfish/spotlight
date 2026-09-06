@@ -16,6 +16,8 @@ purpose -- the searchlight is as bright as the carried spotlight and forgotten
 far sooner.
 """
 
+from math import isqrt
+
 from spotlight.core.constants import COLS, YELLOW
 
 from .layout import PLAY_ROWS
@@ -34,6 +36,19 @@ _AXES = {
     LEFT: (-1, 0, 0, 1),
     RIGHT: (1, 0, 0, 1),
 }
+
+
+#: How far off a light can be noticed. A lit source can be seen from anywhere
+#: a Cleg is capable of noticing; the dim personal glow cannot.
+FAR = 255
+
+#: How close a Cleg has to be to notice your own glow.
+#:
+#: Small on purpose. It is what stops standing still in the dark being perfectly
+#: safe -- something that blunders within a few cells of you will find you --
+#: without making the dark useless, because nothing across the room ever will.
+#: Keeping still is a short reprieve, not a hiding place.
+GLOW_REACH = 2
 
 
 class Source:
@@ -58,23 +73,23 @@ class Source:
         """The cell a Cleg heads for when this light is what drew it."""
         raise NotImplementedError
 
-    def lure(self) -> tuple[int, int] | None:
-        """Where this light pulls Clegs to, or None if it pulls at all.
+    def lure(self) -> tuple[int, int, int] | None:
+        """Where this light pulls Clegs to and from how far, or None.
 
-        **Only a LIT source attracts.** That is the whole rule, and it falls out
-        of the level a source already carries rather than needing a flag: the
-        personal glow is DIM, so it never draws anything, and the darkness is
-        genuinely safe until you switch something on. Switching the spotlight on
-        is therefore the decision that costs, which is the bargain the game is
-        built on.
+        **All light attracts; how far it carries depends on how bright it is.**
+        A lit source can be noticed from anywhere; the dim personal glow only
+        from a few cells. So switching your spotlight on is still the decision
+        that costs -- it is the difference between being findable across the
+        room and being findable at arm's length -- while the dark stops being a
+        place you can simply stand in for ever.
 
-        Clegs steer for the light itself, not for the lit ground around it -- so
+        Clegs steer for the light itself, not for the lit ground around it, so
         this is one point per source, checked per Cleg. There is no search over
         cells and no route-finding anywhere in it.
         """
-        if not self.enabled or self.level < LIT:
+        if not self.enabled or self.level <= 0:
             return None
-        return self.origin()
+        return (*self.origin(), FAR)
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
@@ -89,20 +104,35 @@ class Source:
 
 
 class Glow(Source):
-    """The personal glow: one cell in every direction. Never switched off in
-    play -- it is what stops total darkness being unplayable -- but switchable
-    here so its contribution can be seen on its own."""
+    """The personal glow: one cell in every direction **around the person**.
 
-    def __init__(self, level: int = DIM, memory: int = CHARGE_DIM) -> None:
+    Never switched off in play -- it is what stops total darkness being
+    unplayable -- but switchable here so its contribution can be seen alone.
+
+    `tall` is how many cells the body occupies above its feet. It matters more
+    than it sounds: the glow is anchored on the feet cell, and a person is two
+    cells high, so a glow of one cell in every direction from the *feet* stops
+    level with the top of the head. The row above was dark, and walking north
+    meant walking into walls you could not see. One cell in every direction
+    means from the whole figure, not from the square it is standing on.
+    """
+
+    def __init__(self, level: int = DIM, memory: int = CHARGE_DIM,
+                 tall: int = 2) -> None:
         super().__init__(level, memory)
         self.x = 0
         self.y = 0
+        self.tall = tall
 
     def origin(self) -> tuple[int, int]:
         return self.x, self.y
 
+    def lure(self) -> tuple[int, int, int] | None:
+        """You are always slightly visible, and only from very close."""
+        return None if not self.enabled else (self.x, self.y, GLOW_REACH)
+
     def emit(self, field: LightField) -> None:
-        for dy in (-1, 0, 1):
+        for dy in range(-self.tall, 2):
             for dx in (-1, 0, 1):
                 self.light(field, self.x + dx, self.y + dy)
 
@@ -169,7 +199,7 @@ class Cone(Source):
     def origin(self) -> tuple[int, int]:
         return self.x, self.y
 
-    def lure(self) -> tuple[int, int] | None:
+    def lure(self) -> tuple[int, int, int] | None:
         """The player's own cell, not the wedge ahead of them.
 
         A Cleg drawn by your spotlight is drawn to *you*: the wedge is where the
@@ -177,11 +207,19 @@ class Cone(Source):
         to the wedge would have the swarm converge somewhere in front of you and
         then need a second rule to find you.
         """
-        return (self.x, self.y) if self.lit else None
+        return (self.x, self.y, FAR) if self.lit else None
 
     def cells(self) -> list[tuple[int, int]]:
+        """The wedge, **and the cell you are standing in**.
+
+        You are holding the lamp, so you are in its light. Without this the
+        central bargain has no teeth: switching your spotlight on would draw
+        the swarm to you and leave you untouchable when it arrived, because a
+        Cleg only bites somebody it can see. Found by measuring the cost of
+        each lighting policy in issue #10 and getting zero for all of them.
+        """
         fx, fy, sx, sy = _AXES[self.facing]
-        out = []
+        out = [(self.x, self.y)]
         for d in range(1, self.reach + 1):
             half = d // 2
             for k in range(-half, half + 1):
@@ -218,10 +256,21 @@ class Flash(Source):
         self.frames = frames
         self.left = 0
 
-    def fire(self) -> None:
-        """Start a flash. Firing again while one is running restarts it."""
+    def fire(self, surge: bool = False) -> None:
+        """Start a flash. Firing again while one is running restarts it.
+
+        A plain flash is the level opening: the **room**, and not who is in it.
+
+        A `surge` is the mains coming back for a moment, and it shows
+        everything -- people included. That is the design's own distinction and
+        it is the difference between being told the shape of the building and
+        being told where everybody is. One is a floor plan you are given; the
+        other is the memorisation beat the whole game is built around, and it
+        should be rare and startling rather than a key you lean on.
+        """
         self.left = self.frames
         self.enabled = True
+        self.reveals = surge
 
     def update(self) -> None:
         """Burn down. Call once a frame, before applying."""
@@ -233,7 +282,7 @@ class Flash(Source):
     def origin(self) -> tuple[int, int]:
         return COLS // 2, PLAY_ROWS // 2
 
-    def lure(self) -> tuple[int, int] | None:
+    def lure(self) -> tuple[int, int, int] | None:
         """Nothing. A light that is everywhere has no *toward*.
 
         Clegs steer up a gradient, and a uniform flash has none -- so it draws
@@ -257,6 +306,119 @@ def xorshift16(state: int) -> int:
     state ^= state >> 9
     state ^= (state << 8) & 0xFFFF
     return state & 0xFFFF or 1
+
+
+#: sin(a) * 256 for a quarter turn in sixteen steps, and the whole of the
+#: trigonometry in this game. A Z80 keeps a table like this in ROM and looks it
+#: up; there is no other way to get an angle on a machine with no multiply worth
+#: the name, and no reason to want one.
+_SIN = (0, 25, 50, 74, 98, 121, 142, 162, 181, 198, 213, 226, 237, 245, 251,
+        255, 256)
+
+#: Steps in a full turn. Four quarters of sixteen.
+TURN = 64
+
+
+def sin256(step: int) -> int:
+    """sin of `step`/64 of a turn, scaled by 256. Integer, by table."""
+    step %= TURN
+    quarter, i = divmod(step, TURN // 4)
+    if quarter == 0:
+        return _SIN[i]
+    if quarter == 1:
+        return _SIN[16 - i]
+    if quarter == 2:
+        return -_SIN[i]
+    return -_SIN[16 - i]
+
+
+def cos256(step: int) -> int:
+    """cos, which is sin a quarter turn ahead."""
+    return sin256(step + TURN // 4)
+
+
+def arc_waypoints(radius: int, pivot: tuple[int, int], reach: int,
+                  start: int, end: int, step: int = 2
+                  ) -> list[tuple[int, int]]:
+    """Points along an arc swung about `pivot` at distance `reach`.
+
+    A real searchlight is bolted to something and turns. The spot it throws does
+    not run in straight lines across a room -- it swings, and it moves faster
+    the further out it reaches. Sweeping in arcs rather than rows is the single
+    change that stops the beam reading as a machine going back and forth.
+
+    Angles are in sixty-fourths of a turn, so `start` and `end` are integers and
+    the whole thing is table lookups and a shift.
+    """
+    out = []
+    direction = 1 if end >= start else -1
+    for a in range(start, end + direction, direction * max(1, step)):
+        cx = pivot[0] + (reach * cos256(a) >> 8)
+        cy = pivot[1] + (reach * sin256(a) >> 8)
+        out.append((max(0, min(COLS - 1, cx)),
+                    max(0, min(PLAY_ROWS - 1, cy))))
+    return out
+
+
+#: Corner to opposite corner. Sweeping further than this is sweeping outside
+#: the room, and the circuit is long enough already.
+_DIAGONAL = isqrt((COLS - 1) ** 2 + (PLAY_ROWS - 1) ** 2)
+
+#: The four corners a searchlight can be bolted to, as (pivot, first angle).
+#: Each sweeps the quarter turn that faces into the room, so wherever it is
+#: mounted it sweeps the whole of it.
+_MOUNTS = (
+    ((0, 0), 0),
+    ((COLS - 1, 0), TURN // 4),
+    ((COLS - 1, PLAY_ROWS - 1), TURN // 2),
+    ((0, PLAY_ROWS - 1), 3 * TURN // 4),
+)
+
+
+def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
+              outward: bool = True) -> list[tuple[int, int]]:
+    """A searchlight on a tower, swinging out and back across the room.
+
+    The beam swings through the quarter turn that faces the room, steps its
+    reach out by its own diameter, and swings back -- so the room is covered in
+    arcs rather than in rows, and **one circuit still lights everywhere**. That
+    guarantee is the point of the searchlight and is not negotiable; what
+    changes is the shape of the path, not its completeness.
+
+    Straight rows read as a machine going back and forth, which is what a player
+    complained of. An arc reads as something *aimed*, which is the whole of the
+    gain: the beam sweeps rather than commutes.
+
+    It does **not** move faster at full reach. A real searchlight would, because
+    a constant turn throws the spot further the further out it is, but the beam
+    here walks one cell per tick wherever it is -- which keeps coverage honest
+    and the cost flat, and is worth more than the flourish. If a speed gradient
+    is ever wanted it belongs in how often the beam steps, not in the route.
+    """
+    pivot, first = _MOUNTS[mount % len(_MOUNTS)]
+    span = TURN // 4
+    # Annuli overlap by a cell rather than merely touching. Stepping by the
+    # full diameter left two cells of the room unlit, because an arc stepped
+    # outward is not a straight line and rounding does not forgive.
+    stride = max(1, 2 * radius - 1)
+    # One annulus past the far corner, or the corner opposite the mount is only
+    # clipped by the edge of the beam and sometimes missed altogether.
+    reaches = list(range(offset % max(1, radius), _DIAGONAL + radius + 1,
+                         stride))
+    if not outward:
+        reaches.reverse()
+
+    points: list[tuple[int, int]] = []
+    swing = True
+    for reach in reaches:
+        a, b = (first, first + span) if swing else (first + span, first)
+        # A narrow beam needs a finer swing: its arcs are thin, and where they
+        # are clamped against a wall a coarse one leaves gaps at the far corner.
+        points += arc_waypoints(radius, pivot, reach, a, b,
+                                step=1 if radius < 3 else 2)
+        swing = not swing
+    points.append(points[0])          # close the loop, as the serpentine does
+    return points
 
 
 def sweep_waypoints(radius: int, offset: int = 0, from_left: bool = True,
@@ -332,15 +494,18 @@ class Roaming(Source):
     random, both kept for the editor to offer.
     """
 
-    DRIFT, PATH, SWEEP = 0, 1, 2
+    DRIFT, PATH, SWEEP, ARC = 0, 1, 2, 3
 
     def __init__(self, x: int, y: int, radius: int = 3,
                  path: list[tuple[int, int]] | None = None,
                  seed: int = 0xACE1, level: int = LIT,
                  memory: int = CHARGE_SWEEP,
-                 hue: int = YELLOW, step_every: int = 3,
+                 hue: int = YELLOW, step_every: int = 6,
                  mode: int | None = None, vary: bool = False,
                  inset: int = 0) -> None:
+        # Frames per cell. Six is a beam that crosses the room in about four
+        # seconds -- slow enough to watch, time, and cross behind. Three was
+        # tried and played too fast to do anything about.
         super().__init__(level, memory, hue=hue)
         self.x, self.y = x, y
         self.radius = radius
@@ -352,10 +517,11 @@ class Roaming(Source):
         self.step_every = step_every
         self.vary = vary
         self.cycles = 0
+        self.mount = 0
         if mode is None:
-            mode = self.PATH if self.path else self.SWEEP
+            mode = self.PATH if self.path else self.ARC
         self.mode = mode
-        if self.mode == self.SWEEP:
+        if self.mode in (self.SWEEP, self.ARC):
             self._new_sweep(first=True)
 
     # --- sweeps ------------------------------------------------------------
@@ -374,21 +540,34 @@ class Roaming(Source):
         if self._sweep:
             self.x, self.y = self._sweep[0]
 
+    def _lay_out(self, seed: int | None = None):
+        """One circuit's route, in whichever shape this light sweeps."""
+        if self.mode == self.ARC:
+            if seed is None:
+                return arc_sweep(self.radius, self.mount)
+            self.mount = seed & 0b11
+            return arc_sweep(self.radius, self.mount,
+                             offset=(seed >> 2) % (self.radius + 1),
+                             outward=bool(seed & 0b10000))
+        if seed is None:
+            return sweep_waypoints(self.radius, inset=self.inset)
+        return sweep_waypoints(
+            self.radius,
+            offset=seed % (self.radius + 1),
+            from_left=bool(seed & 0b100),
+            top_down=bool(seed & 0b1000),
+            inset=self.inset,
+        )
+
     def _new_sweep(self, first: bool = False) -> None:
         """Lay out the next circuit. Identical unless `vary` is set."""
         if first or not self.vary:
             if first:
-                self._sweep = sweep_waypoints(self.radius, inset=self.inset)
+                self._sweep = self._lay_out()
             # repeat mode simply re-runs the route it already has
         else:
             self._seed = xorshift16(self._seed)
-            self._sweep = sweep_waypoints(
-                self.radius,
-                offset=self._seed % (self.radius + 1),
-                from_left=bool(self._seed & 0b100),
-                top_down=bool(self._seed & 0b1000),
-                inset=self.inset,
-            )
+            self._sweep = self._lay_out(self._seed)
         self._leg = 0
         if first:
             self._snap_to_route_start()
@@ -404,14 +583,14 @@ class Roaming(Source):
             self.radius = radius
         if inset is not None:
             self.inset = inset
-        if self.mode == self.SWEEP:
+        if self.mode in (self.SWEEP, self.ARC):
             self._new_sweep(first=True)
 
     def set_mode(self, mode: int) -> None:
         if mode == self.PATH and not self.path:
             mode = self.DRIFT
         self.mode = mode
-        if mode == self.SWEEP:
+        if mode in (self.SWEEP, self.ARC):
             self._new_sweep(first=True)
 
     # --- movement ----------------------------------------------------------
@@ -422,7 +601,7 @@ class Roaming(Source):
         if self._tick < self.step_every:
             return
         self._tick = 0
-        if self.mode == self.SWEEP:
+        if self.mode in (self.SWEEP, self.ARC):
             self._follow(self._sweep, on_wrap=self._finish_circuit)
         elif self.mode == self.PATH and self.path:
             self._follow(self.path)

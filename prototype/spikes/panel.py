@@ -22,7 +22,9 @@ from .layout import ACTION_LEFT, STATUS_LEFT, STRIP_BOTTOM, STRIP_TOP
 #: Labels are the dimmest thing on screen; values carry a little colour.
 LABEL_INK = WHITE
 
-BAR, COUNT, FLAG = "bar", "count", "flag"
+#: TALLY draws "n/m" -- a count against a total, which a row of pips cannot do
+#: once the total stops being small enough to count at a glance.
+BAR, COUNT, FLAG, TALLY = "bar", "count", "flag", "tally"
 
 
 def bar_pips(value: int, full: int, pips: int = 6) -> int:
@@ -50,6 +52,8 @@ class Region:
     ink: int
     kind: str
     glyph: tuple[int, ...] = font.BAR_FULL
+    #: TALLY only: drawn one cell to the left of the number, as its label.
+    badge: tuple[int, ...] | None = None
 
     @property
     def attr(self) -> int:
@@ -73,6 +77,11 @@ REGIONS: dict[str, Region] = {
     "lit": Region(_TOP, ACTION_LEFT + 13, 1, YELLOW, FLAG, font.LIT),
     "spray": Region(_BOTTOM, ACTION_LEFT + 6, 5, CYAN, COUNT, font.PIP),
     "keys": Region(_BOTTOM, ACTION_LEFT + 12, 1, CYAN, FLAG, font.KEY),
+    # Bottom left, in the gap the three hearts leave. A badge and up to five
+    # characters, so "10/12" fits without a word of label -- there is no room
+    # for one and the little figure says it.
+    "rescued": Region(_BOTTOM, STATUS_LEFT + 11, 5, WHITE, TALLY,
+                      badge=font.PERSON),
 }
 
 
@@ -81,7 +90,15 @@ class Panel:
 
     def __init__(self) -> None:
         self.values: dict[str, int] = {name: 0 for name in REGIONS}
+        #: TALLY denominators, set once when the level is known.
+        self.totals: dict[str, int] = {name: 0 for name in REGIONS}
         self._dirty: set[str] = set(REGIONS)
+
+    def set_total(self, name: str, total: int) -> None:
+        """How many there are to find. The denominator of a tally."""
+        if self.totals[name] != int(total):
+            self.totals[name] = int(total)
+            self._dirty.add(name)
 
     # --- values ------------------------------------------------------------
 
@@ -93,6 +110,8 @@ class Panel:
         region = REGIONS[name]
         if region.kind == FLAG:
             value = 1 if value else 0
+        elif region.kind == TALLY:
+            value = max(0, min(self.totals[name], value))
         else:
             value = max(0, min(region.width, value))
         if self.values[name] == value:
@@ -127,6 +146,8 @@ class Panel:
     def _draw_region(self, screen: Screen, name: str) -> list[tuple[int, int]]:
         region = REGIONS[name]
         value = self.values[name]
+        if region.kind == TALLY:
+            return self._draw_tally(screen, region, value, name)
         touched = []
         for i in range(region.width):
             if region.kind == BAR:
@@ -140,6 +161,31 @@ class Panel:
             screen.set_attr(cx, region.row, region.attr)
             touched.append((cx, region.row))
         return touched
+
+    def _draw_tally(self, screen: Screen, region, value: int,
+                    name: str) -> list[tuple[int, int]]:
+        """Draw "n/m", with the badge in the cell before it.
+
+        Left-aligned and padded, so the slash does not walk about as the
+        numbers change -- a readout that moves is one the eye has to find again
+        every time it changes, which is the opposite of what it is for.
+        """
+        touched = []
+        text = f"{value}/{self.totals[name]}"[:region.width]
+        text += " " * (region.width - len(text))
+        if region.badge is not None:
+            font.draw_glyph(screen, region.col - 1, region.row, region.badge)
+            screen.set_attr(region.col - 1, region.row, region.attr)
+            touched.append((region.col - 1, region.row))
+        for i, ch in enumerate(text):
+            cx = region.col + i
+            font.draw_glyph(screen, cx, region.row,
+                            font.GLYPHS.get(ch, font.BLANK))
+            screen.set_attr(cx, region.row, region.attr)
+            touched.append((cx, region.row))
+        return touched
+
+
 
 
 def blank_strip(screen: Screen) -> None:

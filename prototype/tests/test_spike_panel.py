@@ -78,7 +78,9 @@ def test_an_unchanged_panel_repaints_nothing():
 def test_force_repaints_everything():
     s, p = _fresh()
     touched = p.draw(s, force=True)
-    assert len(touched) == sum(r.width for r in panel.REGIONS.values())
+    expected = sum(r.width + (1 if r.badge else 0)
+                   for r in panel.REGIONS.values())
+    assert len(touched) == expected, "a badge cell counts too"
 
 
 # --- values ----------------------------------------------------------------
@@ -164,3 +166,90 @@ def test_the_bar_falls_as_power_drains():
     readings = [panel.bar_pips(p, 1500) for p in range(1500, -1, -50)]
     assert readings == sorted(readings, reverse=True)
     assert readings[0] == 6 and readings[-1] == 0
+
+
+# --- x of y rescued (issue #10) --------------------------------------------
+
+def _tally():
+    s, p = _fresh()
+    p.set_total("rescued", 7)
+    return s, p
+
+
+def _cell_rows(screen, cx, cy):
+    """The eight bytes of one 8x8 cell, read back off the bitmap."""
+    from spotlight.core.constants import CELL, SCREEN_W
+    rows = []
+    for dy in range(CELL):
+        base = (cy * CELL + dy) * SCREEN_W + cx * CELL
+        bits = 0
+        for dx in range(CELL):
+            bits = (bits << 1) | (1 if screen.pixels[base + dx] else 0)
+        rows.append(bits)
+    return tuple(rows)
+
+
+def _read(screen, region):
+    """The characters drawn in a tally region, badge excluded."""
+    out = []
+    for i in range(region.width):
+        drawn = _cell_rows(screen, region.col + i, region.row)
+        for ch, glyph in font.GLYPHS.items():
+            if tuple(glyph) == drawn:
+                out.append(ch)
+                break
+        else:
+            out.append("?")
+    return "".join(out)
+
+
+def test_the_tally_shows_found_against_the_total():
+    s, p = _tally()
+    p.set("rescued", 3)
+    p.draw(s, force=True)
+    assert _read(s, panel.REGIONS["rescued"]).rstrip() == "3/7"
+
+
+def test_the_tally_starts_at_none_found():
+    s, p = _tally()
+    p.draw(s, force=True)
+    assert _read(s, panel.REGIONS["rescued"]).rstrip() == "0/7"
+
+
+def test_the_tally_does_not_move_as_the_numbers_change():
+    """A readout that shifts is one the eye has to find again every time."""
+    s, p = _tally()
+    p.set("rescued", 0)
+    p.draw(s, force=True)
+    first = _read(s, panel.REGIONS["rescued"]).index("/")
+    p.set("rescued", 7)
+    p.draw(s)
+    assert _read(s, panel.REGIONS["rescued"]).index("/") == first
+
+
+def test_the_tally_cannot_exceed_its_total():
+    s, p = _tally()
+    p.set("rescued", 99)
+    assert p.values["rescued"] == 7
+
+
+def test_a_double_figure_total_still_fits():
+    s, p = _fresh()
+    p.set_total("rescued", 12)
+    p.set("rescued", 10)
+    p.draw(s, force=True)
+    assert _read(s, panel.REGIONS["rescued"]) == "10/12"
+
+
+def test_changing_the_total_repaints_it():
+    s, p = _tally()
+    p.draw(s, force=True)
+    p.set_total("rescued", 9)
+    assert "rescued" in p.dirty
+
+
+def test_the_tally_sits_in_the_gap_the_hearts_leave():
+    lives, rescued = panel.REGIONS["lives"], panel.REGIONS["rescued"]
+    assert rescued.row == lives.row
+    assert rescued.col - 1 > lives.col + lives.width, "badge would overlap lives"
+    assert rescued.col + rescued.width <= layout.HALF, "spills into the kit half"

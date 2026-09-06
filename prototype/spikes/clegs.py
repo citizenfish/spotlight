@@ -1,4 +1,4 @@
-"""QuirkyClegs: drawn to light, attach, drain, and drop off sated.
+"""Clegs: drawn to light, attach, drain, and drop off sated.
 
 **Light is the only thing a Cleg responds to.** Not warmth, not blood, not
 noise. One rule governs everything they do, which means every question about
@@ -13,6 +13,14 @@ Two consequences of that rule are worth stating because they are easy to lose:
   the toggle would be pointless.
 * **A light on the floor pulls as hard as one in your hand.** That is baiting:
   leave a spotlight burning, walk away in the dark, and the swarm goes to it.
+* **They notice light near them, not light anywhere.** Each fly has its own
+  range, so a light recruits the ones around it and leaves the rest blundering.
+* **Your own glow reaches a few cells.** Standing still in the dark is a short
+  reprieve rather than a hiding place: nothing crosses the room for you, but
+  whatever blunders close will find you. Keep moving.
+* **What they noticed, they remember.** Switching off does not call them back:
+  they keep coming to where the light was. A one-second flash is a decision with
+  consequences that arrive several seconds later, which is the whole rhythm.
 
 Once a Cleg is on you the damage is already decided. It cannot be shaken off and
 the flyspray does not touch it. The whole defensive game happens *before*
@@ -39,7 +47,13 @@ HUNTING, ATTACHED, SATED = 0, 1, 2
 STEP_EVERY = 9
 
 #: Frames between steps for a Cleg with nothing to steer for.
-DRIFT_EVERY = 14
+#:
+#: Deliberately slow. A Cleg with no light to chase should mill about roughly
+#: where it is, not diffuse across the room -- at a brisk drift the whole floor
+#: becomes randomly scattered mines, and *moving* costs more blood than standing
+#: still, which is exactly backwards. Light is what brings them to you; drifting
+#: should not do the job for it.
+DRIFT_EVERY = 45
 
 #: Blood a single Cleg takes before it drops off, and how fast it takes it.
 #: One point every twelve frames, eight points in all -- about two seconds
@@ -47,14 +61,36 @@ DRIFT_EVERY = 14
 DRAIN_TOTAL = 8
 DRAIN_EVERY = 12
 
-#: How long a sated Cleg blunders about before it is hungry again.
+#: How long a sated Cleg blunders about before it is hungry again, and how
+#: fast it moves while doing it.
+#:
+#: **A fed fly leaves.** It drifts quickly rather than slowly, so it is somewhere
+#: else by the time it is hungry again. Without that it simply sits on the cell
+#: it fed from, notices the glow it is standing in, and bites again for ever --
+#: one Cleg draining a whole blood budget on its own, which is not a swarm, it
+#: is a leak.
 SATED_FRAMES = 150
+SATED_DRIFT_EVERY = 9
+
+#: How far a Cleg can notice a light, and how much that varies between them.
+#:
+#: **A Cleg is not omniscient.** Without a limit every fly in the room reacts to
+#: the same light on the same frame, so the swarm moves as one clump and a light
+#: anywhere recruits everything -- which in practice meant the searchlight, being
+#: always lit and always moving, held 94% of the swarm's attention for ever. They
+#: trailed after a beam they could never catch and never came near the player.
+#:
+#: Giving each fly its own range fixes both. A light recruits the ones near it
+#: and no others, so they arrive in a trickle rather than a wave, from different
+#: directions, at different times.
+NOTICE_MIN, NOTICE_MAX = 7, 19
 
 
 class Cleg:
     """One fly. Position is a cell; Clegs do not need pixel placement."""
 
-    __slots__ = ("cx", "cy", "state", "taken", "_timer", "_tick", "_seed")
+    __slots__ = ("cx", "cy", "state", "taken", "notice", "goal",
+                 "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -63,6 +99,13 @@ class Cleg:
         self._timer = 0
         self._tick = 0
         self._seed = seed or 1
+        #: How far this one notices light. Its own number, not the swarm's.
+        self.notice = NOTICE_MIN + (self._random() %
+                                    (NOTICE_MAX - NOTICE_MIN + 1))
+        #: Where it last saw light and is still heading. **Kept after the light
+        #: goes out**, which is what makes a one-second flash cost something:
+        #: it commits whoever noticed to walking to where you were standing.
+        self.goal: tuple[int, int] | None = None
 
     # --- movement ----------------------------------------------------------
 
@@ -121,17 +164,26 @@ class Swarm:
     # --- the one rule ------------------------------------------------------
 
     @staticmethod
-    def nearest_lure(cx: int, cy: int, lures) -> tuple[int, int] | None:
-        """The closest light that is currently attracting, or None.
+    def nearest_lure(cx: int, cy: int, lures,
+                     within: int | None = None) -> tuple[int, int] | None:
+        """The closest light this Cleg can notice, or None.
+
+        Each lure is `(cx, cy, reach)`: where it is, and how far it carries.
+        A light must be inside **both** its own reach and this Cleg's -- a
+        bright light across the room is no use to a fly that cannot notice it,
+        and your dim glow is no use to one three rooms away.
 
         Squared distance, so there is no square root -- the Z80 has neither
         that nor a divide, and comparing squares orders the same as comparing
         distances.
         """
         best, best_d2 = None, None
-        for lx, ly in lures:
+        for lx, ly, reach in lures:
+            limit = reach if within is None else min(within, reach)
             dx, dy = lx - cx, ly - cy
             d2 = dx * dx + dy * dy
+            if d2 > limit * limit:
+                continue
             if best_d2 is None or d2 < best_d2:
                 best, best_d2 = (lx, ly), d2
         return best
@@ -144,6 +196,15 @@ class Swarm:
         `lures` is the cells of every light currently attracting -- see
         `sources.Source.lure`. An empty list means nothing is lit above a glow,
         and the swarm loses interest and blunders.
+
+        **A Cleg that ends up in your cell attaches, lit or not.** It does not
+        have to see you to land on you. Requiring light for that was tried and
+        was wrong twice over: walking into a fly did nothing at all, which reads
+        as a broken game, and standing still in the dark was perfect safety,
+        which makes the best play no play.
+
+        What the dark still buys you is that nothing *comes looking* from far
+        away -- see `sources.Source.lure`. You are hard to find, not immune.
         """
         self.drained = 0
         for cleg in self.clegs:
@@ -159,18 +220,20 @@ class Swarm:
                 cleg._timer -= 1
                 if cleg._timer <= 0:
                     cleg.state = HUNTING
-                if cleg._tick >= DRIFT_EVERY:
+                if cleg._tick >= SATED_DRIFT_EVERY:
                     cleg._tick = 0
                     cleg._drift(is_solid)
                 continue
 
-            # Hunting.
-            target = self.nearest_lure(cleg.cx, cleg.cy, lures)
-            if target is not None and (cleg.cx, cleg.cy) == player_cell:
-                cleg.state = ATTACHED
-                cleg.taken = 0
-                cleg._timer = 0
-                self.attachments += 1
+            # Hunting. A light it can notice becomes the place it is going;
+            # one it cannot notice may as well not be lit.
+            seen = self.nearest_lure(cleg.cx, cleg.cy, lures, cleg.notice)
+            if seen is not None:
+                cleg.goal = seen
+            target = cleg.goal
+
+            if (cleg.cx, cleg.cy) == player_cell:
+                self._attach(cleg)
                 continue
             if cleg._tick < (STEP_EVERY if target else DRIFT_EVERY):
                 continue
@@ -179,12 +242,18 @@ class Swarm:
                 cleg._drift(is_solid)
             else:
                 cleg._toward(*target, is_solid)
+                if (cleg.cx, cleg.cy) == target:
+                    # Arrived, and whatever it was is not here any more.
+                    cleg.goal = None
                 if (cleg.cx, cleg.cy) == player_cell:
-                    cleg.state = ATTACHED
-                    cleg.taken = 0
-                    cleg._timer = 0
-                    self.attachments += 1
+                    self._attach(cleg)
         return blood
+
+    def _attach(self, cleg: Cleg) -> None:
+        cleg.state = ATTACHED
+        cleg.taken = 0
+        cleg._timer = 0
+        self.attachments += 1
 
     def _drain(self, cleg: Cleg, blood: int) -> int:
         """An attached Cleg takes its fixed amount, then leaves of its own
@@ -204,6 +273,7 @@ class Swarm:
                 cleg.state = SATED
                 cleg._timer = SATED_FRAMES
                 cleg._tick = 0
+                cleg.goal = None
         return blood
 
     # --- what the rest of the game sees -------------------------------------

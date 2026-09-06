@@ -365,3 +365,32 @@ def test_reading_revealing_outside_the_play_area_is_false():
     f = L.LightField()
     assert not f.reveals_at(-1, 0)
     assert not f.reveals_at(0, layout.PLAY_ROWS)
+
+
+def test_prey_is_lit_not_merely_glimpsed():
+    """Your own glow shows a worker at arm's length but never makes you prey."""
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.DIM, L.CHARGE_DIM); f.commit()
+    assert f.reveals_at(5, 5), "the glow does show them"
+    assert not f.prey_at(5, 5), "but it must not mark them as prey"
+
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
+    assert f.prey_at(5, 5)
+
+
+def test_a_light_that_hides_people_does_not_mark_prey_either():
+    """Room lights show the room and not who is in it -- to Clegs as well."""
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, reveals=False); f.commit()
+    assert f.level_at(5, 5) == L.LIT
+    assert not f.prey_at(5, 5)
+
+
+def test_prey_is_never_remembered():
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
+    assert f.prey_at(5, 5)
+    f.begin(); f.commit()
+    assert not f.prey_at(5, 5), "the light has gone; you are in the dark again"
+    assert f.level_at(5, 5) == L.LIT, "even though the cell still looks lit"

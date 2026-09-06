@@ -14,12 +14,15 @@ scheme and it is all a player ever touches:
 Everything else is a debug key. None of it is part of the game; it is here so
 the thing can be judged without rebuilding it:
 
-    ESC   quit                        F  flash the room again
+    ESC   quit                        F  a mains surge: everything, briefly
     C     wipe the remembered light   R  force a strip repaint
     G     the personal glow           L  room lights
     N     the searchlight             W  do room lights show people?
     V     searchlight: vary <-> repeat
     B     searchlight: radius 3 <-> 2
+    A     searchlight: arcs <-> straight rows
+    S     searchlight: how many frames it takes per cell
+    Y     whether trapped workers call out for help
     I     searchlight: run to the wall <-> turn short of it
     M     searchlight: how long the wake lingers, in frames
     H     light hue: off -> on, memory keeps it -> on, memory reverts
@@ -28,7 +31,15 @@ the thing can be judged without rebuilding it:
 **The room is shown once, at the start.** A flash of the whole layout, which
 then fades over three seconds -- you cannot play a room you have never seen the
 shape of, and what you keep is what you held in your head. It shows the building
-and not who is in it. F fires it again.
+and not who is in it.
+
+**F is a mains surge**, which is a different thing: everything, people included,
+for a moment. That is the memorisation beat the game is built around.
+
+**There are seven people in the room and you have to find them.** That is the
+objective, and it is the whole reason light is worth anything: the flash gives
+you the walls, and nothing gives you the people. Walk into one to reach them.
+The run is tallied and printed when you quit.
 
 **The light bargain is now live.** Clegs steer for the nearest lit source, so
 switching the spotlight on brings them and switching it off loses them. They
@@ -48,13 +59,15 @@ import sys
 
 import pygame
 
-from spotlight.core.constants import BLACK, CELL, COLS, CYAN, FRAME_RATE, WHITE
+from spotlight.core.constants import (
+    BLACK, CELL, COLS, CYAN, FRAME_RATE, GREEN, WHITE,
+)
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
 from . import (
-    buzz, clegs as clegs_mod, floor, lighting, scene, sources,
-    spike_buzz, spray as spray_mod, sprites,
+    buzz, clegs as clegs_mod, floor, font, lighting, rescue as rescue_mod,
+    scene, sources, spike_buzz, spray as spray_mod, sprites, tally as tally_mod,
 )
 from .player import Player
 from .spotlights import FloorLight, Spotlights
@@ -68,6 +81,10 @@ PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 #: beam's brightness is not on this list -- it reads lit whatever the wake is,
 #: because level and memory are separate (issue #12).
 WAKES = (lighting.CHARGE_SWEEP, 20, 40, 80)
+
+#: Frames the searchlight takes per cell, cycled with S. Six crosses the room
+#: in about four seconds; three was tried and played too fast to react to.
+BEAM_SPEEDS = (6, 9, 12, 4)
 
 #: Blood, as points. Shown as eight pips, so each pip is a Cleg's worth: one
 #: attachment takes exactly one bar. A number small enough that the player can
@@ -130,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         # everywhere. It starts **varying** -- a different route each circuit,
         # so it cannot be planned around -- and runs to the wall rather than
         # turning short of it. Both settled by playing; V and I switch them.
-        roaming = sources.Roaming(0, 0, radius=3, step_every=3, vary=True)
+        roaming = sources.Roaming(0, 0, radius=3, vary=True)
+        beam_speed = BEAM_SPEEDS.index(roaming.step_every)
         wake = WAKES.index(roaming.memory)
         all_sources = (glow, cone, roaming, opening, *room_lights)
         cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
@@ -141,14 +159,19 @@ def main(argv: list[str] | None = None) -> int:
         fixtures = [(sprites.SPRITES[name], x, y)
                     for name, x, y in scene.ENTITIES
                     if name not in scene.MOVERS]
-        movers = [(sprites.SPRITES[name], x, y)
-                  for name, x, y in scene.ENTITIES if name in scene.MOVERS]
         for cx, cy in scene.cells_of(scene.KEY):
             fixtures.append((sprites.KEY, cx * CELL, cy * CELL))
+        rescue = rescue_mod.Rescue(scene.WORKERS)
+        tally = tally_mod.Tally()
+        panel.set_total("rescued", len(rescue.workers))
+        panel.set("rescued", 0)
 
         repaints = 0
+        frame = 0
+        calls_on = True
         running = True
         while running:
+            frame += 1
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -170,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                         roaming.toggle()
                     elif event.key == pygame.K_SPACE:
                         if spray.fire(player.cx, player.cy, player.facing):
+                            tally.sprays += 1
                             panel.set("spray", spray.charges)
                     elif event.key == pygame.K_v:
                         roaming.vary = not roaming.vary
@@ -184,8 +208,26 @@ def main(argv: list[str] | None = None) -> int:
                         roaming.reshape(
                             inset=0 if roaming.inset else roaming.radius)
                         print(f"searchlight: inset {roaming.inset}")
+                    elif event.key == pygame.K_y:
+                        calls_on = not calls_on
+                        print("workers call for help:", calls_on)
+                    elif event.key == pygame.K_s:
+                        beam_speed = (beam_speed + 1) % len(BEAM_SPEEDS)
+                        roaming.step_every = BEAM_SPEEDS[beam_speed]
+                        print(f"searchlight: {roaming.step_every} frames per "
+                              f"cell ({50 / roaming.step_every:.1f} cells/sec)")
+                    elif event.key == pygame.K_a:
+                        roaming.set_mode(
+                            sources.Roaming.SWEEP
+                            if roaming.mode == sources.Roaming.ARC
+                            else sources.Roaming.ARC)
+                        print("searchlight sweeps in",
+                              "arcs" if roaming.mode == sources.Roaming.ARC
+                              else "straight rows")
                     elif event.key == pygame.K_f:
-                        opening.fire()
+                        # A surge, not the opening flash: the mains coming back
+                        # shows you everybody, which is what F is wanted for.
+                        opening.fire(surge=True)
                     elif event.key == pygame.K_w:
                         for rl in room_lights:
                             rl.reveals = not rl.reveals
@@ -240,9 +282,27 @@ def main(argv: list[str] | None = None) -> int:
             # Spray reaches everything except a Cleg already on you.
             killed = swarm.kill(spray.kills(swarm.sprayable()))
             if killed:
+                tally.swatted += killed
                 print(f"spray killed {killed}; {len(swarm.clegs)} left")
-            if len(swarm.attached()) != was_attached:
-                print(f"attached: {len(swarm.attached())}  blood {blood}")
+
+            # The objective: reach the people. Finding them is what the light
+            # is *for*, and without it the bargain has nothing to weigh.
+            reached = rescue.reach(player.occupied_cells())
+            if reached is not None:
+                tally.found = rescue.found
+                panel.set("rescued", rescue.found)
+                print(f"reached a worker -- {rescue.remaining} left, "
+                      f"blood {blood}, {tally.seconds}s")
+                if rescue.all_found:
+                    print("\n*** everybody found ***")
+                    for line in tally.report():
+                        print("   ", line)
+            now_attached = len(swarm.attached())
+            if now_attached > was_attached:
+                tally.attachments += now_attached - was_attached
+            if now_attached != was_attached:
+                print(f"attached: {now_attached}  blood {blood}")
+            tally.frame(cone.lit, swarm.drained)
             picked = kit.tick(player)
             if picked is not None:
                 print(f"swapped: carrying {cone.power}, left "
@@ -263,6 +323,15 @@ def main(argv: list[str] | None = None) -> int:
             for src in all_sources:
                 src.apply(field)
             kit.apply(field)
+
+            # A shout is not a light. It lifts its own cells out of the dark so
+            # the word can be read, leaves no memory behind it, and reveals
+            # nobody -- so calling out never marks a worker for the swarm.
+            shouting = rescue.calling(frame) if calls_on else []
+            call_cells = [c for w in shouting for c in w.call_cells()]
+            for cx, cy in call_cells:
+                field.add(cx, cy, lighting.LIT, memory=1,
+                          hue=GREEN, reveals=False)
             field.commit()
 
             # The play area is cleared every frame; the strip is not touched.
@@ -281,16 +350,28 @@ def main(argv: list[str] | None = None) -> int:
             # they happen to be standing in.
             for spr, sx, sy in fixtures:
                 sprites.draw(screen, spr, sx, sy)
-            for spr, sx, sy in movers:
-                sprites.draw(screen, spr, sx, sy, visible=field.reveals_at)
+            # People are only drawn where a light is on them, and the ones
+            # already reached are not drawn at all.
+            for worker in rescue.waiting():
+                sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
+                             visible=field.reveals_at)
             for cleg in swarm.clegs:
                 sprites.draw(screen, sprites.CLEG, cleg.cx * CELL,
                              cleg.cy * CELL, visible=field.reveals_at)
             sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
+            # "HELP", above the head of anybody shouting. Drawn whatever the
+            # light is doing, because it is a voice and not a sighting.
+            for worker in shouting:
+                for i, (cx, cy) in enumerate(worker.call_cells()):
+                    font.draw_glyph(screen, cx, cy,
+                                    font.GLYPHS[rescue_mod.CALL[i]])
+
             # Sprayed ground gets its own droplet pattern and its own hue.
             # Hue is per-cell, so this does not disturb the clash guarantee.
             frame_inks = bytearray(inks)
+            for cx, cy in call_cells:
+                frame_inks[cy * COLS + cx] = GREEN
             for cx, cy in spray.patches:
                 for dy, bits in enumerate(spray_mod.STIPPLE):
                     for dx in range(CELL):
@@ -313,6 +394,12 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         speaker.close()
         pygame.quit()
+
+    # Issue #10 asks for answers in writing, and a tense two minutes in the
+    # dark is not evidence on its own.
+    print(f"\n--- run, {rescue.found} of {len(rescue.workers)} found ---")
+    for line in tally.report():
+        print("   ", line)
     return 0
 
 

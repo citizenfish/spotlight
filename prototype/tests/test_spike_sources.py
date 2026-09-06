@@ -34,11 +34,26 @@ def test_every_source_can_be_switched_off():
 
 # --- glow ------------------------------------------------------------------
 
-def test_glow_is_one_cell_in_every_direction():
+def test_glow_is_one_cell_in_every_direction_around_the_person():
+    """Anchored on the feet, but a person is two cells tall."""
     glow = S.Glow(); glow.x, glow.y = 5, 5
     assert _lit_cells(_field(glow)) == {
-        (5 + dx, 5 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+        (5 + dx, 5 + dy) for dx in (-1, 0, 1) for dy in (-2, -1, 0, 1)
     }
+
+
+def test_the_glow_clears_the_top_of_your_head():
+    """Walking north into walls you cannot see is not darkness, it is a bug."""
+    glow = S.Glow(); glow.x, glow.y = 5, 5
+    lit = _lit_cells(_field(glow))
+    head = 5 - 1
+    assert (5, head) in lit, "your own head is in the dark"
+    assert (5, head - 1) in lit, "the row above your head is dark"
+
+
+def test_a_shorter_body_gets_a_shorter_glow():
+    glow = S.Glow(tall=1); glow.x, glow.y = 5, 5
+    assert (5, 3) not in _lit_cells(_field(glow))
 
 
 def test_glow_is_dim_not_lit():
@@ -282,11 +297,30 @@ def test_sweep_rows_are_spaced_by_the_beam_diameter():
 
 
 def test_a_circuit_takes_a_sensible_number_of_frames():
-    """Slow enough to be a threat you can see coming, fast enough to matter."""
+    """Slow enough to be a threat you can see coming, fast enough to matter.
+
+    A narrow beam takes longer, because covering the room with a thin arc means
+    more of them. That is the trade and not a fault.
+    """
+    for radius, limit in ((3, 40), (2, 60)):
+        roam = S.Roaming(0, 0, radius=radius)
+        _, frames = _covered_by(roam)      # frames, not steps
+        seconds = frames / 50
+        assert 10 <= seconds <= limit, \
+            f"radius {radius}: a full sweep takes {seconds:.1f}s"
+
+
+def test_the_beam_crosses_the_room_at_a_watchable_pace():
+    """Fast enough to matter, slow enough to time a crossing behind it.
+
+    The speed is what a player reacts to; the circuit length is what they wait
+    out. They are different numbers and this is the one that is felt.
+    """
     roam = S.Roaming(0, 0, radius=3)
-    _, frames = _covered_by(roam)          # frames, not steps
-    seconds = frames / 50
-    assert 5 <= seconds <= 20, f"a full sweep takes {seconds:.1f}s"
+    cells_per_second = 50 / roam.step_every
+    assert 5 <= cells_per_second <= 12, f"{cells_per_second:.1f} cells/sec"
+    room_crossing = COLS / cells_per_second
+    assert 3 <= room_crossing <= 7, f"crosses the room in {room_crossing:.1f}s"
 
 
 def test_path_and_drift_modes_still_work():
@@ -328,7 +362,8 @@ def test_the_cone_still_leaves_its_long_bright_trail():
 
 
 def test_an_inset_sweep_keeps_the_whole_disc_on_the_room():
-    roam = S.Roaming(0, 0, radius=3, step_every=1, inset=3)
+    roam = S.Roaming(0, 0, radius=3, step_every=1, inset=3,
+                     mode=S.Roaming.SWEEP)
     r = roam.radius
     seen = set()
     while roam.cycles < 1:
@@ -345,7 +380,8 @@ def test_an_inset_sweep_still_covers_everything_inside_the_outer_ring():
     ring = {c for c in _whole_room()
             if c[0] in (0, COLS - 1) or c[1] in (0, PLAY_ROWS - 1)}
     for radius in (2, 3):
-        roam = S.Roaming(0, 0, radius=radius, step_every=1, inset=radius)
+        roam = S.Roaming(0, 0, radius=radius, step_every=1, inset=radius,
+                         mode=S.Roaming.SWEEP)
         covered, _ = _covered_by(roam)
         missed = _whole_room() - covered
         assert missed <= ring, (f"radius {radius}: inset sweep missed inside "
@@ -446,3 +482,171 @@ def test_firing_again_restarts_it():
     flash.update(); flash.update()
     flash.fire()
     assert flash.left == 4
+
+
+# --- the lamp lights its bearer (issue #10) --------------------------------
+
+def test_a_burning_spotlight_lights_the_person_holding_it():
+    """Otherwise switching it on draws the swarm and leaves you untouchable."""
+    cone = S.Cone(reach=5, power=100)
+    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
+    cone.enabled = True
+    field = _field(cone)
+    assert field.level_at(10, 10) == L.LIT
+    assert field.prey_at(10, 10), "carrying a lit lamp must make you prey"
+
+
+def test_switching_it_off_takes_you_out_of_the_light():
+    cone = S.Cone(reach=5, power=100)
+    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
+    assert not _field(cone).prey_at(10, 10)
+
+
+def test_the_glow_alone_never_makes_you_prey():
+    """The dark is a refuge, and the glow must not spoil it."""
+    glow = S.Glow()
+    glow.x, glow.y = 10, 10
+    field = _field(glow)
+    assert field.reveals_at(10, 10), "you can still see your own feet"
+    assert not field.prey_at(10, 10)
+
+
+def test_the_cone_still_points_where_you_face():
+    """Lighting yourself must not have turned the cone into a radius."""
+    cone = S.Cone(reach=4, power=100)
+    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
+    cone.enabled = True
+    cells = _lit_cells(_field(cone))
+    assert (11, 10) in cells and (9, 10) not in cells
+
+
+# --- the beam swings; it does not march (issue #10) ------------------------
+
+def test_the_default_sweep_is_arcs_not_rows():
+    """A player called the straight version too predictable, and it was."""
+    assert S.Roaming(0, 0).mode == S.Roaming.ARC
+
+
+def test_the_table_is_the_whole_of_the_trigonometry():
+    """Integers only. A Z80 keeps this in ROM and looks it up."""
+    assert S.sin256(0) == 0 and S.sin256(S.TURN // 4) == 256
+    assert S.cos256(0) == 256 and S.cos256(S.TURN // 4) == 0
+    for step in range(S.TURN):
+        assert isinstance(S.sin256(step), int)
+        assert -256 <= S.sin256(step) <= 256
+
+
+def test_sine_and_cosine_stay_a_quarter_turn_apart():
+    for step in range(S.TURN):
+        assert S.cos256(step) == S.sin256(step + S.TURN // 4)
+
+
+def test_an_arc_curves_rather_than_running_straight():
+    """Three points off a straight line is the whole of the difference."""
+    pts = S.arc_waypoints(3, (0, 0), 20, 0, 16, step=4)
+    (x0, y0), (x1, y1), (x2, y2) = pts[0], pts[len(pts) // 2], pts[-1]
+    # Cross product of the end-to-end vector with the middle point's offset.
+    bend = (x2 - x0) * (y1 - y0) - (y2 - y0) * (x1 - x0)
+    assert bend != 0, f"the arc is a straight line: {pts}"
+
+
+def test_an_arc_keeps_its_distance_from_the_mount():
+    for a in range(0, 17, 2):
+        x, y = S.arc_waypoints(3, (0, 0), 20, a, a)[0]
+        assert 18 <= max(abs(x), abs(y)) or 18 <= (x * x + y * y) ** 0.5 <= 22
+
+
+def test_one_arc_circuit_still_lights_the_entire_room():
+    """Covering everywhere is the point of a searchlight and is not negotiable."""
+    for radius in (2, 3, 4, 5):
+        covered, _ = _covered_by(S.Roaming(0, 0, radius=radius, step_every=1))
+        missed = _whole_room() - covered
+        assert not missed, f"radius {radius} missed {sorted(missed)[:4]}"
+
+
+def test_every_mount_covers_the_room():
+    """Wherever it is bolted, it sweeps the whole of the room it faces."""
+    for mount in range(4):
+        roam = S.Roaming(0, 0, radius=3, step_every=1)
+        roam.mount = mount
+        roam.reshape()
+        covered, _ = _covered_by(roam)
+        assert _whole_room() - covered == set(), f"mount {mount} left gaps"
+
+
+def test_a_varying_arc_sweep_moves_the_mount():
+    """Random enough that you cannot learn where the next circuit starts."""
+    roam = S.Roaming(0, 0, radius=3, step_every=1, vary=True)
+    mounts = set()
+    for _ in range(12):
+        target = roam.cycles + 1
+        while roam.cycles < target:
+            roam.update()
+        mounts.add(roam.mount)
+    assert len(mounts) > 1, "the searchlight is bolted to the same corner"
+
+
+def test_a_varying_arc_sweep_still_covers_everything_each_circuit():
+    roam = S.Roaming(0, 0, radius=3, step_every=1, vary=True)
+    for circuit in range(4):
+        target = roam.cycles + 1
+        seen = set()
+        while roam.cycles < target:
+            roam.update()
+            for dy in range(-3, 4):
+                for dx in range(-3, 4):
+                    if dx * dx + dy * dy <= 9:
+                        seen.add((roam.x + dx, roam.y + dy))
+        missed = _whole_room() - seen
+        assert not missed, f"circuit {circuit} missed {sorted(missed)[:4]}"
+
+
+def test_the_beam_moves_slowly_near_its_mount_and_fast_far_from_it():
+    """It comes free out of the geometry, and it is most of why arcs are better."""
+    near = S.arc_waypoints(3, (0, 0), 6, 0, 16, step=2)
+    far = S.arc_waypoints(3, (0, 0), 30, 0, 16, step=2)
+
+    def span(points):
+        return sum(max(abs(b[0] - a[0]), abs(b[1] - a[1]))
+                   for a, b in zip(points, points[1:]))
+    assert span(far) > span(near) * 2
+
+
+def test_the_straight_serpentine_is_still_there_for_the_editor():
+    roam = S.Roaming(0, 0, radius=3, step_every=1, mode=S.Roaming.SWEEP)
+    covered, _ = _covered_by(roam)
+    assert _whole_room() - covered == set()
+
+
+# --- the surge shows people; the opening flash does not (issue #10) --------
+
+def test_the_opening_flash_shows_the_room_and_not_who_is_in_it():
+    flash = S.Flash()
+    flash.fire()
+    field = _field(flash)
+    assert field.level_at(9, 9) == L.LIT
+    assert not field.reveals_at(9, 9)
+
+
+def test_a_surge_shows_everything_people_included():
+    """The memorisation beat. It is a different thing from the flash."""
+    flash = S.Flash()
+    flash.fire(surge=True)
+    field = _field(flash)
+    assert field.level_at(9, 9) == L.LIT
+    assert field.reveals_at(9, 9)
+
+
+def test_a_surge_does_not_leave_the_flash_revealing_afterwards():
+    flash = S.Flash()
+    flash.fire(surge=True)
+    assert flash.reveals
+    flash.fire()
+    assert not flash.reveals
+
+
+def test_neither_a_flash_nor_a_surge_lures_anything():
+    flash = S.Flash()
+    for surge in (False, True):
+        flash.fire(surge=surge)
+        assert flash.lure() is None

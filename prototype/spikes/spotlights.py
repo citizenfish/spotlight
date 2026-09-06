@@ -124,14 +124,15 @@ class Spotlights:
 
     # --- what Clegs steer for ----------------------------------------------
 
-    def floor_lures(self) -> list[tuple[int, int]]:
-        """Every spotlight burning on the ground.
+    def floor_lures(self) -> list[tuple[int, int, int]]:
+        """Every spotlight burning on the ground, and how far it carries.
 
         A light on the floor pulls exactly as hard as one in your hand, which
         is the whole of baiting: leave one burning, walk away in the dark, and
         the swarm goes to it instead of to you.
         """
-        return [(l.cx, l.cy) for l in self.floor if l.burning]
+        from .sources import FAR
+        return [(l.cx, l.cy, FAR) for l in self.floor if l.burning]
 
     # --- lighting ----------------------------------------------------------
 
