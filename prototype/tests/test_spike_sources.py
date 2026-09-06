@@ -728,10 +728,10 @@ def test_the_corners_are_why_the_passes_still_run_the_full_width():
 def test_every_pass_sweeps_the_same_way():
     """Alternating them puts the turn against a wall, and with the rows
     shuffled that turn is a long run straight up the edge column."""
-    route = S.arc_sweep(3, 0)[0]
-    starts = [route[i] for i in range(0, len(route) - 1, 3)]
-    ends = [route[i + 2] for i in range(0, len(route) - 1, 3)]
-    directions = {(e[0] > s[0]) for s, e in zip(starts, ends)}
+    passes = [p for p in (S.arc_sweep(3, 0)[0][i:i + 3]
+                          for i in range(0, len(S.arc_sweep(3, 0)[0]) - 1, 3))
+              if len(p) == 3]
+    directions = {p[2][0] > p[0][0] for p in passes}
     assert len(directions) == 1, "passes go in different directions"
 
 
@@ -763,3 +763,53 @@ def test_a_circuit_is_still_something_you_can_wait_out():
         _, frames, _ = _circuit(radius)
         assert 10 <= frames / 50 <= limit, \
             f"radius {radius}: a circuit takes {frames/50:.0f}s"
+
+
+def _passes(route):
+    """The route as passes: each is three waypoints, start, ease and end."""
+    return [route[i:i + 3] for i in range(0, len(route) - 1, 3)]
+
+
+def test_a_circuit_sweeps_in_rows_or_in_columns():
+    """Rows alone read as a beam that only ever travels sideways, because that
+    is exactly what it does."""
+    for a_pass in _passes(S.arc_sweep(3, 0, vertical=False)[0]):
+        assert len({y for _, y in a_pass}) == 1, "a row pass changed row"
+        assert len({x for x, _ in a_pass}) == 3, "a row pass did not travel"
+    for a_pass in _passes(S.arc_sweep(3, 0, vertical=True)[0]):
+        assert len({x for x, _ in a_pass}) == 1, "a column pass changed column"
+        assert len({y for _, y in a_pass}) == 3, "a column pass did not travel"
+
+
+def test_column_sweeps_cover_the_room_too():
+    for radius in (2, 3, 4, 5):
+        route, dwells = S.arc_sweep(radius, 0, vertical=True)
+        roam = S.Roaming(0, 0, radius=radius, step_every=1)
+        roam._sweep, roam._dwells = route, dwells
+        roam._leg = 0
+        roam._snap_to_route_start()
+        covered, _ = _covered_by(roam)
+        assert not _whole_room() - covered, f"radius {radius} left gaps"
+
+
+def test_column_passes_keep_off_the_side_walls():
+    for radius in (2, 3, 4, 5):
+        xs = {x for x, _ in S.arc_sweep(radius, 0, vertical=True)[0]}
+        assert min(xs) >= radius and max(xs) <= COLS - 1 - radius
+
+
+def test_the_beam_does_not_predominantly_travel_one_way():
+    """Measured over four minutes of varying circuits."""
+    from collections import Counter
+    roam = S.Roaming(0, 0, radius=3, vary=True)
+    last, axes = (roam.x, roam.y), Counter()
+    for _ in range(50 * 60 * 4):
+        roam.update()
+        if (roam.x, roam.y) != last:
+            dx, dy = roam.x - last[0], roam.y - last[1]
+            axes["flat" if dy == 0 else "upright" if dx == 0 else "slant"] += 1
+            last = (roam.x, roam.y)
+    total = sum(axes.values())
+    for way in ("flat", "upright"):
+        share = 100 * axes[way] // total
+        assert 25 <= share <= 60, f"{way} travel is {share}% of the beam's motion"

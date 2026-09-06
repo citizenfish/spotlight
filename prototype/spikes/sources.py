@@ -417,7 +417,8 @@ def corner_inset(radius: int) -> int:
 
 
 def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
-              outward: bool = True, seed: int = 0xACE1
+              outward: bool = True, seed: int = 0xACE1,
+              vertical: bool = False
               ) -> tuple[list[tuple[int, int]], list[int]]:
     """A searchlight worked by hand: swings across the yard, stops, moves on.
 
@@ -440,6 +441,10 @@ def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
 
     So the character comes from **how it moves rather than what shape it draws**:
 
+    * a circuit sweeps **either in rows or in columns**, decided afresh each
+      time. Rows alone read as a beam that only ever travels sideways, because
+      that is exactly what it does -- every pass is horizontal and only the
+      swings back are not;
     * the passes are taken in a **shuffled order**, so the beam swings from one
       part of the room to another rather than working steadily down it;
     * it **holds at the end of each swing**, for a while that varies;
@@ -449,13 +454,17 @@ def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
     Coverage survives all of it. Every row is still visited once a circuit, and
     the order they are visited in cannot change what is covered.
     """
-    # Rows are held a full radius off the ceiling and floor -- a pass along the
-    # top row was the worst of the wall-tracking, twenty-six cells of it at a
-    # time. The passes still run the whole width, because the corners have to be
-    # reached from directly beside them: a beam lights a disc, and one held off
-    # the wall in both directions at once sits too far from the corner to light
-    # it. See corner_inset for the arithmetic that rules the tidier version out.
-    top, bottom = radius, PLAY_ROWS - 1 - radius
+    # A pass runs the length of one axis; the passes step across the other.
+    along = PLAY_ROWS - 1 if vertical else COLS - 1
+    across = COLS - 1 if vertical else PLAY_ROWS - 1
+
+    # Passes are held a full radius off the two walls they run parallel to -- a
+    # pass along the top row was the worst of the wall-tracking, twenty-six cells
+    # of it at a time. They still run the whole length, because the corners have
+    # to be reached from directly beside them: a beam lights a disc, and one held
+    # off the wall in both directions at once sits too far from the corner to
+    # light it. See corner_inset for the arithmetic that rules that out.
+    top, bottom = radius, across - radius
     rows = list(range(top, bottom + 1, 2 * radius))
     if rows[-1] != bottom:
         rows.append(bottom)
@@ -469,7 +478,7 @@ def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
             j = state % (i + 1)
             rows[i], rows[j] = rows[j], rows[i]
 
-    left, right = 0, COLS - 1
+    left, right = 0, along
     points: list[tuple[int, int]] = []
     dwells: list[int] = []
     # **Every pass sweeps the same way, and the beam swings back across the room
@@ -480,6 +489,10 @@ def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
     # instead, and it is what the sweep of a hand-worked light looks like: a slow
     # pass one way, a quick swing back, another pass.
     going_right = not (mount & 1)
+    # A point on a pass, given how far along it is. The only place the two
+    # orientations differ at all.
+    place = ((lambda line, s: (line, s)) if vertical
+             else (lambda line, s: (s, line)))
     for row in rows:
         a, b = (left, right) if going_right else (right, left)
         # The pause sits a little short of the wall, not against it. An
@@ -489,11 +502,11 @@ def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
         # costs frames whether or not the beam is moving.
         ease = b - radius if going_right else b + radius
         state = xorshift16(state)
-        points.append((a, row))
+        points.append(place(row, a))
         dwells.append(0)
-        points.append((ease, row))
+        points.append(place(row, ease))
         dwells.append(DWELL + state % DWELL_SPREAD)
-        points.append((b, row))
+        points.append(place(row, b))
         dwells.append(0)
     points.append(points[0])        # close the loop
     dwells.append(0)
@@ -632,7 +645,7 @@ class Roaming(Source):
             self.mount = seed & 0b11
             route, self._dwells = arc_sweep(
                 self.radius, self.mount, outward=bool(seed & 0b10000),
-                seed=seed)
+                seed=seed, vertical=bool(seed & 0b100))
             return route
         self._dwells = None
         if seed is None:
