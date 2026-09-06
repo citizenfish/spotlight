@@ -2,7 +2,7 @@
 
 from spikes import scene, sources as S
 from spikes.layout import PLAY_ROWS
-from spikes.player import HEIGHT, SPEED, WIDTH, Player
+from spikes.player import HEIGHT, NUDGE, SPEED, WIDTH, Player
 from spotlight.core.constants import CELL, COLS
 
 
@@ -114,3 +114,72 @@ def test_ahead_is_the_cell_in_front():
     assert p.ahead() == (p.cx + 1, p.cy)
     p.facing = S.UP
     assert p.ahead() == (p.cx, p.cy - 1)
+
+
+# --- corner assist ---------------------------------------------------------
+
+def _one_cell_doorway():
+    """A solid wall across row 9 with a single-cell gap at column 5."""
+    def is_solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return cy == 9 and cx != 5
+    return is_solid
+
+
+def test_a_one_cell_doorway_is_passable_from_any_alignment():
+    """Without assist only one x in eight fits, which reads as broken controls."""
+    solid = _one_cell_doorway()
+    for x in range(5 * CELL - NUDGE, 5 * CELL + NUDGE + 1):
+        p = Player(x, 7 * CELL)
+        for _ in range(60):
+            p.move(0, 1, solid)
+        assert p.y > 9 * CELL, f"stuck at x={x} (offset {x % CELL})"
+
+
+def test_assist_works_horizontally_too():
+    def solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return cx == 9 and cy not in (5, 6)
+    for y in range(5 * CELL - NUDGE, 5 * CELL + NUDGE + 1):
+        p = Player(4 * CELL, y)
+        for _ in range(80):
+            p.move(1, 0, solid)
+        assert p.x > 9 * CELL, f"stuck at y={y}"
+
+
+def test_assist_never_puts_the_player_inside_a_wall():
+    solid = _one_cell_doorway()
+    p = Player(5 * CELL + 3, 7 * CELL)
+    for _ in range(200):
+        p.move(0, 1, solid)
+        p.move(1, 0, solid)
+        for cx, cy in p.occupied_cells():
+            assert not solid(cx, cy), f"ended up inside a wall at {cx},{cy}"
+
+
+def test_assist_cannot_tunnel_through_a_solid_wall():
+    """A wall with no gap must stay a wall, however hard you push."""
+    solid = lambda cx, cy: cy == 9 or not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS)
+    p = Player(5 * CELL, 7 * CELL)
+    for _ in range(200):
+        p.move(0, 1, solid)
+    assert p.y + HEIGHT - 1 < 9 * CELL, "tunnelled through a solid wall"
+
+
+def test_the_nudge_is_bounded():
+    solid = _one_cell_doorway()
+    p = Player(5 * CELL + NUDGE + 2, 7 * CELL)   # too far out to be helped
+    start = p.x
+    p.move(0, 1, solid)
+    assert abs(p.x - start) <= NUDGE
+
+
+def test_walking_in_the_open_is_never_nudged():
+    """Assist must not make straight-line movement drift."""
+    open_world = lambda cx, cy: not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS)
+    p = Player(100, 100)
+    for _ in range(50):
+        p.move(1, 0, open_world)
+    assert p.y == 100, "drifted while walking in a straight line"

@@ -20,6 +20,15 @@ SPEED = 1
 #: A person is 8 wide and 16 tall.
 WIDTH, HEIGHT = 8, 16
 
+#: How far the player is nudged sideways to fit through a gap they are almost
+#: lined up with. Half a cell, so any approach can be corrected.
+#:
+#: Without this, an 8-wide sprite only fits a one-cell doorway when its x is an
+#: exact multiple of 8 -- one position in eight. Everything else stops dead
+#: against the door frame, which reads as the controls being broken rather than
+#: as the player being misaligned.
+NUDGE = CELL // 2
+
 #: facing -> (dx, dy), and its inverse.
 STEP = {UP: (0, -1), DOWN: (0, 1), LEFT: (-1, 0), RIGHT: (1, 0)}
 
@@ -73,6 +82,10 @@ class Player:
         The axes are resolved separately, so walking into a wall at an angle
         slides along it rather than stopping dead. Stopping dead on a diagonal
         feels broken, and the player would blame the controls.
+
+        A blocked move is retried with a small sideways nudge, so walking into a
+        doorway you are nearly lined up with takes you through it instead of
+        stopping against the frame. See NUDGE.
         """
         if dx:
             self.facing = RIGHT if dx > 0 else LEFT
@@ -81,16 +94,30 @@ class Player:
 
         moved = False
         if dx:
-            nx = self.x + dx * SPEED
-            if not self._blocked(nx, self.y, is_solid):
-                self.x = nx
-                moved = True
+            moved |= self._step(dx * SPEED, 0, is_solid)
         if dy:
-            ny = self.y + dy * SPEED
-            if not self._blocked(self.x, ny, is_solid):
-                self.y = ny
-                moved = True
+            moved |= self._step(0, dy * SPEED, is_solid)
         return moved
+
+    def _step(self, dx: int, dy: int, is_solid) -> bool:
+        """One axis, with corner assist."""
+        nx, ny = self.x + dx, self.y + dy
+        if not self._blocked(nx, ny, is_solid):
+            self.x, self.y = nx, ny
+            return True
+
+        # Blocked. Are we nearly lined up with a gap? Try the smallest nudge
+        # first, so the player is never moved further than necessary.
+        for offset in range(1, NUDGE + 1):
+            for sign in (1, -1):
+                if dx:                      # moving horizontally: nudge in y
+                    tx, ty = nx, self.y + sign * offset
+                else:                       # moving vertically: nudge in x
+                    tx, ty = self.x + sign * offset, ny
+                if not self._blocked(tx, ty, is_solid):
+                    self.x, self.y = tx, ty
+                    return True
+        return False
 
     def ahead(self) -> tuple[int, int]:
         """The cell directly in front, where the cone starts and spray lands."""
