@@ -61,3 +61,24 @@ def test_clear_resets_pixels_and_attrs():
     s.clear()
     assert not any(s.pixels)
     assert set(s.attrs) == {screen.DEFAULT_ATTR}
+
+
+def test_clear_rows_leaves_other_rows_alone():
+    s = screen.Screen()
+    s.fill_cell_pixels(0, 0)          # row 0
+    s.fill_cell_pixels(0, 23)         # row 23
+    s.set_attr(0, 23, screen.attr_byte(ink=RED, paper=BLACK))
+    s.clear_rows(0, 22)
+    assert not s.point(0, 0), "row 0 should have been cleared"
+    assert s.point(0, 23 * 8), "row 23 should have been left alone"
+    assert s.get_attr(0, 23) == screen.attr_byte(ink=RED, paper=BLACK)
+
+
+def test_clear_rows_clamps_and_ignores_empty_ranges():
+    s = screen.Screen()
+    s.fill_cell_pixels(0, 0)
+    s.clear_rows(5, 5)                 # empty
+    s.clear_rows(-10, 0)               # clamps to nothing
+    assert s.point(0, 0)
+    s.clear_rows(-10, 99)              # clamps to the whole screen
+    assert not any(s.pixels)

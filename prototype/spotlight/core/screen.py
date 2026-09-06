@@ -57,6 +57,22 @@ class Screen:
         self.pixels[:] = bytes(len(self.pixels))
         self.attrs[:] = bytes([attr]) * len(self.attrs)
 
+    def clear_rows(self, top: int, bottom: int, attr: int = DEFAULT_ATTR) -> None:
+        """Blank cell rows [top, bottom) only, leaving the rest untouched.
+
+        The screen is divided into regions that repaint at different rates -- a
+        play area every frame, a status strip only when a value changes -- so
+        clearing has to be able to address one without disturbing the other.
+        """
+        top = max(0, top)
+        bottom = min(ROWS, bottom)
+        if top >= bottom:
+            return
+        start = top * CELL * SCREEN_W
+        end = bottom * CELL * SCREEN_W
+        self.pixels[start:end] = bytes(end - start)
+        self.attrs[top * COLS:bottom * COLS] = bytes([attr]) * ((bottom - top) * COLS)
+
     def plot(self, x: int, y: int, on: bool = True) -> None:
         if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
             self.pixels[y * SCREEN_W + x] = 1 if on else 0
