@@ -550,12 +550,6 @@ def test_an_arc_curves_rather_than_running_straight():
     assert bend != 0, f"the arc is a straight line: {pts}"
 
 
-def test_an_arc_keeps_its_distance_from_the_mount():
-    for a in range(0, 17, 2):
-        x, y = S.arc_waypoints(3, (0, 0), 20, a, a)[0]
-        assert 18 <= max(abs(x), abs(y)) or 18 <= (x * x + y * y) ** 0.5 <= 22
-
-
 def test_one_arc_circuit_still_lights_the_entire_room():
     """Covering everywhere is the point of a searchlight and is not negotiable."""
     for radius in (2, 3, 4, 5):
@@ -599,17 +593,6 @@ def test_a_varying_arc_sweep_still_covers_everything_each_circuit():
                         seen.add((roam.x + dx, roam.y + dy))
         missed = _whole_room() - seen
         assert not missed, f"circuit {circuit} missed {sorted(missed)[:4]}"
-
-
-def test_the_beam_moves_slowly_near_its_mount_and_fast_far_from_it():
-    """It comes free out of the geometry, and it is most of why arcs are better."""
-    near = S.arc_waypoints(3, (0, 0), 6, 0, 16, step=2)
-    far = S.arc_waypoints(3, (0, 0), 30, 0, 16, step=2)
-
-    def span(points):
-        return sum(max(abs(b[0] - a[0]), abs(b[1] - a[1]))
-                   for a, b in zip(points, points[1:]))
-    assert span(far) > span(near) * 2
 
 
 def test_the_straight_serpentine_is_still_there_for_the_editor():
@@ -682,3 +665,78 @@ def test_a_timed_surge_still_counts_down_after_a_hold():
     for _ in range(4):
         flash.update()
     assert not flash.enabled
+
+
+# --- the beam sweeps in bowed passes (issue #10) ---------------------------
+
+def test_a_pass_curves_away_from_its_row_and_comes_back():
+    """A beam swung from off to one side crosses a room in a curve."""
+    pts = S._bowed_pass(0, COLS - 1, 6, 3)
+    rows = [y for _, y in pts]
+    assert rows[0] == 6 and rows[-1] == 6, "should leave and rejoin its row"
+    assert max(rows) == 6 + 3, "never actually bows"
+
+
+def test_the_bow_is_never_wider_than_the_beam():
+    """A coverage constraint, not taste -- see bow_for."""
+    for radius in range(1, 8):
+        assert 1 <= S.bow_for(radius) <= max(1, radius)
+
+
+def test_a_narrow_beam_curves_less():
+    assert S.bow_for(2) < S.bow_for(5)
+
+
+def test_no_pass_is_ever_flattened_against_a_wall():
+    """Clamping a bow against the ceiling is exactly the wall-tracking this
+    was built to remove."""
+    for radius in (2, 3, 4, 5):
+        bow = S.bow_for(radius)
+        for row in S._bowed_rows(radius):
+            assert 0 <= row and row + bow <= PLAY_ROWS - 1, \
+                f"radius {radius}: a pass at row {row} bows out of the room"
+
+
+def test_the_first_pass_reaches_the_ceiling_and_the_last_the_floor():
+    """The two ends of the coverage argument, which three wrong versions got
+    wrong. The bow only helps mid-pass; the rows still have to satisfy the
+    straight serpentine's spacing on their own."""
+    for radius in (2, 3, 4, 5):
+        rows = S._bowed_rows(radius)
+        assert rows[0] + S.bow_for(radius) - radius <= 0, "ceiling uncovered"
+        assert rows[-1] + radius >= PLAY_ROWS - 1, "floor uncovered"
+        gaps = [b - a for a, b in zip(rows, rows[1:])]
+        assert all(g <= 2 * radius for g in gaps), f"rows too far apart: {rows}"
+
+
+def test_the_bowed_sweep_covers_the_room_from_every_start():
+    for radius in (2, 3, 4, 5):
+        for mount in range(4):
+            for outward in (True, False):
+                roam = S.Roaming(0, 0, radius=radius, step_every=1)
+                roam.mount = mount
+                roam._sweep = S.arc_sweep(radius, mount, outward=outward)
+                roam._leg = 0
+                roam._snap_to_route_start()
+                covered, _ = _covered_by(roam)
+                missed = _whole_room() - covered
+                assert not missed, (f"radius {radius} mount {mount} "
+                                    f"outward {outward} missed {len(missed)}")
+
+
+def test_the_beam_spends_less_time_on_the_walls_than_the_straight_one():
+    """The complaint was that it tracked the walls, and it did."""
+    def on_the_ring(mode):
+        roam = S.Roaming(0, 0, radius=3, step_every=1, mode=mode)
+        path = []
+        while roam.cycles < 1:
+            roam.update()
+            path.append((roam.x, roam.y))
+        ring = sum(1 for x, y in path
+                   if x in (0, COLS - 1) or y in (0, PLAY_ROWS - 1))
+        return 100 * ring // len(path)
+
+    bowed = on_the_ring(S.Roaming.ARC)
+    straight = on_the_ring(S.Roaming.SWEEP)
+    assert bowed < straight, f"bowed {bowed}%, straight {straight}%"
+    assert bowed < 40, f"{bowed}% of the circuit is spent on the outer ring"
