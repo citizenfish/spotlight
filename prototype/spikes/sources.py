@@ -394,132 +394,110 @@ def arc_waypoints(radius: int, pivot: tuple[int, int], reach: int,
 #: the room, and the circuit is long enough already.
 _DIAGONAL = isqrt((COLS - 1) ** 2 + (PLAY_ROWS - 1) ** 2)
 
-#: How far a pass bows away from its row, in cells. This is the whole of the
-#: arc: a beam swung from somewhere off to one side crosses a room in a curve,
-#: not a straight line, and three cells of bow is enough to read as one.
-BOW = 3
+#: Frames the beam holds still at the end of a swing, and how much that varies.
+#: An operator does not reverse a searchlight instantly -- they run it to the end
+#: of its travel, look, and bring it back. The pause is most of what makes it
+#: read as worked by hand rather than driven.
+DWELL, DWELL_SPREAD = 12, 30
 
-#: Waypoints along a single pass. Enough that the curve is a curve rather than
-#: a couple of dog-legs; the beam walks between them a cell at a time anyway.
-BOW_STEPS = 10
+
+def corner_inset(radius: int) -> int:
+    """How far in from the walls the beam's centre may run.
+
+    Not the radius, which is the obvious answer and is wrong. **The beam lights
+    a disc, not a square.** A beam of radius three centred three cells in from
+    both walls sits four and a quarter cells from the corner and leaves it dark;
+    only straight along a wall does its full radius reach.
+
+    So the limit is set by the corner: the centre must pass within `radius` of
+    it diagonally, which is `radius / root two` in from each wall. That is the
+    furthest the lamp can keep from the walls while still lighting into them.
+    """
+    return isqrt(radius * radius // 2)
 
 
 def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
-              outward: bool = True) -> list[tuple[int, int]]:
-    """A searchlight swung from off to one side: passes that curve.
+              outward: bool = True, seed: int = 0xACE1
+              ) -> tuple[list[tuple[int, int]], list[int]]:
+    """A searchlight worked by hand: swings across the yard, stops, moves on.
 
-    Each pass crosses the room as a **bowed** line rather than a level one, the
-    way a beam swung about a distant pivot does. Straight rows read as a machine
-    going back and forth, which is what a player complained of first; an arc
-    reads as something aimed.
+    Returns the waypoints and how long to hold at each.
 
-    **The rows underneath are the serpentine's**, unchanged, and that is
-    deliberate. Total coverage is the point of a searchlight and is not
-    negotiable, and the serpentine's spacing is what guarantees it. Only the
-    shape of each pass changes.
+    **The path is inset from the walls**, and that is the whole fix for a
+    complaint that it tracked them. It did: 31% of a circuit was spent with the
+    beam's centre exactly on the outer ring, and 64% within a radius of a wall.
+    There was never any need -- a beam lights its own radius, so the lamp can
+    sweep the middle of the room while the light reaches the edge of it, which
+    is what a real one does. How far in it may keep is set by the corners; see
+    `corner_inset`.
 
-    Two earlier attempts are worth recording, because both look right on paper.
+    That also settles a question that had been answered wrongly twice. Curving
+    the passes cannot be combined with keeping clear of the walls. To light the
+    top row the first pass must sit within a radius of it, and to stay off the
+    ring it must sit at least a radius away -- so it sits at exactly a radius,
+    with no room left to bow. The arithmetic admits no bow at all, and no amount
+    of care with the sine table changes it.
 
-    Concentric arcs about a pivot inside the room cannot work. Beyond a modest
-    radius most of each circle lies outside a rectangle, so either you squash
-    those points onto the wall -- and **62% of a circuit is then spent tracking
-    the outer ring**, which is what the second complaint was -- or you drop them,
-    and the beam cuts a chord between the surviving pieces and leaves the far
-    corners unlit. There is no third option; it is a property of circles and
-    rectangles, not of the code.
+    So the character comes from **how it moves rather than what shape it draws**:
 
-    Bowing every pass by the same amount sidesteps it entirely. Equal bows keep
-    the gap between neighbouring passes exactly what it was, so the coverage
-    argument is untouched, and the beam only meets a wall where the serpentine
-    always did: at the ends of a pass, where it turns.
+    * the passes are taken in a **shuffled order**, so the beam swings from one
+      part of the room to another rather than working steadily down it;
+    * it **holds at the end of each swing**, for a while that varies;
+    * consecutive passes start from **alternating sides**, so the travel between
+      them crosses the room rather than doubling back.
 
-    It does **not** move faster at the extremes, as a real searchlight would.
-    The beam walks at one speed wherever it is, which keeps coverage honest and
-    the cost flat.
+    Coverage survives all of it. Every row is still visited once a circuit, and
+    the order they are visited in cannot change what is covered.
     """
-    rows = _bowed_rows(radius)
-    going_right, downward = _sweep_variation(mount)
-    if not (downward and outward):
+    # Rows are held a full radius off the ceiling and floor -- a pass along the
+    # top row was the worst of the wall-tracking, twenty-six cells of it at a
+    # time. The passes still run the whole width, because the corners have to be
+    # reached from directly beside them: a beam lights a disc, and one held off
+    # the wall in both directions at once sits too far from the corner to light
+    # it. See corner_inset for the arithmetic that rules the tidier version out.
+    top, bottom = radius, PLAY_ROWS - 1 - radius
+    rows = list(range(top, bottom + 1, 2 * radius))
+    if rows[-1] != bottom:
+        rows.append(bottom)
+    if not outward:
         rows.reverse()
-    # Which way the passes curve. Part of what a circuit varies, along with
-    # which corner it starts from and whether it works down the room or up.
-    bow = bow_for(radius)
-    left, right = 0, COLS - 1
 
+    state = seed or 1
+    if mount:                       # a varying circuit shuffles the order
+        for i in range(len(rows) - 1, 0, -1):
+            state = xorshift16(state)
+            j = state % (i + 1)
+            rows[i], rows[j] = rows[j], rows[i]
+
+    left, right = 0, COLS - 1
     points: list[tuple[int, int]] = []
+    dwells: list[int] = []
+    # **Every pass sweeps the same way, and the beam swings back across the room
+    # to start the next one.** Alternating them like a serpentine puts the turn
+    # against a wall, and with the rows shuffled that turn is a long run straight
+    # up the edge column -- twelve cells of it, which is the wall-tracking a
+    # player kept seeing. Returning diagonally crosses the middle of the room
+    # instead, and it is what the sweep of a hand-worked light looks like: a slow
+    # pass one way, a quick swing back, another pass.
+    going_right = not (mount & 1)
     for row in rows:
         a, b = (left, right) if going_right else (right, left)
-        points += _bowed_pass(a, b, row, bow)
-        going_right = not going_right
-    points.append(points[0])          # close the loop, as the serpentine does
-    return points
-
-
-def _bowed_pass(x0: int, x1: int, row: int, bow: int
-                ) -> list[tuple[int, int]]:
-    """One pass across the room, curved rather than level.
-
-    The bow is a half sine, so the pass leaves and rejoins its row cleanly at
-    the turns and is furthest from it in the middle -- which is where a swung
-    beam is furthest from the straight line between its ends.
-
-    Never clamped. The rows it is given already sit far enough from the walls
-    for the bow to fit, because clamping a bow against the ceiling flattens it
-    into exactly the wall-tracking this was built to remove.
-    """
-    out = []
-    for i in range(BOW_STEPS + 1):
-        x = x0 + (x1 - x0) * i // BOW_STEPS
-        lift = bow * sin256(i * (TURN // 2) // BOW_STEPS) >> 8
-        point = (x, row + lift)
-        if not out or out[-1] != point:
-            out.append(point)
-    return out
-
-
-def bow_for(radius: int) -> int:
-    """How far a pass may bow, for a beam of this width.
-
-    **Never more than the beam's own radius**, and that is a coverage
-    constraint rather than taste. A pass is only bowed in the middle; at its
-    two ends it sits on its row, so the rows still have to satisfy the straight
-    serpentine's spacing -- first row within a radius of the ceiling, last
-    within a radius of the floor. The bow needs the rows inset from both walls
-    by its own size. Those two demands only both hold while the bow fits inside
-    the radius, and a narrow beam therefore curves less.
-    """
-    return max(1, min(BOW, radius))
-
-
-def _sweep_variation(mount: int) -> tuple[bool, bool]:
-    """Which corner a circuit starts from: (going right, working downward)."""
-    return bool(mount & 1), bool(mount & 2)
-
-
-def _bowed_rows(radius: int) -> list[int]:
-    """The rows the passes are hung from, given they all bow downward.
-
-    The arithmetic is worth writing down, because guessing at it produced three
-    wrong versions. Every pass bows by the same amount, so at any given column
-    the whole set of passes is shifted down together by the same lift. Coverage
-    at that column is therefore the straight serpentine's, moved down by up to
-    the bow. For the room to stay covered whatever the lift:
-
-    * the **first** row must be within `radius - bow` of the ceiling, since at
-      full lift it has moved down and the ceiling is furthest away;
-    * the **last** row must be within `radius` of the floor, since at no lift
-      it has moved least and the floor is furthest away;
-    * consecutive rows are spaced by the beam's diameter, as before.
-
-    With the bow no larger than the radius, the first condition puts the first
-    pass on row zero and the last a beam-radius short of the floor -- which
-    also leaves exactly enough room for the bow to hang without being clamped.
-    """
-    bottom = PLAY_ROWS - 1 - radius
-    rows = list(range(0, bottom, 2 * radius))
-    if not rows or rows[-1] != bottom:
-        rows.append(bottom)
-    return rows
+        # The pause sits a little short of the wall, not against it. An
+        # operator eases off before the end of the travel, and a beam that
+        # stops dead on the wall and rests there is the whole complaint: the
+        # holds were most of the time spent on the outer ring, because a pause
+        # costs frames whether or not the beam is moving.
+        ease = b - radius if going_right else b + radius
+        state = xorshift16(state)
+        points.append((a, row))
+        dwells.append(0)
+        points.append((ease, row))
+        dwells.append(DWELL + state % DWELL_SPREAD)
+        points.append((b, row))
+        dwells.append(0)
+    points.append(points[0])        # close the loop
+    dwells.append(0)
+    return points, dwells
 
 
 def sweep_waypoints(radius: int, offset: int = 0, from_left: bool = True,
@@ -619,6 +597,10 @@ class Roaming(Source):
         self.vary = vary
         self.cycles = 0
         self.mount = 0
+        #: How long to hold at each waypoint, or None for a route with no
+        #: pauses. An operator stops at the end of a swing; a machine does not.
+        self._dwells = None
+        self._hold = 0
         if mode is None:
             mode = self.PATH if self.path else self.ARC
         self.mode = mode
@@ -645,11 +627,14 @@ class Roaming(Source):
         """One circuit's route, in whichever shape this light sweeps."""
         if self.mode == self.ARC:
             if seed is None:
-                return arc_sweep(self.radius, self.mount)
+                route, self._dwells = arc_sweep(self.radius, 0)
+                return route
             self.mount = seed & 0b11
-            return arc_sweep(self.radius, self.mount,
-                             offset=(seed >> 2) % (self.radius + 1),
-                             outward=bool(seed & 0b10000))
+            route, self._dwells = arc_sweep(
+                self.radius, self.mount, outward=bool(seed & 0b10000),
+                seed=seed)
+            return route
+        self._dwells = None
         if seed is None:
             return sweep_waypoints(self.radius, inset=self.inset)
         return sweep_waypoints(
@@ -698,6 +683,9 @@ class Roaming(Source):
 
     def update(self) -> None:
         """Move. Called every frame; actually steps every `step_every`."""
+        if self._hold > 0:
+            self._hold -= 1
+            return
         self._tick += 1
         if self._tick < self.step_every:
             return
@@ -716,6 +704,8 @@ class Roaming(Source):
     def _follow(self, route, on_wrap=None) -> None:
         self._step_towards(*route[self._leg])
         if (self.x, self.y) == route[self._leg]:
+            if self._dwells is not None and self._leg < len(self._dwells):
+                self._hold = self._dwells[self._leg]
             self._leg += 1
             if self._leg >= len(route):
                 self._leg = 0
