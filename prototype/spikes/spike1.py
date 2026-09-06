@@ -9,7 +9,7 @@ Debug keys change the placeholder readouts so the strip can be judged:
     arrows  walk, and set facing      G  toggle the personal glow
     T       toggle the cone           L  toggle the room light
     C       clear the light field     N  toggle the searchlight
-    R       force a strip repaint     V  searchlight: repeat <-> vary
+    R       force a strip repaint     V  searchlight: vary <-> repeat
     SPACE   fire the flyspray         B  searchlight: beam radius 3 <-> 2
     ESC     quit                      I  searchlight: run to the wall <-> inset
     1-0     placeholder strip readouts
@@ -46,7 +46,7 @@ PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 #: How long the searchlight's wake lingers, in frames, cycled with M. The
 #: beam's brightness is not on this list -- it reads lit whatever the wake is,
 #: because level and memory are separate (issue #12).
-WAKES = (lighting.CHARGE_SWEEP, 10, 40, 80)
+WAKES = (lighting.CHARGE_SWEEP, 20, 40, 80)
 
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 BINDINGS = (
@@ -92,8 +92,10 @@ def main(argv: list[str] | None = None) -> int:
                                 for cx, cy, power in scene.SPOTLIGHTS])
         spray = spray_mod.Spray(charges=5)
         # A prison searchlight quartering the room. One circuit covers
-        # everywhere; V switches between repeating and varying.
-        roaming = sources.Roaming(0, 0, radius=3, step_every=3)
+        # everywhere. It starts **varying** -- a different route each circuit,
+        # so it cannot be planned around -- and runs to the wall rather than
+        # turning short of it. Both settled by playing; V and I switch them.
+        roaming = sources.Roaming(0, 0, radius=3, step_every=3, vary=True)
         wake = WAKES.index(roaming.memory)
         all_sources = (glow, cone, roaming, *room_lights)
         cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
