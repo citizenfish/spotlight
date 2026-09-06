@@ -19,8 +19,8 @@ the thing can be judged without rebuilding it:
     G     the personal glow           L  room lights
     N     the searchlight             W  do room lights show people?
     V     searchlight: vary <-> repeat
-    B     searchlight: radius 3 <-> 2
-    A     searchlight: arcs <-> straight rows
+    B     searchlight: radius 3 <-> 4
+    A     searchlight: knight's tour <-> straight rows
     S     searchlight: how many frames it takes per cell
     Y     whether trapped workers call out for help
     I     searchlight: run to the wall <-> turn short of it
@@ -207,7 +207,10 @@ def main(argv: list[str] | None = None) -> int:
                         print("searchlight:",
                               "varying" if roaming.vary else "repeating")
                     elif event.key == pygame.K_b:
-                        roaming.reshape(radius=5 - roaming.radius)  # 3 <-> 2
+                        # 3 <-> 4, not 3 <-> 2: the station grid the searchlight
+                        # tours is spaced for a beam of three, and a narrower one
+                        # cannot reach between the stations.
+                        roaming.reshape(radius=7 - roaming.radius)
                         if roaming.inset:
                             roaming.reshape(inset=roaming.radius)
                         print(f"searchlight: radius {roaming.radius}")
@@ -228,9 +231,10 @@ def main(argv: list[str] | None = None) -> int:
                             sources.Roaming.SWEEP
                             if roaming.mode == sources.Roaming.ARC
                             else sources.Roaming.ARC)
-                        print("searchlight sweeps in",
-                              "arcs" if roaming.mode == sources.Roaming.ARC
-                              else "straight rows")
+                        print("searchlight sweeps",
+                              "a knight's tour"
+                              if roaming.mode == sources.Roaming.ARC
+                              else "in straight rows")
                     elif event.key == pygame.K_f:
                         # Held on, not a real surge: a quarter of a second is
                         # too short to watch anything happen in.

@@ -394,121 +394,102 @@ def arc_waypoints(radius: int, pivot: tuple[int, int], reach: int,
 #: the room, and the circuit is long enough already.
 _DIAGONAL = isqrt((COLS - 1) ** 2 + (PLAY_ROWS - 1) ** 2)
 
-#: Frames the beam holds still at the end of a swing, and how much that varies.
-#: An operator does not reverse a searchlight instantly -- they run it to the end
-#: of its travel, look, and bring it back. The pause is most of what makes it
-#: read as worked by hand rather than driven.
-DWELL, DWELL_SPREAD = 12, 30
+#: Frames the beam holds still at each station, and how much that varies. An
+#: operator does not whip a searchlight from one place to the next without
+#: looking at either.
+DWELL, DWELL_SPREAD = 5, 14
+
+#: The searchlight's stations: a grid, inset from the walls, spaced closely
+#: enough that a beam sitting on one lights out past its neighbours.
+#:
+#: Eight by six rather than eight by five, and that is arithmetic. The worst-lit
+#: point of a grid is the middle of a station rectangle, at half the diagonal
+#: from the four around it -- so the spacings must satisfy `sx^2 + sy^2 <= 4r^2`.
+#: Five rows across a 22-cell room leaves gaps of four and a quarter and misses
+#: the corners; six leaves gaps of three and four, which is 8 against a radius
+#: of 3 squared, and covers.
+STATION_COLS, STATION_ROWS = 8, 6
+STATION_INSET = 2
+
+#: A closed knight's tour of that grid: forty-eight stations, every step a
+#: knight move, and the last joins back to the first.
+#:
+#: This answers a complaint that would not go away -- the beam kept reading as
+#: travelling one way, and it was true and it was structural. **Any serpentine
+#: is a set of parallel passes**, so most of its motion is along one axis by
+#: construction; turning the passes on end only trades one axis for the other,
+#: which is what the previous attempt did.
+#:
+#: A knight's tour has no parallel passes at all. Every move is two one way and
+#: one the other, no two consecutive moves are alike, and none of them runs along
+#: a wall. It reads as something being *aimed* rather than driven.
+#:
+#: **Closed is what makes it usable.** Because the last station joins back to the
+#: first, the tour can be entered anywhere and still visits all forty-eight -- so
+#: the start is free to be random with no argument about coverage. Reversing it
+#: and mirroring it in either axis give the rest of the variety, and all of them
+#: are still the same tour, still complete.
+#:
+#: Found once by Warnsdorff's rule with randomised restarts and kept as a table,
+#: which is what a Z80 would do: forty-eight bytes of ROM and no search at all at
+#: runtime.
+KNIGHT_TOUR = (
+    (1, 1), (3, 0), (5, 1), (7, 0), (6, 2), (7, 4), (5, 5), (6, 3),
+    (7, 5), (5, 4), (7, 3), (6, 5), (4, 4), (2, 5), (0, 4), (1, 2),
+    (0, 0), (2, 1), (4, 0), (6, 1), (4, 2), (5, 0), (7, 1), (5, 2),
+    (6, 0), (7, 2), (6, 4), (4, 5), (3, 3), (1, 4), (0, 2), (1, 0),
+    (3, 1), (2, 3), (3, 5), (4, 3), (2, 4), (0, 5), (1, 3), (3, 2),
+    (2, 0), (0, 1), (2, 2), (4, 1), (5, 3), (3, 4), (1, 5), (0, 3),
+)
+
+_SPAN_X = COLS - 1 - 2 * STATION_INSET
+_SPAN_Y = PLAY_ROWS - 1 - 2 * STATION_INSET
 
 
-def corner_inset(radius: int) -> int:
-    """How far in from the walls the beam's centre may run.
-
-    Not the radius, which is the obvious answer and is wrong. **The beam lights
-    a disc, not a square.** A beam of radius three centred three cells in from
-    both walls sits four and a quarter cells from the corner and leaves it dark;
-    only straight along a wall does its full radius reach.
-
-    So the limit is set by the corner: the centre must pass within `radius` of
-    it diagonally, which is `radius / root two` in from each wall. That is the
-    furthest the lamp can keep from the walls while still lighting into them.
-    """
-    return isqrt(radius * radius // 2)
+def station(col: int, row: int) -> tuple[int, int]:
+    """Where a grid station sits, in cells. Integer rounding, no divides at
+    runtime -- on the Z80 these are two more small tables."""
+    return (STATION_INSET
+            + (col * _SPAN_X + (STATION_COLS - 1) // 2) // (STATION_COLS - 1),
+            STATION_INSET
+            + (row * _SPAN_Y + (STATION_ROWS - 1) // 2) // (STATION_ROWS - 1))
 
 
-def arc_sweep(radius: int, mount: int = 0, offset: int = 0,
-              outward: bool = True, seed: int = 0xACE1,
-              vertical: bool = False
-              ) -> tuple[list[tuple[int, int]], list[int]]:
-    """A searchlight worked by hand: swings across the yard, stops, moves on.
+def tour_route(radius: int, seed: int = 0xACE1, start: int = 0,
+               reverse: bool = False, flip_x: bool = False,
+               flip_y: bool = False
+               ) -> tuple[list[tuple[int, int]], list[int]]:
+    """The beam's route for one circuit: a knight's tour of the stations.
 
     Returns the waypoints and how long to hold at each.
 
-    **The path is inset from the walls**, and that is the whole fix for a
-    complaint that it tracked them. It did: 31% of a circuit was spent with the
-    beam's centre exactly on the outer ring, and 64% within a radius of a wall.
-    There was never any need -- a beam lights its own radius, so the lamp can
-    sweep the middle of the room while the light reaches the edge of it, which
-    is what a real one does. How far in it may keep is set by the corners; see
-    `corner_inset`.
+    The tour visits every station once, so the room is covered by the discs the
+    beam throws at them and by the tracks between. `start` enters it anywhere --
+    which is only safe because the tour is closed -- and the flips and the
+    reversal turn one table into hundreds of distinct circuits without any of
+    them being a different route in the sense that matters.
 
-    That also settles a question that had been answered wrongly twice. Curving
-    the passes cannot be combined with keeping clear of the walls. To light the
-    top row the first pass must sit within a radius of it, and to stay off the
-    ring it must sit at least a radius away -- so it sits at exactly a radius,
-    with no room left to bow. The arithmetic admits no bow at all, and no amount
-    of care with the sine table changes it.
-
-    So the character comes from **how it moves rather than what shape it draws**:
-
-    * a circuit sweeps **either in rows or in columns**, decided afresh each
-      time. Rows alone read as a beam that only ever travels sideways, because
-      that is exactly what it does -- every pass is horizontal and only the
-      swings back are not;
-    * the passes are taken in a **shuffled order**, so the beam swings from one
-      part of the room to another rather than working steadily down it;
-    * it **holds at the end of each swing**, for a while that varies;
-    * consecutive passes start from **alternating sides**, so the travel between
-      them crosses the room rather than doubling back.
-
-    Coverage survives all of it. Every row is still visited once a circuit, and
-    the order they are visited in cannot change what is covered.
+    Nothing here runs along a wall, and nothing here is parallel to anything
+    else, which is the whole point.
     """
-    # A pass runs the length of one axis; the passes step across the other.
-    along = PLAY_ROWS - 1 if vertical else COLS - 1
-    across = COLS - 1 if vertical else PLAY_ROWS - 1
+    order = list(KNIGHT_TOUR)
+    if reverse:
+        order.reverse()
+    start %= len(order)
+    order = order[start:] + order[:start]
 
-    # Passes are held a full radius off the two walls they run parallel to -- a
-    # pass along the top row was the worst of the wall-tracking, twenty-six cells
-    # of it at a time. They still run the whole length, because the corners have
-    # to be reached from directly beside them: a beam lights a disc, and one held
-    # off the wall in both directions at once sits too far from the corner to
-    # light it. See corner_inset for the arithmetic that rules that out.
-    top, bottom = radius, across - radius
-    rows = list(range(top, bottom + 1, 2 * radius))
-    if rows[-1] != bottom:
-        rows.append(bottom)
-    if not outward:
-        rows.reverse()
-
-    state = seed or 1
-    if mount:                       # a varying circuit shuffles the order
-        for i in range(len(rows) - 1, 0, -1):
-            state = xorshift16(state)
-            j = state % (i + 1)
-            rows[i], rows[j] = rows[j], rows[i]
-
-    left, right = 0, along
     points: list[tuple[int, int]] = []
     dwells: list[int] = []
-    # **Every pass sweeps the same way, and the beam swings back across the room
-    # to start the next one.** Alternating them like a serpentine puts the turn
-    # against a wall, and with the rows shuffled that turn is a long run straight
-    # up the edge column -- twelve cells of it, which is the wall-tracking a
-    # player kept seeing. Returning diagonally crosses the middle of the room
-    # instead, and it is what the sweep of a hand-worked light looks like: a slow
-    # pass one way, a quick swing back, another pass.
-    going_right = not (mount & 1)
-    # A point on a pass, given how far along it is. The only place the two
-    # orientations differ at all.
-    place = ((lambda line, s: (line, s)) if vertical
-             else (lambda line, s: (s, line)))
-    for row in rows:
-        a, b = (left, right) if going_right else (right, left)
-        # The pause sits a little short of the wall, not against it. An
-        # operator eases off before the end of the travel, and a beam that
-        # stops dead on the wall and rests there is the whole complaint: the
-        # holds were most of the time spent on the outer ring, because a pause
-        # costs frames whether or not the beam is moving.
-        ease = b - radius if going_right else b + radius
+    state = seed or 1
+    for col, row in order:
+        if flip_x:
+            col = STATION_COLS - 1 - col
+        if flip_y:
+            row = STATION_ROWS - 1 - row
         state = xorshift16(state)
-        points.append(place(row, a))
-        dwells.append(0)
-        points.append(place(row, ease))
+        points.append(station(col, row))
         dwells.append(DWELL + state % DWELL_SPREAD)
-        points.append(place(row, b))
-        dwells.append(0)
-    points.append(points[0])        # close the loop
+    points.append(points[0])       # close the loop
     dwells.append(0)
     return points, dwells
 
@@ -614,6 +595,9 @@ class Roaming(Source):
         #: pauses. An operator stops at the end of a swing; a machine does not.
         self._dwells = None
         self._hold = 0
+        #: Where the current leg began, so the beam can walk a straight line
+        #: to its target rather than a dog-leg.
+        self._from = (x, y)
         if mode is None:
             mode = self.PATH if self.path else self.ARC
         self.mode = mode
@@ -635,17 +619,21 @@ class Roaming(Source):
         """
         if self._sweep:
             self.x, self.y = self._sweep[0]
+            self._from = (self.x, self.y)
 
     def _lay_out(self, seed: int | None = None):
         """One circuit's route, in whichever shape this light sweeps."""
         if self.mode == self.ARC:
             if seed is None:
-                route, self._dwells = arc_sweep(self.radius, 0)
+                route, self._dwells = tour_route(self.radius)
                 return route
+            # A closed tour can be entered anywhere, so the start is free to be
+            # random; the flips and the reversal are the rest of the variety.
             self.mount = seed & 0b11
-            route, self._dwells = arc_sweep(
-                self.radius, self.mount, outward=bool(seed & 0b10000),
-                seed=seed, vertical=bool(seed & 0b100))
+            route, self._dwells = tour_route(
+                self.radius, seed=seed, start=(seed >> 2) % len(KNIGHT_TOUR),
+                reverse=bool(seed & 1), flip_x=bool(seed & 2),
+                flip_y=bool(seed & 4))
             return route
         self._dwells = None
         if seed is None:
@@ -720,14 +708,45 @@ class Roaming(Source):
             if self._dwells is not None and self._leg < len(self._dwells):
                 self._hold = self._dwells[self._leg]
             self._leg += 1
+            self._from = (self.x, self.y)
             if self._leg >= len(route):
                 self._leg = 0
                 if on_wrap:
                     on_wrap()
 
     def _step_towards(self, tx: int, ty: int) -> None:
-        self.x += (tx > self.x) - (tx < self.x)
-        self.y += (ty > self.y) - (ty < self.y)
+        """One cell along the straight line from where this leg began.
+
+        Not "diagonally until one axis lines up, then straight", which is what
+        this was and which bunches every leg's odd steps into a run at the end.
+        On a knight's move of eight cells across and three down that run is five
+        cells of pure sideways travel -- a third of the journey, and visible as
+        exactly the horizontal drift a player complained of.
+
+        Walking the real line spreads those steps evenly instead. It is the
+        error-accumulation trick every line routine uses, kept stateless by
+        measuring progress from where the leg started rather than carrying an
+        error term.
+        """
+        fx, fy = self._from
+        dx, dy = tx - fx, ty - fy
+        sx = (tx > self.x) - (tx < self.x)
+        sy = (ty > self.y) - (ty < self.y)
+        if abs(dx) >= abs(dy):
+            if sx:
+                self.x += sx
+                # Where the minor axis should be, now the major has moved.
+                want = fy + (self.x - fx) * dy // (dx or 1)
+                self.y += (want > self.y) - (want < self.y)
+            else:
+                self.y += sy
+        else:
+            if sy:
+                self.y += sy
+                want = fx + (self.y - fy) * dx // (dy or 1)
+                self.x += (want > self.x) - (want < self.x)
+            else:
+                self.x += sx
 
     def _drift(self) -> None:
         self._seed = xorshift16(self._seed)

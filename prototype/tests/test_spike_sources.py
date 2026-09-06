@@ -234,10 +234,23 @@ def test_one_circuit_lights_the_entire_room():
 
 
 def test_coverage_holds_at_other_beam_sizes():
-    for radius in (2, 3, 4, 5):
+    """Radius two is excluded, and by arithmetic rather than oversight: the
+    station grid is spaced for a beam of three, and a narrower one cannot reach
+    between the stations. A narrower beam would want a denser grid and its own
+    tour."""
+    for radius in (3, 4, 5):
         covered, _ = _covered_by(S.Roaming(0, 0, radius=radius, step_every=1))
         missed = _whole_room() - covered
         assert not missed, f"radius {radius} missed {sorted(missed)[:4]}"
+
+
+def test_a_narrow_beam_cannot_use_this_station_grid():
+    """Stated as a known limit so it is not rediscovered as a bug."""
+    xs = [S.station(c, 0)[0] for c in range(S.STATION_COLS)]
+    ys = [S.station(0, r)[1] for r in range(S.STATION_ROWS)]
+    sx = max(b - a for a, b in zip(xs, xs[1:]))
+    sy = max(b - a for a, b in zip(ys, ys[1:]))
+    assert sx * sx + sy * sy > 4 * 2 * 2, "radius two would in fact reach"
 
 
 def test_repeating_sweeps_run_the_same_route_every_circuit():
@@ -297,17 +310,11 @@ def test_sweep_rows_are_spaced_by_the_beam_diameter():
 
 
 def test_a_circuit_takes_a_sensible_number_of_frames():
-    """Slow enough to be a threat you can see coming, fast enough to matter.
-
-    A narrow beam takes longer, because covering the room with a thin arc means
-    more of them. That is the trade and not a fault.
-    """
-    for radius, limit in ((3, 40), (2, 60)):
-        roam = S.Roaming(0, 0, radius=radius)
-        _, frames = _covered_by(roam)      # frames, not steps
-        seconds = frames / 50
-        assert 10 <= seconds <= limit, \
-            f"radius {radius}: a full sweep takes {seconds:.1f}s"
+    """Slow enough to be a threat you can see coming, fast enough to matter."""
+    roam = S.Roaming(0, 0, radius=3)
+    _, frames = _covered_by(roam)          # frames, not steps
+    seconds = frames / 50
+    assert 20 <= seconds <= 70, f"a full circuit takes {seconds:.1f}s"
 
 
 def test_the_beam_crosses_the_room_at_a_watchable_pace():
@@ -389,14 +396,11 @@ def test_an_inset_sweep_still_covers_everything_inside_the_outer_ring():
         assert (0, 0) in missed, "the corners are the known cost"
 
 
-def test_reshape_rebuilds_the_sweep_for_the_new_radius():
+def test_reshape_rebuilds_the_route_for_the_new_radius():
     roam = S.Roaming(0, 0, radius=3, step_every=1)
-    roam.reshape(radius=2)
+    roam.reshape(radius=4)
     covered, _ = _covered_by(roam)
     assert covered == _whole_room()
-    rows = sorted({y for _, y in S.sweep_waypoints(2)})
-    gaps = {b - a for a, b in zip(rows, rows[1:])}
-    assert gaps <= {4}
 
 
 # --- room lights show the room, not who is in it (issue #12) ---------------
@@ -550,9 +554,9 @@ def test_an_arc_curves_rather_than_running_straight():
     assert bend != 0, f"the arc is a straight line: {pts}"
 
 
-def test_one_arc_circuit_still_lights_the_entire_room():
+def test_one_circuit_still_lights_the_entire_room():
     """Covering everywhere is the point of a searchlight and is not negotiable."""
-    for radius in (2, 3, 4, 5):
+    for radius in (3, 4, 5):
         covered, _ = _covered_by(S.Roaming(0, 0, radius=radius, step_every=1))
         missed = _whole_room() - covered
         assert not missed, f"radius {radius} missed {sorted(missed)[:4]}"
@@ -667,149 +671,127 @@ def test_a_timed_surge_still_counts_down_after_a_hold():
     assert not flash.enabled
 
 
-# --- the beam is worked by hand, and keeps off the walls (issue #10) -------
+# --- the beam moves like a knight (issue #10) ------------------------------
 
-def _circuit(radius=3, mount=0, step_every=6):
-    """Run one circuit and report where the beam spent its time."""
-    route, dwells = S.arc_sweep(radius, mount)
+def _tour_circuit(radius=3, step_every=6, **kw):
+    """Run one circuit and report where the beam went."""
+    route, dwells = S.tour_route(radius, **kw)
     roam = S.Roaming(0, 0, radius=radius, step_every=step_every)
-    roam.mount = mount
     roam._sweep, roam._dwells = route, dwells
     roam._leg = 0
     roam._snap_to_route_start()
-    seen, frames, ring = set(), 0, 0
-    while roam.cycles < 1 and frames < 200000:
+    seen, path, frames = set(), [], 0
+    while roam.cycles < 1 and frames < 300000:
         roam.update()
         frames += 1
-        if roam.x in (0, COLS - 1) or roam.y in (0, PLAY_ROWS - 1):
-            ring += 1
+        path.append((roam.x, roam.y))
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 if dx * dx + dy * dy <= radius * radius:
                     seen.add((roam.x + dx, roam.y + dy))
-    return seen, frames, ring
+    return seen, path, frames
 
 
-def test_the_beam_hardly_ever_touches_the_wall():
-    """The complaint, twice over, was that it tracked them. It was doing it
-    31% of a circuit; a light reaches its own radius, so it never had to."""
-    for radius in (2, 3, 4, 5):
-        _, frames, ring = _circuit(radius)
-        assert 100 * ring // frames <= 8, \
-            f"radius {radius}: {100 * ring // frames}% of a circuit on the ring"
+def test_the_tour_is_closed_and_every_step_is_a_knight_move():
+    """Closed is what lets the start be random without breaking coverage."""
+    tour = S.KNIGHT_TOUR
+    assert len(tour) == S.STATION_COLS * S.STATION_ROWS
+    assert len(set(tour)) == len(tour), "a station is visited twice"
+    for a, b in zip(tour, tour[1:] + tour[:1]):
+        step = (abs(a[0] - b[0]), abs(a[1] - b[1]))
+        assert sorted(step) == [1, 2], f"{a} to {b} is not a knight move"
 
 
-def test_no_pass_runs_along_the_top_or_bottom_wall():
-    for radius in (2, 3, 4, 5):
-        rows = {y for _, y in S.arc_sweep(radius, 0)[0]}
-        assert min(rows) >= radius, "a pass runs along the ceiling"
-        assert max(rows) <= PLAY_ROWS - 1 - radius, "a pass runs along the floor"
+def test_the_stations_are_spaced_closely_enough_to_cover():
+    """The worst-lit point of a grid is the middle of a station rectangle."""
+    xs = [S.station(c, 0)[0] for c in range(S.STATION_COLS)]
+    ys = [S.station(0, r)[1] for r in range(S.STATION_ROWS)]
+    sx = max(b - a for a, b in zip(xs, xs[1:]))
+    sy = max(b - a for a, b in zip(ys, ys[1:]))
+    assert sx * sx + sy * sy <= 4 * 3 * 3, f"gaps {sx}x{sy} too wide for radius 3"
 
 
-def test_it_still_lights_every_cell_of_the_room():
-    """Total coverage is the point of a searchlight and is not negotiable."""
-    for radius in (2, 3, 4, 5):
-        for mount in range(4):
-            seen, _, _ = _circuit(radius, mount)
-            missed = _whole_room() - seen
-            assert not missed, (f"radius {radius} mount {mount} missed "
-                                f"{sorted(missed)[:4]}")
+def test_the_stations_keep_clear_of_the_walls():
+    for col in range(S.STATION_COLS):
+        for row in range(S.STATION_ROWS):
+            x, y = S.station(col, row)
+            assert S.STATION_INSET <= x <= COLS - 1 - S.STATION_INSET
+            assert S.STATION_INSET <= y <= PLAY_ROWS - 1 - S.STATION_INSET
 
 
-def test_the_corners_are_why_the_passes_still_run_the_full_width():
-    """A beam lights a disc, not a square. Held off both walls at once it sits
-    too far from the corner to light it, so the passes reach the side walls."""
-    for radius in (2, 3, 4, 5):
-        inset = S.corner_inset(radius)
-        assert 2 * inset * inset <= radius * radius, "would miss the corner"
-        assert inset < radius, "no tighter than the radius, or it is pointless"
+def test_the_beam_never_touches_a_wall():
+    """Three complaints about it tracking them. Now it cannot."""
+    _, path, _ = _tour_circuit()
+    on_ring = [p for p in path
+               if p[0] in (0, COLS - 1) or p[1] in (0, PLAY_ROWS - 1)]
+    assert not on_ring, f"beam reached the wall at {on_ring[:3]}"
 
 
-def test_every_pass_sweeps_the_same_way():
-    """Alternating them puts the turn against a wall, and with the rows
-    shuffled that turn is a long run straight up the edge column."""
-    passes = [p for p in (S.arc_sweep(3, 0)[0][i:i + 3]
-                          for i in range(0, len(S.arc_sweep(3, 0)[0]) - 1, 3))
-              if len(p) == 3]
-    directions = {p[2][0] > p[0][0] for p in passes}
-    assert len(directions) == 1, "passes go in different directions"
+def test_one_circuit_still_lights_every_cell():
+    for radius in (3, 4, 5):
+        seen, _, _ = _tour_circuit(radius)
+        assert not _whole_room() - seen, f"radius {radius} left gaps"
 
 
-def test_the_beam_holds_short_of_the_wall_rather_than_against_it():
-    """A pause costs frames whether or not the beam is moving, so a hold on the
-    wall was most of the time spent on it."""
-    route, dwells = S.arc_sweep(3, 0)
-    for (x, _), dwell in zip(route, dwells):
-        if dwell:
-            assert x not in (0, COLS - 1), "holds with its nose on the wall"
+def test_it_covers_from_any_start_and_either_way_round():
+    """The point of a closed tour: entering it anywhere is still a full tour."""
+    for start in range(0, len(S.KNIGHT_TOUR), 7):
+        for reverse in (False, True):
+            for flip_x in (False, True):
+                seen, _, _ = _tour_circuit(start=start, reverse=reverse,
+                                           flip_x=flip_x)
+                assert not _whole_room() - seen, \
+                    f"start {start} reverse {reverse} flip {flip_x} left gaps"
 
 
-def test_it_pauses_at_all_and_the_pauses_vary():
-    """An operator does not reverse a searchlight instantly."""
-    dwells = [d for d in S.arc_sweep(3, 0)[1] if d]
-    assert dwells, "never pauses"
-    assert len(set(dwells)) > 1, "pauses are metronomic"
-    assert all(S.DWELL <= d < S.DWELL + S.DWELL_SPREAD for d in dwells)
-
-
-def test_a_varying_circuit_takes_the_passes_in_a_different_order():
-    orders = {tuple(y for _, y in S.arc_sweep(3, m, seed=0xACE1 + m * 977)[0])
-              for m in range(1, 4)}
-    assert len(orders) > 1, "every circuit works down the room the same way"
-
-
-def test_a_circuit_is_still_something_you_can_wait_out():
-    for radius, limit in ((3, 40), (2, 60)):
-        _, frames, _ = _circuit(radius)
-        assert 10 <= frames / 50 <= limit, \
-            f"radius {radius}: a circuit takes {frames/50:.0f}s"
-
-
-def _passes(route):
-    """The route as passes: each is three waypoints, start, ease and end."""
-    return [route[i:i + 3] for i in range(0, len(route) - 1, 3)]
-
-
-def test_a_circuit_sweeps_in_rows_or_in_columns():
-    """Rows alone read as a beam that only ever travels sideways, because that
-    is exactly what it does."""
-    for a_pass in _passes(S.arc_sweep(3, 0, vertical=False)[0]):
-        assert len({y for _, y in a_pass}) == 1, "a row pass changed row"
-        assert len({x for x, _ in a_pass}) == 3, "a row pass did not travel"
-    for a_pass in _passes(S.arc_sweep(3, 0, vertical=True)[0]):
-        assert len({x for x, _ in a_pass}) == 1, "a column pass changed column"
-        assert len({y for _, y in a_pass}) == 3, "a column pass did not travel"
-
-
-def test_column_sweeps_cover_the_room_too():
-    for radius in (2, 3, 4, 5):
-        route, dwells = S.arc_sweep(radius, 0, vertical=True)
-        roam = S.Roaming(0, 0, radius=radius, step_every=1)
-        roam._sweep, roam._dwells = route, dwells
-        roam._leg = 0
-        roam._snap_to_route_start()
-        covered, _ = _covered_by(roam)
-        assert not _whole_room() - covered, f"radius {radius} left gaps"
-
-
-def test_column_passes_keep_off_the_side_walls():
-    for radius in (2, 3, 4, 5):
-        xs = {x for x, _ in S.arc_sweep(radius, 0, vertical=True)[0]}
-        assert min(xs) >= radius and max(xs) <= COLS - 1 - radius
-
-
-def test_the_beam_does_not_predominantly_travel_one_way():
-    """Measured over four minutes of varying circuits."""
+def test_no_axis_dominates_how_the_beam_travels():
+    """The complaint, three times over, was that it travelled one way. A
+    serpentine is parallel passes, so it always will; a knight's tour has no
+    parallel passes at all."""
     from collections import Counter
     roam = S.Roaming(0, 0, radius=3, vary=True)
     last, axes = (roam.x, roam.y), Counter()
-    for _ in range(50 * 60 * 4):
+    for _ in range(50 * 60 * 6):
         roam.update()
         if (roam.x, roam.y) != last:
             dx, dy = roam.x - last[0], roam.y - last[1]
             axes["flat" if dy == 0 else "upright" if dx == 0 else "slant"] += 1
             last = (roam.x, roam.y)
     total = sum(axes.values())
-    for way in ("flat", "upright"):
-        share = 100 * axes[way] // total
-        assert 25 <= share <= 60, f"{way} travel is {share}% of the beam's motion"
+    assert 100 * axes["flat"] // total <= 40, "still mostly sideways"
+    assert 100 * axes["slant"] // total >= 35, "hardly ever moves diagonally"
+    assert axes["upright"] > 0
+
+
+def test_the_beam_walks_the_line_rather_than_dog_legging():
+    """Diagonally until one axis lines up, then straight, bunches every leg's
+    odd steps into a run at the end -- five cells of pure sideways travel on a
+    knight's move, which is a third of the journey."""
+    roam = S.Roaming(0, 0, radius=3, step_every=1)
+    route = roam._sweep
+    target = route[1]
+    path = [(roam.x, roam.y)]
+    for _ in range(200):
+        roam.update()
+        if (roam.x, roam.y) != path[-1]:
+            path.append((roam.x, roam.y))
+        if (roam.x, roam.y) == target:
+            break
+    longest, run, last = 0, 0, None
+    for a, b in zip(path, path[1:]):
+        step = (b[0] - a[0], b[1] - a[1])
+        run = run + 1 if step == last else 1
+        last = step
+        longest = max(longest, run)
+    assert longest <= 3, f"a run of {longest} identical steps in one move"
+
+
+def test_a_circuit_is_something_you_can_wait_out():
+    _, _, frames = _tour_circuit()
+    assert 20 <= frames / 50 <= 70, f"a circuit takes {frames/50:.0f}s"
+
+
+def test_it_pauses_at_the_stations_and_the_pauses_vary():
+    dwells = [d for d in S.tour_route(3)[1] if d]
+    assert dwells, "never pauses"
+    assert len(set(dwells)) > 1, "pauses are metronomic"
