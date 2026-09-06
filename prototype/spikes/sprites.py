@@ -103,6 +103,18 @@ NEST = (
     0x00,
 )
 
+#: A spotlight lying on the floor: a lamp with its beam spreading below.
+LAMP = (
+    0x00,
+    0x18,  # ...##...   handle
+    0x3C,  # ..####..
+    0x7E,  # .######.   dome
+    0xFF,  # ########   lens
+    0x66,  # .##..##.   beam
+    0x24,  # ..#..#..
+    0x00,
+)
+
 KEY = (
     0x00,
     0x1C,  # ...###..   ring
@@ -117,7 +129,7 @@ KEY = (
 #: Every drawable, for tests and the sprite sheet.
 SPRITES = {
     "player": PLAYER, "worker": WORKER, "cleg": CLEG,
-    "body": BODY, "nest": NEST, "key": KEY,
+    "body": BODY, "nest": NEST, "key": KEY, "lamp": LAMP,
 }
 
 WIDTH = 8

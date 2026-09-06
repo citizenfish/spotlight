@@ -28,6 +28,7 @@ from spotlight.frontend.display import Display
 
 from . import floor, lighting, scene, sources, sprites
 from .player import Player
+from .spotlights import FloorLight, Spotlights
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
@@ -73,11 +74,13 @@ def main(argv: list[str] | None = None) -> int:
         room = room_lights[0]
         cone = sources.Cone(reach=7)
         cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
+        kit = Spotlights(cone, [FloorLight(cx, cy, power)
+                                for cx, cy, power in scene.SPOTLIGHTS])
         # A prison searchlight quartering the room. One circuit covers
         # everywhere; V switches between repeating and varying.
         roaming = sources.Roaming(0, 0, radius=3, step_every=3)
         all_sources = (glow, cone, roaming, *room_lights)
-        cone_full = cone.power
+        cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
 
         scenery = [(sprites.SPRITES[name], x, y)
                    for name, x, y in scene.ENTITIES]
@@ -103,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                         for rl in room_lights:
                             rl.toggle()
                     elif event.key == pygame.K_t:
-                        cone.toggle()
+                        kit.toggle()
                     elif event.key == pygame.K_n:
                         roaming.toggle()
                     elif event.key == pygame.K_v:
@@ -127,13 +130,19 @@ def main(argv: list[str] | None = None) -> int:
             cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
 
             roaming.update()
-            cone.drain()
+            picked = kit.tick(player)
+            if picked is not None:
+                print(f"swapped: carrying {cone.power}, left "
+                      f"{'burning' if picked.burning else 'dark'} light at "
+                      f"({picked.cx}, {picked.cy})")
             panel.set("light", cone.power * 6 // max(1, cone_full))
+            panel.set("lit", cone.lit)
 
             # Sources contribute, brightest wins, then everything decays.
             field.begin()
             for src in all_sources:
                 src.apply(field)
+            kit.apply(field)
             field.commit()
 
             # The play area is cleared every frame; the strip is not touched.

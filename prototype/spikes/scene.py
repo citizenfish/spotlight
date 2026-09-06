@@ -111,6 +111,15 @@ ENTITIES = (
     ("nest", 27 * 8 + 5, 19 * 8 + 1),
 )
 
+#: Spotlight pickups lying about the building, as (cx, cy, power). Powers vary
+#: deliberately -- picking one up is a commitment, and a weak one is a trap.
+SPOTLIGHTS = (
+    (4, 16, 900),
+    (26, 3, 400),
+    (16, 20, 1500),
+    (2, 10, 150),
+)
+
 #: Where the player starts. Open floor with room to move in every direction, at
 #: an x offset that is not a multiple of 8 so the figure straddles two cell
 #: columns from the very first frame.
