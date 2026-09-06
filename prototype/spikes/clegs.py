@@ -41,10 +41,55 @@ from .sources import xorshift16
 
 HUNTING, ATTACHED, SATED = 0, 1, 2
 
+# --- temperaments ----------------------------------------------------------
+#
+# **Not every Cleg is the same Cleg.** They all obey the one rule -- go to the
+# light -- but they differ in how, which is the trick Pac-Man's ghosts use and
+# it costs almost nothing here either.
+#
+# The problem it solves was visible the moment the room could be watched: an
+# identical rule with an identical target produces identical paths, so the swarm
+# converged into a single moving clot. That is bad twice over. It looks like one
+# animal rather than several, and one spray patch dropped on the clot killed the
+# entire swarm at once.
+
+#: Straight at the light, and straight through anything on the floor.
+PLAIN = 0
+#: Comes in off to one side, so it does not share a path with the rest.
+FLANKER = 1
+#: Straight at the light, but will not walk into spray.
+DODGER = 2
+#: Both. The rare one, and the one that ruins a lazy plan.
+WARY = 3
+
+#: Drawn from a Cleg's seed. Weighted so most of a swarm is fodder and being
+#: cornered by a clever one is an event rather than the norm. Half of them walk
+#: straight into spray; one in four will not walk into it at all.
+TEMPERAMENTS = (PLAIN, PLAIN, PLAIN, PLAIN, FLANKER, FLANKER, DODGER, WARY)
+
+#: Where a flanker aims, relative to the light: four cells off, one of eight
+#: ways. Four rather than two so the approach is genuinely a different line and
+#: not a wobble on the same one.
+FLANK_OFFSETS = ((4, 0), (-4, 0), (0, 4), (0, -4),
+                 (3, 3), (3, -3), (-3, 3), (-3, -3))
+
+#: How close a flanker gets before it stops swinging wide and comes in.
+#:
+#: Must not be *less* than the offset, or the flanker switches to a direct line
+#: before it has ever reached the position it was flanking to, and the whole
+#: thing quietly does nothing. That was the first version.
+FLANK_UNTIL = 4
+
 #: Frames between steps. Slightly slower than the player, who covers a cell in
 #: eight frames -- so you can outrun a swarm, but you cannot stand and read the
 #: room while it closes. That margin is the whole of the moment-to-moment game.
+#:
+#: Each fly draws its own from this range. Identical speeds put the swarm in
+#: lockstep, which is half of why it moved as one body; a spread of a few frames
+#: is enough to break the formation up without making any of them notably faster
+#: or slower than the player.
 STEP_EVERY = 9
+STEP_SPREAD = 3
 
 #: Frames between steps for a Cleg with nothing to steer for.
 #:
@@ -89,8 +134,8 @@ NOTICE_MIN, NOTICE_MAX = 7, 19
 class Cleg:
     """One fly. Position is a cell; Clegs do not need pixel placement."""
 
-    __slots__ = ("cx", "cy", "state", "taken", "notice", "goal",
-                 "_timer", "_tick", "_seed")
+    __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "kind",
+                 "flank", "step_every", "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -106,6 +151,40 @@ class Cleg:
         #: goes out**, which is what makes a one-second flash cost something:
         #: it commits whoever noticed to walking to where you were standing.
         self.goal: tuple[int, int] | None = None
+        #: What sort of Cleg this is, and how it comes at you.
+        self.kind = TEMPERAMENTS[self._random() % len(TEMPERAMENTS)]
+        self.flank = FLANK_OFFSETS[self._random() % len(FLANK_OFFSETS)]
+        self.step_every = STEP_EVERY + self._random() % STEP_SPREAD
+
+    @property
+    def dodges(self) -> bool:
+        """Will it refuse to walk into spray?
+
+        Note what this does *not* do: it does not make the Cleg immune. Spray
+        it is standing on still kills it. What a dodger denies you is the lazy
+        version -- one patch dropped in front of a bunched swarm taking the lot.
+        It will stand and wait rather than walk in, which leaves the spray doing
+        exactly the job the design gives it: **area denial, not a weapon.**
+        """
+        return self.kind in (DODGER, WARY)
+
+    @property
+    def flanks(self) -> bool:
+        """Does it come in off to one side rather than straight down the middle?"""
+        return self.kind in (FLANKER, WARY)
+
+    def aim(self, goal: tuple[int, int]) -> tuple[int, int]:
+        """Where this Cleg actually steers for, given where the light is.
+
+        A flanker aims two cells to one side of it until it is nearly there,
+        then comes in. Same destination, different approach -- which is all it
+        takes to stop six of them walking single file.
+        """
+        if not self.flanks:
+            return goal
+        if max(abs(goal[0] - self.cx), abs(goal[1] - self.cy)) <= FLANK_UNTIL:
+            return goal
+        return goal[0] + self.flank[0], goal[1] + self.flank[1]
 
     # --- movement ----------------------------------------------------------
 
@@ -113,14 +192,16 @@ class Cleg:
         self._seed = xorshift16(self._seed)
         return self._seed
 
-    def _try(self, dx: int, dy: int, is_solid) -> bool:
+    def _try(self, dx: int, dy: int, is_solid, avoid=None) -> bool:
         nx, ny = self.cx + dx, self.cy + dy
         if not (0 <= nx < COLS and 0 <= ny < PLAY_ROWS) or is_solid(nx, ny):
+            return False
+        if avoid is not None and avoid(nx, ny):
             return False
         self.cx, self.cy = nx, ny
         return True
 
-    def _toward(self, tx: int, ty: int, is_solid) -> None:
+    def _toward(self, tx: int, ty: int, is_solid, avoid=None) -> None:
         """One greedy step, longest axis first, sliding if blocked.
 
         Trying the longer axis first is what makes the approach look purposeful
@@ -136,10 +217,10 @@ class Cleg:
         else:
             first, second = (0, dy), (dx, 0)
         for step in (first, second):
-            if step != (0, 0) and self._try(*step, is_solid):
+            if step != (0, 0) and self._try(*step, is_solid, avoid):
                 return
 
-    def _drift(self, is_solid) -> None:
+    def _drift(self, is_solid, avoid=None) -> None:
         """A step with no preference, for a Cleg with nothing to steer for.
 
         Each axis is the difference of two bits, so it is -1, 0, 0 or 1 -- one
@@ -150,7 +231,7 @@ class Cleg:
         r = self._random()
         dx = (r & 1) - ((r >> 1) & 1)
         dy = ((r >> 2) & 1) - ((r >> 3) & 1)
-        self._try(dx, dy, is_solid)
+        self._try(dx, dy, is_solid, avoid)
 
 
 class Swarm:
@@ -190,7 +271,8 @@ class Swarm:
 
     # --- the frame ---------------------------------------------------------
 
-    def tick(self, lures, player_cell, is_solid, blood: int) -> int:
+    def tick(self, lures, player_cell, is_solid, blood: int,
+             is_sprayed=None) -> int:
         """Advance every Cleg. Returns blood remaining.
 
         `lures` is the cells of every light currently attracting -- see
@@ -205,6 +287,11 @@ class Swarm:
 
         What the dark still buys you is that nothing *comes looking* from far
         away -- see `sources.Source.lure`. You are hard to find, not immune.
+
+        `is_sprayed` says which ground is poisoned. Only the Clegs that dodge
+        consult it; the rest walk in and die, which is what the spray is for.
+        A dodger will stand still rather than step into it, so spray still holds
+        ground against them -- it just no longer kills them for free.
         """
         self.drained = 0
         for cleg in self.clegs:
@@ -222,7 +309,7 @@ class Swarm:
                     cleg.state = HUNTING
                 if cleg._tick >= SATED_DRIFT_EVERY:
                     cleg._tick = 0
-                    cleg._drift(is_solid)
+                    cleg._drift(is_solid, is_sprayed if cleg.dodges else None)
                 continue
 
             # Hunting. A light it can notice becomes the place it is going;
@@ -235,13 +322,14 @@ class Swarm:
             if (cleg.cx, cleg.cy) == player_cell:
                 self._attach(cleg)
                 continue
-            if cleg._tick < (STEP_EVERY if target else DRIFT_EVERY):
+            if cleg._tick < (cleg.step_every if target else DRIFT_EVERY):
                 continue
             cleg._tick = 0
+            avoid = is_sprayed if cleg.dodges else None
             if target is None:
-                cleg._drift(is_solid)
+                cleg._drift(is_solid, avoid)
             else:
-                cleg._toward(*target, is_solid)
+                cleg._toward(*cleg.aim(target), is_solid, avoid)
                 if (cleg.cx, cleg.cy) == target:
                     # Arrived, and whatever it was is not here any more.
                     cleg.goal = None

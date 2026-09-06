@@ -286,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             lures += kit.floor_lures()
             was_attached = len(swarm.attached())
             blood = swarm.tick(lures, (player.cx, player.cy), scene.is_solid,
-                               blood)
+                               blood, is_sprayed=spray.covers)
             # Spray reaches everything except a Cleg already on you.
             killed = swarm.kill(spray.kills(swarm.sprayable()))
             if killed:

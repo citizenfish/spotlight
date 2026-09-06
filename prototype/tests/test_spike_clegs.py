@@ -329,3 +329,119 @@ def test_an_idle_cleg_mills_about_rather_than_crossing_the_room():
     swarm = C.Swarm([cleg])
     _run(swarm, [], player=(0, 0), frames=50 * 20)      # twenty seconds
     assert max(abs(cleg.cx - 16), abs(cleg.cy - 11)) < 12
+
+
+# --- not every Cleg is the same Cleg (issue #10) ---------------------------
+
+def _of_kind(kind, cx=20, cy=10):
+    """A Cleg of a chosen temperament, for testing one behaviour at a time."""
+    cleg = C.Cleg(cx, cy, seed=0xBEEF)
+    cleg.kind = kind
+    return cleg
+
+
+def test_a_swarm_is_mostly_fodder_with_a_few_clever_ones():
+    """Being cornered by a clever one should be an event, not the norm."""
+    from collections import Counter
+    kinds = Counter(C.Cleg(5, 5, seed=1 + i * 7919).kind for i in range(400))
+    assert kinds[C.PLAIN] > kinds[C.FLANKER] > kinds[C.DODGER]
+    assert kinds[C.PLAIN] >= 160, "not enough fodder"
+    dodgy = kinds[C.DODGER] + kinds[C.WARY]
+    assert 60 <= dodgy <= 140, f"{dodgy} of 400 dodge spray"
+
+
+def test_they_do_not_all_move_in_lockstep():
+    """Identical speeds are half of why the swarm moved as one body."""
+    speeds = {C.Cleg(5, 5, seed=1 + i * 7919).step_every for i in range(200)}
+    assert len(speeds) > 1
+    assert min(speeds) >= C.STEP_EVERY
+    assert max(speeds) < C.STEP_EVERY + C.STEP_SPREAD
+
+
+def test_nobody_is_faster_than_the_player():
+    """You must always be able to outrun them."""
+    from spikes.player import SPEED
+    frames_per_cell_for_the_player = 8 // SPEED
+    for i in range(200):
+        assert C.Cleg(5, 5, seed=1 + i * 7919).step_every > \
+            frames_per_cell_for_the_player
+
+
+# --- dodging ---------------------------------------------------------------
+
+def test_a_plain_cleg_walks_straight_into_spray():
+    """Which is what the spray is for."""
+    cleg = _of_kind(C.PLAIN, 24, 10)
+    swarm = C.Swarm([cleg])
+    poison = lambda cx, cy: cx == 22        # noqa: E731 - a wall of spray
+    for _ in range(C.STEP_EVERY * 6):
+        swarm.tick(_lures((20, 10)), (20, 10), OPEN, 64, is_sprayed=poison)
+    assert cleg.cx <= 22, "stopped short of ground it does not fear"
+
+
+def test_a_dodger_will_not_step_into_spray():
+    cleg = _of_kind(C.DODGER, 24, 10)
+    cleg.notice = 30
+    swarm = C.Swarm([cleg])
+    poison = lambda cx, cy: cx == 22        # noqa: E731
+    for _ in range(C.STEP_EVERY * 8):
+        swarm.tick(_lures((20, 10)), (20, 10), OPEN, 64, is_sprayed=poison)
+        assert not poison(cleg.cx, cleg.cy), "walked into the spray"
+
+
+def test_dodging_is_not_immunity():
+    """Spray it is standing on still kills it. Denial, not a force field."""
+    import spikes.spray as sp
+    cleg = _of_kind(C.WARY, 20, 10)
+    swarm = C.Swarm([cleg])
+    spray = sp.Spray(charges=1)
+    spray.patches[(20, 10)] = 100
+    assert spray.kills(swarm.sprayable()) == [cleg]
+
+
+def test_a_dodger_holds_ground_rather_than_charging_it():
+    """Spray still does its job against them: area denial, not a weapon."""
+    cleg = _of_kind(C.DODGER, 22, 10)
+    cleg.notice = 30
+    swarm = C.Swarm([cleg])
+    boxed = lambda cx, cy: (cx, cy) != (22, 10)      # noqa: E731
+    for _ in range(C.STEP_EVERY * 4):
+        swarm.tick(_lures((20, 10)), (20, 10), OPEN, 64, is_sprayed=boxed)
+    assert (cleg.cx, cleg.cy) == (22, 10), "barged out through the spray"
+
+
+# --- flanking --------------------------------------------------------------
+
+def test_a_flanker_comes_in_off_to_one_side():
+    far = _of_kind(C.FLANKER, 30, 10)
+    assert far.aim((20, 10)) != (20, 10), "walked straight down the middle"
+
+
+def test_a_flanker_stops_swinging_wide_once_it_is_close():
+    near = _of_kind(C.FLANKER, 21, 10)
+    assert near.aim((20, 10)) == (20, 10)
+
+
+def test_the_offset_is_never_bigger_than_the_distance_it_switches_at():
+    """Or a flanker goes direct before it ever reaches the line it was taking,
+    and the whole thing quietly does nothing. That was the first version."""
+    for dx, dy in C.FLANK_OFFSETS:
+        assert max(abs(dx), abs(dy)) <= C.FLANK_UNTIL
+
+
+def test_a_plain_cleg_aims_straight_at_it():
+    assert _of_kind(C.PLAIN, 30, 10).aim((20, 10)) == (20, 10)
+
+
+def test_flankers_still_arrive():
+    """Coming the long way round must not mean never getting there."""
+    cleg = _of_kind(C.FLANKER, 27, 10)
+    cleg.notice = 30
+    swarm = C.Swarm([cleg])
+    _run(swarm, [(20, 10)], player=(20, 10), frames=C.STEP_EVERY * 30)
+    assert swarm.attachments >= 1, f"never got there: {(cleg.cx, cleg.cy)}"
+
+
+def test_flankers_do_not_all_take_the_same_line():
+    lines = {C.Cleg(30, 10, seed=1 + i * 7919).flank for i in range(200)}
+    assert len(lines) > 4, f"only {len(lines)} approaches in use"
