@@ -6,16 +6,15 @@ Run from the prototype directory:
 
 Debug keys change the placeholder readouts so the strip can be judged:
 
-    arrows  move the test light      1/2  blood down/up
-    SPACE   hold to light a cell      3/4  lives down/up
-    D       drop a dim source         5/6  light down/up
-    C       clear the light field     7    toggle spotlight lit
-    R       force a strip repaint     8/9  spray down/up
-    M       toggle the marker         0    toggle key held
-    ESC     quit
+    arrows  move, and set facing     G  toggle the personal glow
+    T       toggle the cone           L  toggle the room light
+    C       clear the light field     N  toggle the roaming spotlight
+    R       force a strip repaint     P  roaming: drift <-> path
+    ESC     quit                      1-0  placeholder strip readouts
 
-There is no game here. The strip carries placeholder values, and the test light
-exists only so the fade can be watched decaying LIT -> DIM -> DARK.
+There is no game here -- no collision, no entities. The four sources composite
+through the lighting model so their shapes, their overlap and the fade behind a
+moving light can be judged.
 """
 
 import sys
@@ -26,7 +25,7 @@ from spotlight.core.constants import BLACK, COLS, FRAME_RATE, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import lighting
+from . import lighting, sources
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
@@ -66,8 +65,21 @@ def main(argv: list[str] | None = None) -> int:
         panel.draw(screen)
 
         field = LightField()
-        light_x, light_y = COLS // 2, PLAY_ROWS // 2
-        marker_on, marker_x, repaints = False, 0, 0
+        glow = sources.Glow()
+        glow.x, glow.y = COLS // 2, PLAY_ROWS // 2
+        room = sources.RoomLight(left=2, top=2, width=7, height=5)
+        cone = sources.Cone(reach=7)
+        cone.x, cone.y, cone.facing = glow.x, glow.y, sources.RIGHT
+        roaming = sources.Roaming(
+            x=COLS - 6, y=PLAY_ROWS - 5, radius=3,
+            path=[(COLS - 4, 3), (COLS - 4, PLAY_ROWS - 4),
+                  (COLS - 20, PLAY_ROWS - 4), (COLS - 20, 3)],
+        )
+        roaming.set_mode(sources.Roaming.DRIFT)
+        all_sources = (glow, room, cone, roaming)
+        cone_full = cone.power
+
+        repaints = 0
         running = True
         while running:
             for event in pygame.event.get():
@@ -78,10 +90,20 @@ def main(argv: list[str] | None = None) -> int:
                         running = False
                     elif event.key == pygame.K_r:
                         panel.draw(screen, force=True)
-                    elif event.key == pygame.K_m:
-                        marker_on = not marker_on
                     elif event.key == pygame.K_c:
                         field.charge[:] = bytes(len(field.charge))
+                    elif event.key == pygame.K_g:
+                        glow.toggle()
+                    elif event.key == pygame.K_l:
+                        room.toggle()
+                    elif event.key == pygame.K_t:
+                        cone.toggle()
+                    elif event.key == pygame.K_n:
+                        roaming.toggle()
+                    elif event.key == pygame.K_p:
+                        roaming.set_mode(sources.Roaming.DRIFT
+                                         if roaming.mode == sources.Roaming.PATH
+                                         else sources.Roaming.PATH)
                     for key, name, delta in BINDINGS:
                         if event.key != key:
                             continue
@@ -90,18 +112,26 @@ def main(argv: list[str] | None = None) -> int:
                                   else current + delta)
 
             keys = pygame.key.get_pressed()
-            light_x = max(0, min(COLS - 1, light_x
-                                 + keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]))
-            light_y = max(0, min(PLAY_ROWS - 1, light_y
-                                 + keys[pygame.K_DOWN] - keys[pygame.K_UP]))
+            dx = keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]
+            dy = keys[pygame.K_DOWN] - keys[pygame.K_UP]
+            if dx or dy:
+                glow.x = max(0, min(COLS - 1, glow.x + dx))
+                glow.y = max(0, min(PLAY_ROWS - 1, glow.y + dy))
+                # Facing is the direction last moved; it aims the cone.
+                if dx:
+                    cone.facing = sources.RIGHT if dx > 0 else sources.LEFT
+                else:
+                    cone.facing = sources.DOWN if dy > 0 else sources.UP
+            cone.x, cone.y = glow.x, glow.y
 
-            # Lighting: sources contribute, brightest wins, then everything
-            # decays by a frame.
+            roaming.update()
+            cone.drain()
+            panel.set("light", cone.power * 6 // max(1, cone_full))
+
+            # Sources contribute, brightest wins, then everything decays.
             field.begin()
-            if keys[pygame.K_SPACE]:
-                field.add(light_x, light_y, lighting.LIT)
-            if keys[pygame.K_d]:
-                field.add(light_x, light_y, lighting.DIM)
+            for src in all_sources:
+                src.apply(field)
             field.commit()
 
             # The play area is cleared every frame; the strip is not touched.
@@ -110,9 +140,6 @@ def main(argv: list[str] | None = None) -> int:
                 for cx in range(COLS):
                     if field.level_at(cx, cy):
                         screen.fill_cell_pixels(cx, cy, on=True)
-            if marker_on:
-                marker_x = (marker_x + 1) % COLS
-                screen.fill_cell_pixels(marker_x, PLAY_ROWS // 2, on=True)
 
             # Light decides colour, and nothing else does. This overwrites
             # every play-area attribute, so it must come after the drawing.
