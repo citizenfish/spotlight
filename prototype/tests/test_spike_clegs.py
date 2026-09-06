@@ -541,3 +541,23 @@ def test_wandering_still_respects_walls():
     for _ in range(C.DRIFT_EVERY * 60):
         swarm.tick([], (0, 0), wall, 64)
         assert not wall(cleg.cx, cleg.cy)
+
+
+def test_no_two_clegs_stand_on_the_same_cell():
+    """They steer for the same light by the same rule, so without elbow room
+    they converge on one square and stack -- one Cleg drawn six times."""
+    swarm = C.Swarm([C.Cleg(20 + i, 10, seed=0xBEEF + i) for i in range(6)])
+    for cleg in swarm.clegs:
+        cleg.notice = 30
+    for _ in range(C.STEP_EVERY * 20):
+        swarm.tick(_lures((26, 10)), (0, 0), OPEN, 10 ** 9)
+        loose = [(c.cx, c.cy) for c in swarm.clegs if c.state != C.ATTACHED]
+        assert len(loose) == len(set(loose)), f"two on one cell: {loose}"
+
+
+def test_they_can_still_all_reach_the_player():
+    """The player's cell is the exception: several can feed at once, and an
+    arriving one must not be blocked by the ones already there."""
+    swarm = C.Swarm([C.Cleg(20, 10) for _ in range(4)])
+    _run(swarm, [(20, 10)], player=(20, 10), frames=1)
+    assert len(swarm.attached()) == 4

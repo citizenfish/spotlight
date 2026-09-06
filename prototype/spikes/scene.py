@@ -133,10 +133,13 @@ MOVERS = frozenset({"worker", "cleg"})
 
 #: Entities, at deliberately awkward pixel offsets so they straddle cells.
 #: (sprite name, x, y) in pixels.
-ENTITIES = (
-    ("body", 7 * 8 + 2, 17 * 8 + 4),
-    ("nest", 27 * 8 + 5, 19 * 8 + 1),
-)
+#: Fixed scenery. **Empty on purpose.** A body and a nest were placed here while
+#: sprites were the question in spike 1, and they stayed long after they meant
+#: anything -- two objects on screen that could not be reached, sprayed or
+#: rescued. Bodies come from workers who bleed out now, and nests are not built.
+#: The list stays because the drawing code and its tests are about the *kinds*
+#: of thing a room holds, not about these two.
+ENTITIES = ()
 
 #: Trapped workers, as (x, y) in pixels. **These are the reason to want light.**
 #:
@@ -152,15 +155,40 @@ ENTITIES = (
 #:
 #: Spread into corners the player has to commit to, and one behind the inner
 #: room's single doorway.
+#:
+#: **None of them near the exit.** One was two cells from the door, which is not
+#: a rescue -- there is no journey, no decision about when to leave, and nothing
+#: the clock can bite on. A worker's distance from the way out is the size of the
+#: bet you take by going to fetch them.
 WORKERS = (
     (14 * 8 + 3, 4 * 8 + 2),        # inside the inner room, through one door
     (3 * 8 + 4, 2 * 8),             # top left
-    (28 * 8, 1 * 8),                # top right, by the door
+    (9 * 8 + 2, 4 * 8),             # north, behind the inner room
     (2 * 8 + 3, 19 * 8),            # bottom left
     (29 * 8, 19 * 8),               # bottom right, behind the low wall
     (17 * 8 + 5, 16 * 8),           # open floor, easy
     (7 * 8 + 2, 11 * 8),            # mid left
 )
+
+#: What the exit sign says, and it is always on.
+EXIT_SIGN = "EXIT"
+
+
+def exit_sign_cells() -> list[tuple[int, int]]:
+    """Where the sign hangs: alongside the door, on the same row.
+
+    **Lit whatever else is,** because that is what an emergency exit sign does --
+    it has its own battery and it is the one thing in a failing building you can
+    count on seeing. It is also the only fixed thing in the room that tells the
+    player where they are going, and a way out you cannot find is not a way out.
+
+    Beside rather than above: the door is in the top wall, and above it is the
+    wall itself.
+    """
+    ex, ey = exit_cell()
+    left = max(0, min(COLS - len(EXIT_SIGN), ex - len(EXIT_SIGN)))
+    return [(left + i, ey) for i in range(len(EXIT_SIGN))]
+
 
 def exit_cell() -> tuple[int, int]:
     """The one cell that counts as out. Reaching it with a tail saves them."""

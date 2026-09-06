@@ -311,3 +311,49 @@ def test_a_run_is_settled_when_everybody_is_out_or_dead():
     rescue.reach(rescue.workers[1].cells())
     rescue.deliver({(10, 3)})
     assert rescue.settled and rescue.saved == 1 and rescue.lost == 1
+
+
+# --- the clock you can hear (issue #13) ------------------------------------
+
+def test_a_worker_shouts_more_often_as_they_weaken():
+    """The clock, and the only form it takes. A number counting down is not
+    something a person in a dark building would know."""
+    w = R.Worker(80, 48)
+    fresh = w.call_period
+    w.blood = R.WORKER_BLOOD // 4
+    assert w.call_period < fresh
+    w.blood = 1
+    assert w.call_period < R.CALL_PERIOD // 4
+
+
+def test_the_most_frantic_call_is_still_a_call_not_a_siren():
+    w = R.Worker(80, 48, blood=1)
+    assert w.call_period >= R.CALL_PERIOD_URGENT
+    assert w.call_period > R.CALL_FRAMES * 2, "shouting more than it is silent"
+
+
+# --- the room (issue #13) --------------------------------------------------
+
+def test_no_worker_starts_within_reach_of_the_exit():
+    """A worker beside the door is not a rescue: no journey, no decision about
+    when to leave, and nothing for the clock to bite on."""
+    ex = scene.exit_cell()
+    for x, y in scene.WORKERS:
+        cell = (x // 8, (y + 15) // 8)
+        assert max(abs(cell[0] - ex[0]), abs(cell[1] - ex[1])) > 8, \
+            f"the worker at {cell} is on the doorstep"
+
+
+def test_the_exit_carries_a_sign_beside_it():
+    ex = scene.exit_cell()
+    sign = scene.exit_sign_cells()
+    assert len(sign) == len(scene.EXIT_SIGN)
+    assert all(not scene.is_solid(cx, cy) for cx, cy in sign)
+    assert all(cy == ex[1] for _, cy in sign), "the sign is not beside the door"
+    assert max(abs(cx - ex[0]) for cx, _ in sign) <= len(scene.EXIT_SIGN)
+
+
+def test_the_room_holds_nothing_that_cannot_be_touched():
+    """Anything drawn is a claim that it matters; the player paid light to see
+    it. A body and a nest sat here long after they meant anything."""
+    assert scene.ENTITIES == ()

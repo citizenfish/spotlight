@@ -15,6 +15,9 @@ Two consequences of that rule are worth stating because they are easy to lose:
   leave a spotlight burning, walk away in the dark, and the swarm goes to it.
 * **They notice light near them, not light anywhere.** Each fly has its own
   range, so a light recruits the ones around it and leaves the rest blundering.
+* **No two of them share a cell.** They all steer for the same light by the same
+  rule, so without this they converge on one square and stack -- which is not a
+  swarm, it is one Cleg drawn six times.
 * **Your own glow reaches a few cells.** Standing still in the dark is a short
   reprieve rather than a hiding place: nothing crosses the room for you, but
   whatever blunders close will find you. Keep moving.
@@ -342,6 +345,22 @@ class Swarm:
 
     # --- the frame ---------------------------------------------------------
 
+    def _elbow_room(self, player_cell):
+        """Cells another Cleg is standing in, which none may step into.
+
+        Without it they pile onto whichever square the nearest light is at --
+        every one of them steering by the same rule to the same place, arriving
+        as a single blob. Keeping a cell each spreads the same arrival over the
+        ground around it, which is what a swarm looks like.
+
+        The player's own cell is left out. Several can be attached to you at
+        once, and an arriving one must never be blocked from reaching you by
+        the ones already feeding.
+        """
+        taken = {(c.cx, c.cy) for c in self.clegs if c.state != ATTACHED}
+        taken.discard(player_cell)
+        return taken
+
     def tick(self, lures, player_cell, is_solid, blood: int,
              is_sprayed=None) -> int:
         """Advance every Cleg. Returns blood remaining.
@@ -367,6 +386,7 @@ class Swarm:
         ground against them -- it just no longer kills them for free.
         """
         self.drained = 0
+        taken = self._elbow_room(player_cell)
         for cleg in self.clegs:
             if cleg.state == ATTACHED:
                 # It is on you, so it goes where you go. Walking away does not
@@ -382,7 +402,13 @@ class Swarm:
                     cleg.state = HUNTING
                 if cleg._tick >= SATED_DRIFT_EVERY:
                     cleg._tick = 0
-                    cleg._drift(is_solid, is_sprayed if cleg.dodges else None)
+                    here = (cleg.cx, cleg.cy)
+                    taken.discard(here)
+                    poison = is_sprayed if cleg.dodges else None
+                    cleg._drift(is_solid,
+                                lambda cx, cy: (cx, cy) in taken
+                                or (poison is not None and poison(cx, cy)))
+                    taken.add((cleg.cx, cleg.cy))
                 continue
 
             # Hunting. A light it can notice becomes the place it is going;
@@ -400,7 +426,11 @@ class Swarm:
             if cleg._tick < (cleg.step_every if target else DRIFT_EVERY):
                 continue
             cleg._tick = 0
-            avoid = is_sprayed if cleg.dodges else None
+            here = (cleg.cx, cleg.cy)
+            taken.discard(here)
+            poison = is_sprayed if cleg.dodges else None
+            avoid = (lambda cx, cy: (cx, cy) in taken
+                     or (poison is not None and poison(cx, cy)))
             if target is None:
                 cleg._drift(is_solid, avoid)
             else:
@@ -410,6 +440,7 @@ class Swarm:
                     cleg.goal = None
                 if (cleg.cx, cleg.cy) == player_cell:
                     self._attach(cleg)
+            taken.add((cleg.cx, cleg.cy))
         return blood
 
     def _attach(self, cleg: Cleg) -> None:

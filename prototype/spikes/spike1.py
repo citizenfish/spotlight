@@ -66,7 +66,7 @@ import sys
 import pygame
 
 from spotlight.core.constants import (
-    BLACK, CELL, COLS, CYAN, FRAME_RATE, GREEN, WHITE,
+    BLACK, CELL, COLS, CYAN, FRAME_RATE, GREEN, RED, WHITE,
 )
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         tally = tally_mod.Tally()
         panel.set_total("rescued", len(rescue.workers))
         panel.set("rescued", 0)
+        sign_cells = scene.exit_sign_cells()
         lives = LIVES
         panel.set("lives", lives)
         over = None
@@ -381,6 +382,11 @@ def main(argv: list[str] | None = None) -> int:
             for cx, cy in call_cells:
                 field.add(cx, cy, lighting.LIT, memory=1,
                           hue=GREEN, reveals=False)
+            # The exit sign has its own battery, as they do. It is the one thing
+            # in a failing building you can always see.
+            for cx, cy in sign_cells:
+                field.add(cx, cy, lighting.LIT, memory=1,
+                          hue=RED, reveals=False)
             field.commit()
 
             # The play area is cleared every frame; the strip is not touched.
@@ -415,6 +421,10 @@ def main(argv: list[str] | None = None) -> int:
                              cleg.cy * CELL, visible=field.reveals_at)
             sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
+            for i, (cx, cy) in enumerate(sign_cells):
+                font.draw_glyph(screen, cx, cy,
+                                font.GLYPHS[scene.EXIT_SIGN[i]])
+
             # "HELP", above the head of anybody shouting. Drawn whatever the
             # light is doing, because it is a voice and not a sighting.
             for worker in shouting:
@@ -427,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
             frame_inks = bytearray(inks)
             for cx, cy in call_cells:
                 frame_inks[cy * COLS + cx] = GREEN
+            for cx, cy in sign_cells:
+                frame_inks[cy * COLS + cx] = RED
             for cx, cy in spray.patches:
                 for dy, bits in enumerate(spray_mod.STIPPLE):
                     for dx in range(CELL):

@@ -49,6 +49,16 @@ CALL = "HELP"
 CALL_PERIOD = 600
 CALL_FRAMES = 20
 
+#: The shortest a call cycle gets, for somebody nearly gone.
+#:
+#: **This is the clock, made audible.** There is no timer on screen and there
+#: should not be -- a number counting down is not what a person in a dark
+#: building would know. What they would know is that the shouting has got more
+#: urgent. A worker calls every twelve seconds when they are fresh and every two
+#: when they are nearly out, so the room tells you who to go to first without
+#: ever telling you a figure.
+CALL_PERIOD_URGENT = 100
+
 # --- the clock -------------------------------------------------------------
 
 #: Blood a worker starts with, and how often they lose a point of it.
@@ -162,7 +172,13 @@ class Worker:
         """
         if self.state != WAITING:
             return False
-        return (frame + self.phase) % CALL_PERIOD < CALL_FRAMES
+        return (frame + self.phase) % self.call_period < CALL_FRAMES
+
+    @property
+    def call_period(self) -> int:
+        """How often they shout: more often the less blood they have left."""
+        span = CALL_PERIOD - CALL_PERIOD_URGENT
+        return CALL_PERIOD_URGENT + span * self.blood // max(1, WORKER_BLOOD)
 
     def call_cells(self) -> list[tuple[int, int]]:
         """Where the word sits: above their head, or below if there is no room."""
