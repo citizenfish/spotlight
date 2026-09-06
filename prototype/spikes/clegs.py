@@ -91,6 +91,10 @@ FLANK_UNTIL = 4
 STEP_EVERY = 9
 STEP_SPREAD = 3
 
+#: Steps a wandering Cleg holds one heading for, and how much that varies.
+#: Long enough to cross a good part of the room before it changes its mind.
+ROAM_RUN, ROAM_SPREAD = 6, 9
+
 #: Frames between steps for a Cleg with nothing to steer for.
 #:
 #: Deliberately slow. A Cleg with no light to chase should mill about roughly
@@ -114,8 +118,49 @@ DRAIN_EVERY = 12
 #: it fed from, notices the glow it is standing in, and bites again for ever --
 #: one Cleg draining a whole blood budget on its own, which is not a swarm, it
 #: is a leak.
-SATED_FRAMES = 150
+#: Ten seconds, which is long and deliberately so. **A swarm reaching you has
+#: to be a crisis rather than a climate.** At three seconds a fed Cleg was back
+#: on you almost at once and six of them held a permanent grip -- roughly a bite
+#: every three seconds, for ever, which is not a swarm arriving, it is weather.
+#: Long enough away, and drifting briskly while it is, means an arrival is an
+#: event you survive and then have time to do something about.
+SATED_FRAMES = 500
 SATED_DRIFT_EVERY = 9
+
+# --- hunger ----------------------------------------------------------------
+#
+# **A Cleg that has not fed notices fainter light.**
+#
+# This is the answer to a problem that took measuring to see. With the light
+# off, the only light on the player is their own glow, which carries two cells,
+# so effectively nothing ever targeted them: over two minutes of hiding in a
+# corner, 37% of the swarm was chasing the searchlight, 15% was idle, and **1%
+# was heading for the player.** You could sit in a corner and watch them ignore
+# you, because a searchlight is a light they can always notice and never catch,
+# and it occupied them for ever.
+#
+# Hunger fixes it without adding a second stimulus, which matters -- light is
+# the only thing Clegs respond to and that rule is load-bearing. Hunger does not
+# change *what* they respond to. It changes **how faint a light has to be before
+# they cannot notice it**, which is a property of the fly, not of the world.
+#
+# What it buys is the thing the room was missing: **pressure that builds.** The
+# dark is a genuine refuge for a while and then stops being one, so hiding is a
+# breather you take rather than a place you live. It also gives the swarm a
+# rhythm -- they converge, feed, lose interest, and drift back -- which reads as
+# an animal rather than as a rule.
+
+#: Frames of not feeding per extra cell of sensitivity. Five seconds a cell.
+HUNGER_STEP = 250
+
+#: The most it can add. Past this a fly is as keen as it is going to get, and
+#: without a cap a long quiet spell would make the whole room omniscient.
+#:
+#: Twelve, so a starving Cleg notices the glow from fourteen cells and not from
+#: across the room. Both numbers want playing with rather than arguing about --
+#: they set how quickly the dark stops being a refuge, which is the single
+#: dial that decides whether hiding is a breather or a strategy.
+KEEN_MAX = 12
 
 #: How far a Cleg can notice a light, and how much that varies between them.
 #:
@@ -135,7 +180,8 @@ class Cleg:
     """One fly. Position is a cell; Clegs do not need pixel placement."""
 
     __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "kind",
-                 "flank", "step_every", "_timer", "_tick", "_seed")
+                 "flank", "step_every", "hunger", "heading", "_run",
+                 "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -155,6 +201,16 @@ class Cleg:
         self.kind = TEMPERAMENTS[self._random() % len(TEMPERAMENTS)]
         self.flank = FLANK_OFFSETS[self._random() % len(FLANK_OFFSETS)]
         self.step_every = STEP_EVERY + self._random() % STEP_SPREAD
+        #: Frames since it last fed. Makes it keener, never faster.
+        self.hunger = 0
+        #: Which way it is wandering, and how much longer for.
+        self.heading = (0, 0)
+        self._run = 0
+
+    @property
+    def keenness(self) -> int:
+        """Extra cells of sensitivity bought by going hungry."""
+        return min(KEEN_MAX, self.hunger // HUNGER_STEP)
 
     @property
     def dodges(self) -> bool:
@@ -221,17 +277,26 @@ class Cleg:
                 return
 
     def _drift(self, is_solid, avoid=None) -> None:
-        """A step with no preference, for a Cleg with nothing to steer for.
+        """Wander, for a Cleg with nothing to steer for.
 
-        Each axis is the difference of two bits, so it is -1, 0, 0 or 1 -- one
-        cell at most and no direction favoured. Taking two bits as a number
-        instead drifts steadily down and to the right, which reads as purpose
-        and is exactly what a Cleg with nothing to aim at must not have.
+        It holds a heading for a run of steps rather than re-rolling every
+        time. That single change is the difference between **diffusing and
+        going somewhere**: an unbiased step-by-step walk barely leaves where it
+        started, so parts of the room stayed permanently empty and a player who
+        sat in one was left alone by everything that was not already beside
+        them. Holding a heading covers ground at the same slow pace.
+
+        It is also what a fly looks like. They do not jitter on the spot; they
+        cross a room, stop, and cross it again.
         """
-        r = self._random()
-        dx = (r & 1) - ((r >> 1) & 1)
-        dy = ((r >> 2) & 1) - ((r >> 3) & 1)
-        self._try(dx, dy, is_solid, avoid)
+        if self._run <= 0 or not self._try(*self.heading, is_solid, avoid):
+            r = self._random()
+            dx = (r & 1) - ((r >> 1) & 1)
+            dy = ((r >> 2) & 1) - ((r >> 3) & 1)
+            self.heading = (dx, dy)
+            self._run = ROAM_RUN + (r >> 4) % ROAM_SPREAD
+            self._try(dx, dy, is_solid, avoid)
+        self._run -= 1
 
 
 class Swarm:
@@ -245,8 +310,8 @@ class Swarm:
     # --- the one rule ------------------------------------------------------
 
     @staticmethod
-    def nearest_lure(cx: int, cy: int, lures,
-                     within: int | None = None) -> tuple[int, int] | None:
+    def nearest_lure(cx: int, cy: int, lures, within: int | None = None,
+                     keenness: int = 0) -> tuple[int, int] | None:
         """The closest light this Cleg can notice, or None.
 
         Each lure is `(cx, cy, reach)`: where it is, and how far it carries.
@@ -254,12 +319,18 @@ class Swarm:
         bright light across the room is no use to a fly that cannot notice it,
         and your dim glow is no use to one three rooms away.
 
+        `keenness` is what hunger adds to a light's reach. It matters only for
+        faint ones: a bright light already carries further than any Cleg can
+        notice, so hunger cannot make it carry further still. The one light it
+        does change is the player's own glow, which is exactly the point.
+
         Squared distance, so there is no square root -- the Z80 has neither
         that nor a divide, and comparing squares orders the same as comparing
         distances.
         """
         best, best_d2 = None, None
         for lx, ly, reach in lures:
+            reach += keenness
             limit = reach if within is None else min(within, reach)
             dx, dy = lx - cx, ly - cy
             d2 = dx * dx + dy * dy
@@ -280,10 +351,12 @@ class Swarm:
         and the swarm loses interest and blunders.
 
         **A Cleg that ends up in your cell attaches, lit or not.** It does not
-        have to see you to land on you. Requiring light for that was tried and
-        was wrong twice over: walking into a fly did nothing at all, which reads
-        as a broken game, and standing still in the dark was perfect safety,
-        which makes the best play no play.
+        have to see you to land on you.
+
+        Gating that on the Cleg having *chosen* you was tried and turned out to
+        be dead code: your glow is a lure at zero distance, so anything in your
+        cell has noticed you by definition. Worth recording, because the idea is
+        an obvious one to have twice.
 
         What the dark still buys you is that nothing *comes looking* from far
         away -- see `sources.Source.lure`. You are hard to find, not immune.
@@ -314,7 +387,9 @@ class Swarm:
 
             # Hunting. A light it can notice becomes the place it is going;
             # one it cannot notice may as well not be lit.
-            seen = self.nearest_lure(cleg.cx, cleg.cy, lures, cleg.notice)
+            cleg.hunger += 1
+            seen = self.nearest_lure(cleg.cx, cleg.cy, lures, cleg.notice,
+                                     cleg.keenness)
             if seen is not None:
                 cleg.goal = seen
             target = cleg.goal
@@ -362,6 +437,7 @@ class Swarm:
                 cleg._timer = SATED_FRAMES
                 cleg._tick = 0
                 cleg.goal = None
+                cleg.hunger = 0        # fed, and no longer straining to find you
         return blood
 
     # --- what the rest of the game sees -------------------------------------

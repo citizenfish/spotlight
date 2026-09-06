@@ -445,3 +445,99 @@ def test_flankers_still_arrive():
 def test_flankers_do_not_all_take_the_same_line():
     lines = {C.Cleg(30, 10, seed=1 + i * 7919).flank for i in range(200)}
     assert len(lines) > 4, f"only {len(lines)} approaches in use"
+
+
+# --- hunger: the dark stops being a refuge (issue #10) ---------------------
+
+def test_a_fed_cleg_is_not_keen():
+    assert C.Cleg(5, 5).keenness == 0
+
+
+def test_going_hungry_makes_it_notice_fainter_light():
+    cleg = C.Cleg(5, 5)
+    cleg.hunger = C.HUNGER_STEP * 4
+    assert cleg.keenness == 4
+
+
+def test_keenness_is_capped():
+    cleg = C.Cleg(5, 5)
+    cleg.hunger = C.HUNGER_STEP * 1000
+    assert cleg.keenness == C.KEEN_MAX
+
+
+def test_hunger_only_helps_with_faint_light():
+    """A bright light already carries further than any Cleg can notice."""
+    faint = [(20, 10, 2)]
+    bright = [(20, 10, S.FAR)]
+    assert C.Swarm.nearest_lure(28, 10, faint, within=30) is None
+    assert C.Swarm.nearest_lure(28, 10, faint, within=30, keenness=8) == (20, 10)
+    # The bright one was already noticed, and stays noticed. No change.
+    assert C.Swarm.nearest_lure(28, 10, bright, within=30) == (20, 10)
+
+
+def test_a_cleg_cannot_notice_past_its_own_range_however_hungry():
+    """Hunger sharpens the senses; it does not grant omniscience."""
+    assert C.Swarm.nearest_lure(28, 10, [(20, 10, 2)], within=4,
+                                keenness=99) is None
+
+
+def test_hunger_builds_while_hunting_and_resets_on_feeding():
+    cleg = C.Cleg(20, 10, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    _run(swarm, [], player=(0, 0), frames=300)
+    assert cleg.hunger >= 300
+
+    _run(swarm, [], player=(cleg.cx, cleg.cy), frames=1)
+    assert cleg.state == C.ATTACHED
+    _run(swarm, [], player=(cleg.cx, cleg.cy),
+         frames=C.DRAIN_EVERY * C.DRAIN_TOTAL)
+    assert cleg.state == C.SATED
+    assert cleg.hunger == 0, "still straining to find you on a full stomach"
+
+
+def test_standing_still_in_the_dark_gets_you_found_eventually():
+    """The whole point: hiding is a breather, not a strategy."""
+    far = C.Cleg(5, 5, seed=0xBEEF)
+    far.notice = 20
+    swarm = C.Swarm([far])
+    glow = S.Glow(); glow.x, glow.y = 14, 10
+    for _ in range(50 * 90):
+        swarm.tick([glow.lure()], (14, 10), OPEN, 10 ** 9)
+    assert swarm.attachments >= 1, "hid for a minute and a half undisturbed"
+
+
+# --- wandering, rather than diffusing --------------------------------------
+
+def test_a_wandering_cleg_holds_its_heading_for_a_run():
+    cleg = C.Cleg(16, 11, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    seen = []
+    last = (cleg.cx, cleg.cy)
+    for _ in range(C.DRIFT_EVERY * 6):
+        swarm.tick([], (0, 0), OPEN, 64)
+        if (cleg.cx, cleg.cy) != last:
+            seen.append((cleg.cx - last[0], cleg.cy - last[1]))
+            last = (cleg.cx, cleg.cy)
+    assert seen, "never moved"
+    assert len(set(seen)) < len(seen), "re-rolled its heading every single step"
+
+
+def test_a_wandering_cleg_actually_goes_somewhere():
+    """An unbiased step-by-step walk barely leaves where it started, which is
+    what left parts of the room permanently empty."""
+    reach = []
+    for i in range(20):
+        cleg = C.Cleg(16, 11, seed=1 + i * 7919)
+        swarm = C.Swarm([cleg])
+        _run(swarm, [], player=(0, 0), frames=C.DRIFT_EVERY * 40)
+        reach.append(max(abs(cleg.cx - 16), abs(cleg.cy - 11)))
+    assert sum(reach) / len(reach) > 5, f"average displacement {sum(reach)/20:.1f}"
+
+
+def test_wandering_still_respects_walls():
+    cleg = C.Cleg(16, 11, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    wall = lambda cx, cy: cx > 18       # noqa: E731
+    for _ in range(C.DRIFT_EVERY * 60):
+        swarm.tick([], (0, 0), wall, 64)
+        assert not wall(cleg.cx, cleg.cy)
