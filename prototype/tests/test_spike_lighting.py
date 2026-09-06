@@ -161,3 +161,33 @@ def test_levels_returns_one_entry_per_cell():
     levels = f.levels()
     assert len(levels) == COLS * layout.PLAY_ROWS
     assert levels[5 * COLS + 5] == L.LIT
+
+
+# --- the fade curve --------------------------------------------------------
+
+def test_lit_is_a_short_head_and_dim_is_a_long_tail():
+    """Bright must mean 'lit right now', not 'lit within the last 1.5s'."""
+    f = _lit_then_left()
+    levels = []
+    for _ in range(L.FADE_FRAMES + 1):
+        levels.append(f.level_at(5, 5))
+        f.begin(); f.commit()
+    lit, dim = levels.count(L.LIT), levels.count(L.DIM)
+    assert lit == L.LIT_FRAMES
+    assert dim > lit * 3, f"dim tail ({dim}) should dwarf the lit head ({lit})"
+    assert lit + dim == L.FADE_FRAMES
+
+
+def test_a_dim_source_never_reads_as_lit_however_long_it_shines():
+    f = L.LightField()
+    for _ in range(L.FADE_FRAMES * 2):
+        f.begin(); f.add(5, 5, L.DIM); f.commit()
+    assert f.level_at(5, 5) == L.DIM
+
+
+def test_a_dim_source_still_leaves_a_memory():
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.DIM); f.commit()
+    for _ in range(L.FADE_FRAMES // 2):
+        f.begin(); f.commit()
+    assert f.level_at(5, 5) == L.DIM, "dim light should linger, not snap off"

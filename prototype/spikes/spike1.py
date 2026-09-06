@@ -26,7 +26,7 @@ from spotlight.core.constants import BLACK, CELL, COLS, FRAME_RATE, WHITE
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import lighting, scene, sources, sprites
+from . import floor, lighting, scene, sources, sprites
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
@@ -148,6 +148,10 @@ def main(argv: list[str] | None = None) -> int:
                 for cx in range(COLS):
                     if scene.is_solid(cx, cy):
                         screen.fill_cell_pixels(cx, cy, on=True)
+
+            # Lit floor is stippled, denser when fully lit. Without this the
+            # light has no visible shape -- it only reveals what it falls on.
+            floor.draw(screen, field, scene.is_solid)
 
             # Sprites set pixels only. Their colour comes from whichever cells
             # they happen to be standing in.

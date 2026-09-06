@@ -29,18 +29,27 @@ DARK, DIM, LIT = 0, 1, 2
 #: 50 frames is one second, so 150 is three.
 FADE_FRAMES = 150
 
+#: How long a cell keeps reading LIT after the light has left it -- a fifth of
+#: the fade, so bright means *lit right now* and the long dim tail means
+#: *remembered*. An even split made a cell look fully lit for a second and a
+#: half after the light had moved on, which overstated what the player can see.
+LIT_FRAMES = FADE_FRAMES // 5
+
 CHARGE_LIT = FADE_FRAMES
-CHARGE_DIM = FADE_FRAMES // 2
+LIT_THRESHOLD = FADE_FRAMES - LIT_FRAMES
+
+#: A dim source tops up to exactly the lit threshold: bright enough to leave a
+#: long memory, never bright enough to read as lit.
+CHARGE_DIM = LIT_THRESHOLD
 
 assert CHARGE_LIT <= 0xFF, "charge must fit in a byte"
 
 #: Charge a source of each level tops a cell up to.
 CHARGE_FOR = (0, CHARGE_DIM, CHARGE_LIT)
 
-#: charge -> displayed level. Above half charge a cell still reads as lit, so a
-#: LIT cell spends the first half of its fade bright and the second half dim.
+#: charge -> displayed level.
 _LEVEL_OF = bytes(
-    LIT if c > CHARGE_DIM else DIM if c > 0 else DARK for c in range(256)
+    LIT if c > LIT_THRESHOLD else DIM if c > 0 else DARK for c in range(256)
 )
 
 #: charge -> charge, one frame later. Decay as a translate table costs nothing.
