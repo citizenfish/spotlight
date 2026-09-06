@@ -256,3 +256,55 @@ def test_the_inner_room_is_entered_through_a_one_cell_doorway():
     cx, cy = scene.INNER_DOOR
     assert not scene.is_solid(cx, cy)
     assert scene.is_solid(cx - 1, cy) and scene.is_solid(cx + 1, cy)
+
+
+# --- a person is two cells tall (issue #13) --------------------------------
+
+def _standable(cx, cy):
+    """A cell a whole person can stand in, head and feet."""
+    return not scene.is_solid(cx, cy) and not scene.is_solid(cx, cy - 1)
+
+
+def _reachable_by_a_person(start):
+    seen, stack = set(), [start]
+    while stack:
+        c = stack.pop()
+        if c in seen or not _standable(*c):
+            continue
+        seen.add(c)
+        stack += [(c[0] + dx, c[1] + dy)
+                  for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    return seen
+
+
+def test_every_worker_can_be_reached_by_something_person_shaped():
+    """A single-cell flood fill is not the same question. The player is two
+    cells tall, so a cell can be walkable and still not standable -- their head
+    goes into the wall above. The editor's reachability check has to know that.
+    """
+    from spikes.player import Player
+    from spikes.rescue import Worker
+    player = Player(*scene.PLAYER_START)
+    reachable = _reachable_by_a_person((player.cx, player.cy))
+    for x, y in scene.WORKERS:
+        assert Worker(x, y).cells() & reachable, \
+            f"nobody person-shaped can get to the worker at {x},{y}"
+
+
+def test_the_exit_can_be_reached_by_something_person_shaped():
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    reachable = _reachable_by_a_person((player.cx, player.cy))
+    ex = scene.exit_cell()
+    touching = [c for c in reachable
+                if abs(c[0] - ex[0]) <= 1 and abs(c[1] - ex[1]) <= 1]
+    assert touching, f"the way out at {ex} cannot be reached"
+
+
+def test_a_person_reaches_less_than_a_single_cell_would():
+    """Stated so the difference is not mistaken for a bug later."""
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    loose = _reachable_from((player.cx, player.cy))
+    body = _reachable_by_a_person((player.cx, player.cy))
+    assert body < loose, "the two checks happen to agree; they need not"

@@ -48,35 +48,35 @@ def test_standing_beside_a_worker_does_not_reach_them():
     rescue = _one()
     assert rescue.reach({(9, 6)}) is None
     assert rescue.reach({(11, 6)}) is None
-    assert rescue.remaining == 1
+    assert rescue.waiting == 1
 
 
 def test_a_worker_is_only_found_once():
     rescue = _one()
     assert rescue.reach({(10, 6)}) is not None
     assert rescue.reach({(10, 6)}) is None, "found the same person twice"
-    assert rescue.found == 1
+    assert len(rescue.tail) == 1
 
 
 def test_the_room_is_cleared_when_everybody_is_found():
     rescue = R.Rescue([(80, 48), (160, 96)])
-    assert not rescue.all_found
+    assert rescue.waiting
     rescue.reach({(10, 6)})
-    assert not rescue.all_found
+    assert rescue.waiting
     rescue.reach({(20, 12)})
-    assert rescue.all_found and rescue.remaining == 0
+    assert rescue.waiting == 0
 
 
 def test_those_already_found_stop_being_waiting():
     rescue = R.Rescue([(80, 48), (160, 96)])
     rescue.reach({(10, 6)})
-    assert len(rescue.waiting()) == 1
+    assert rescue.waiting == 1
 
 
 def test_the_scene_gives_the_player_something_to_look_for():
     """Spike 2 could not answer its own question with an empty room."""
     rescue = R.Rescue(scene.WORKERS)
-    assert rescue.remaining == len(scene.WORKERS) >= 5
+    assert rescue.waiting == len(scene.WORKERS) >= 5
 
 
 # --- what a run cost -------------------------------------------------------
@@ -130,7 +130,7 @@ def test_a_call_is_brief_against_the_silence():
 def test_somebody_already_found_stops_calling():
     w = R.Worker(80, 48)
     assert any(w.calling(f) for f in range(R.CALL_PERIOD))
-    w.found = True
+    w.state = R.FOLLOWING
     assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
 
 
@@ -174,3 +174,140 @@ def test_every_scene_worker_can_be_heard_inside_the_room():
     for w in R.Rescue(scene.WORKERS).workers:
         for cx, cy in w.call_cells():
             assert 0 <= cx < COLS and 0 <= cy < PLAY_ROWS
+
+
+# --- the clock (issue #13) -------------------------------------------------
+
+def test_a_worker_bleeds_from_the_moment_the_level_starts():
+    """This is the clock. Without it the best play is dark and methodical,
+    which is safe, correct and dull."""
+    w = R.Worker(80, 48)
+    assert w.blood == R.WORKER_BLOOD
+    for _ in range(R.BLEED_EVERY):
+        w.tick()
+    assert w.blood == R.WORKER_BLOOD - 1
+
+
+def test_a_worker_left_alone_dies_and_leaves_a_body():
+    rescue = R.Rescue([(80, 48)])
+    w = rescue.workers[0]
+    died = []
+    for _ in range(R.BLEED_EVERY * R.WORKER_BLOOD):
+        died += rescue.tick()
+    assert died == [w]
+    assert w.state == R.DEAD and not w.alive
+    assert rescue.lost == 1 and rescue.waiting == 0
+    assert rescue.bodies() == [w]
+
+
+def test_a_body_lies_there_before_it_would_turn():
+    """The window the flyspray exists for, even before nests are built."""
+    w = R.Worker(80, 48, blood=1)
+    for _ in range(R.BLEED_EVERY):
+        w.tick()
+    assert w.state == R.DEAD and not w.turning
+    for _ in range(R.BODY_FRAMES):
+        w.tick()
+    assert w.turning
+
+
+def test_a_dead_worker_stops_calling_and_cannot_be_freed():
+    rescue = R.Rescue([(80, 48)])
+    w = rescue.workers[0]
+    w.bleed(R.WORKER_BLOOD)
+    assert w.state == R.DEAD
+    assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
+    assert rescue.reach(w.cells()) is None
+
+
+# --- the tail --------------------------------------------------------------
+
+def test_freeing_somebody_puts_them_in_the_tail_in_order():
+    rescue = R.Rescue([(80, 48), (160, 96), (40, 24)])
+    first, second = rescue.workers[1], rescue.workers[0]
+    rescue.reach(first.cells())
+    rescue.reach(second.cells())
+    assert rescue.tail == [first, second], "the tail is not in collection order"
+    assert all(w.state == R.FOLLOWING for w in rescue.tail)
+
+
+def test_the_tail_walks_the_path_the_player_walked():
+    """Followers step where the player stepped, not toward where they are --
+    which is what makes a line string out round a corner instead of clumping."""
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(rescue.workers[0].cells())
+    follower = rescue.tail[0]
+    for x in range(200, 260):          # walk east
+        rescue.follow(x, 48)
+    assert follower.y == 48
+    assert 0 < 259 - follower.x <= R.TAIL_SPACING + 1, \
+        "the follower is not trailing at the right distance"
+
+
+def test_a_longer_tail_strings_out_rather_than_stacking_up():
+    rescue = R.Rescue([(80, 48), (81, 48), (82, 48)])
+    for w in list(rescue.workers):
+        rescue.reach(w.cells())
+    for x in range(100, 300):
+        rescue.follow(x, 48)
+    xs = [w.x for w in rescue.tail]
+    assert xs == sorted(xs, reverse=True), "the tail is out of order"
+    assert len(set(xs)) == len(xs), "followers are standing on each other"
+
+
+def test_followers_keep_bleeding():
+    """Escorting is against the same clock as searching, so gathering everybody
+    before heading out is a gamble rather than the obvious play."""
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(rescue.workers[0].cells())
+    follower = rescue.tail[0]
+    before = follower.blood
+    for _ in range(R.BLEED_EVERY * 2):
+        rescue.tick()
+    assert follower.blood < before
+
+
+def test_a_follower_who_bleeds_out_leaves_the_tail():
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(rescue.workers[0].cells())
+    for _ in range(R.BLEED_EVERY * R.WORKER_BLOOD):
+        rescue.tick()
+    assert rescue.tail == []
+    assert rescue.lost == 1
+
+
+# --- the way out -----------------------------------------------------------
+
+def test_the_exit_banks_everybody_following():
+    rescue = R.Rescue([(80, 48), (160, 96)], exit_cell=(10, 3))
+    for w in list(rescue.workers):
+        rescue.reach(w.cells())
+    saved = rescue.deliver({(10, 3), (10, 4)})
+    assert len(saved) == 2
+    assert rescue.saved == 2 and rescue.tail == []
+    assert rescue.settled
+
+
+def test_the_exit_is_reached_by_touching_it_not_standing_on_it():
+    """The way out is a door in a wall, and a person is two cells tall -- the
+    feet-cell test made it unreachable."""
+    rescue = R.Rescue([(80, 48)], exit_cell=(10, 1))
+    rescue.reach(rescue.workers[0].cells())
+    assert rescue.deliver({(10, 2), (10, 3)}) == []
+    assert len(rescue.deliver({(10, 1), (10, 2)})) == 1
+
+
+def test_arriving_at_the_exit_with_nobody_does_nothing():
+    rescue = R.Rescue([(80, 48)], exit_cell=(10, 3))
+    assert rescue.deliver({(10, 3)}) == []
+    assert rescue.saved == 0
+
+
+def test_a_run_is_settled_when_everybody_is_out_or_dead():
+    rescue = R.Rescue([(80, 48), (160, 96)], exit_cell=(10, 3))
+    assert not rescue.settled
+    rescue.workers[0].bleed(R.WORKER_BLOOD)
+    assert not rescue.settled
+    rescue.reach(rescue.workers[1].cells())
+    rescue.deliver({(10, 3)})
+    assert rescue.settled and rescue.saved == 1 and rescue.lost == 1

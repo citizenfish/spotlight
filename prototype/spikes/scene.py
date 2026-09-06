@@ -57,6 +57,10 @@ ROOM = (
 
 WALL, FLOOR, DOOR, KEY, ROOM_LIGHT = "#", ".", "D", "K", "L"
 
+#: The way out. Where you came in, and where rescued workers have to be led.
+#: It is the door: a room with a door you cannot leave by is a strange room.
+EXIT = DOOR
+
 #: What hue each kind of cell wears. Light decides how bright; this decides
 #: which colour. Both are per-cell and single-valued, so no clash.
 INK = {
@@ -157,6 +161,14 @@ WORKERS = (
     (17 * 8 + 5, 16 * 8),           # open floor, easy
     (7 * 8 + 2, 11 * 8),            # mid left
 )
+
+def exit_cell() -> tuple[int, int]:
+    """The one cell that counts as out. Reaching it with a tail saves them."""
+    doors = cells_of(EXIT)
+    if not doors:
+        raise ValueError("the room has no way out")
+    return doors[0]
+
 
 #: Where the swarm starts, in cells. Clegs live on the cell grid -- they have
 #: no need of pixel placement, and putting them there would cost the Z80 a

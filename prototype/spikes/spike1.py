@@ -97,6 +97,11 @@ BEAM_SPEEDS = (6, 9, 12, 4)
 #: count what a swarm cost them.
 BLOOD_FULL = 64
 
+#: Lives. Running out of blood costs one and puts you back at the entrance --
+#: the building carries on regardless, so death costs position and time rather
+#: than progress. Workers you did not reach are still bleeding.
+LIVES = 3
+
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 #: Blood, light, spray and the lit flag are all real readouts now and are no
 #: longer pushed about by hand; only lives and keys are still placeholders.
@@ -168,10 +173,13 @@ def main(argv: list[str] | None = None) -> int:
         # A key would be drawn here. This room places none -- see scene.
         for cx, cy in scene.cells_of(scene.KEY):
             fixtures.append((sprites.KEY, cx * CELL, cy * CELL))
-        rescue = rescue_mod.Rescue(scene.WORKERS)
+        rescue = rescue_mod.Rescue(scene.WORKERS, scene.exit_cell())
         tally = tally_mod.Tally()
         panel.set_total("rescued", len(rescue.workers))
         panel.set("rescued", 0)
+        lives = LIVES
+        panel.set("lives", lives)
+        over = None
 
         repaints = 0
         frame = 0
@@ -298,24 +306,52 @@ def main(argv: list[str] | None = None) -> int:
                 tally.swatted += killed
                 print(f"spray killed {killed}; {len(swarm.clegs)} left")
 
-            # The objective: reach the people. Finding them is what the light
-            # is *for*, and without it the bargain has nothing to weigh.
-            reached = rescue.reach(player.occupied_cells())
-            if reached is not None:
-                tally.found = rescue.found
-                panel.set("rescued", rescue.found)
-                print(f"reached a worker -- {rescue.remaining} left, "
-                      f"blood {blood}, {tally.seconds}s")
-                if rescue.all_found:
-                    print("\n*** everybody found ***")
-                    for line in tally.report():
-                        print("   ", line)
+            # Everybody bleeds, found or not. This is the clock, and it is
+            # what makes light compete with time rather than with darkness.
+            for gone in rescue.tick():
+                print(f"a worker bled out at {tally.seconds}s -- "
+                      f"{rescue.lost} lost, {rescue.waiting} still out there")
+
+            # Freeing somebody starts the hard part: they follow, and they go
+            # on bleeding while they do.
+            if rescue.reach(player.occupied_cells()) is not None:
+                print(f"freed a worker -- {len(rescue.tail)} following, "
+                      f"{rescue.waiting} left, {tally.seconds}s")
+            rescue.follow(player.x, player.y)
+
+            # The exit banks whoever is behind you. Leaving early is safe and
+            # slow; gathering everybody first is the gamble.
+            rescue.deliver(player.occupied_cells())
+            if rescue.saved != tally.found:
+                tally.found = rescue.saved
+                panel.set("rescued", rescue.saved)
+                print(f"*** {rescue.saved} out, {rescue.lost} lost, "
+                      f"{rescue.waiting} to find ***")
             now_attached = len(swarm.attached())
             if now_attached > was_attached:
                 tally.attachments += now_attached - was_attached
             if now_attached != was_attached:
                 print(f"attached: {now_attached}  blood {blood}")
             tally.frame(cone.lit, swarm.drained)
+
+            # Death costs a life and puts you back at the entrance. The building
+            # carries on regardless: workers you did not reach are still
+            # bleeding, and the swarm is where you left it.
+            if blood <= 0:
+                lives -= 1
+                panel.set("lives", lives)
+                print(f"\n*** you bled out -- {lives} lives left ***")
+                if lives <= 0:
+                    over = "out of blood"
+                    running = False
+                else:
+                    blood = BLOOD_FULL
+                    player.x, player.y = scene.PLAYER_START
+                    swarm.clegs = [c for c in swarm.clegs
+                                   if c.state != clegs_mod.ATTACHED]
+            elif rescue.settled:
+                over = "nobody left to save"
+                running = False
             picked = kit.tick(player)
             if picked is not None:
                 print(f"swapped: carrying {cone.power}, left "
@@ -363,9 +399,15 @@ def main(argv: list[str] | None = None) -> int:
             # they happen to be standing in.
             for spr, sx, sy in fixtures:
                 sprites.draw(screen, spr, sx, sy)
-            # People are only drawn where a light is on them, and the ones
-            # already reached are not drawn at all.
-            for worker in rescue.waiting():
+            # People are only drawn where a light is on them. A body is not a
+            # person any more: it is part of the building, and the fade may
+            # remember it.
+            for body in rescue.bodies():
+                sprites.draw(screen, sprites.BODY, body.x, body.y + CELL)
+            for worker in rescue.alive_waiting():
+                sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
+                             visible=field.reveals_at)
+            for worker in rescue.tail:
                 sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
                              visible=field.reveals_at)
             for cleg in swarm.clegs:
@@ -410,7 +452,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Issue #10 asks for answers in writing, and a tense two minutes in the
     # dark is not evidence on its own.
-    print(f"\n--- run, {rescue.found} of {len(rescue.workers)} found ---")
+    if over:
+        print(f"\n=== game over: {over} ===")
+    print(f"--- run: {rescue.saved} out, {rescue.lost} lost, "
+          f"{rescue.waiting} never found ---")
     for line in tally.report():
         print("   ", line)
     return 0
