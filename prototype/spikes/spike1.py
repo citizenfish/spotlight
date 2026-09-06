@@ -6,7 +6,7 @@ Run from the prototype directory:
 
 Debug keys change the placeholder readouts so the strip can be judged:
 
-    arrows  move, and set facing     G  toggle the personal glow
+    arrows  walk, and set facing      G  toggle the personal glow
     T       toggle the cone           L  toggle the room light
     C       clear the light field     N  toggle the roaming spotlight
     R       force a strip repaint     P  roaming: drift <-> path
@@ -27,6 +27,7 @@ from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
 from . import floor, lighting, scene, sources, sprites
+from .player import Player
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
@@ -63,14 +64,15 @@ def main(argv: list[str] | None = None) -> int:
         panel.draw(screen)
 
         field = LightField()
+        player = Player(*scene.PLAYER_START)
         glow = sources.Glow()
-        glow.x, glow.y = scene.PLAYER_START[0] // CELL, scene.PLAYER_START[1] // CELL
+        glow.x, glow.y = player.cx, player.cy
         scene.validate()
         inks = scene.ink_map()
         room_lights = [sources.RoomLight(*z) for z in scene.light_zones()]
         room = room_lights[0]
         cone = sources.Cone(reach=7)
-        cone.x, cone.y, cone.facing = glow.x, glow.y, sources.RIGHT
+        cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
         roaming = sources.Roaming(
             x=COLS - 6, y=PLAY_ROWS - 5, radius=3,
             path=[(COLS - 4, 3), (COLS - 4, PLAY_ROWS - 4),
@@ -118,18 +120,14 @@ def main(argv: list[str] | None = None) -> int:
                         panel.set(name, (not current) if delta == 0
                                   else current + delta)
 
+            # Input is read and acted on in the same frame. Nothing buffers,
+            # smooths or accelerates -- responsiveness is a requirement.
             keys = pygame.key.get_pressed()
-            dx = keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]
-            dy = keys[pygame.K_DOWN] - keys[pygame.K_UP]
-            if dx or dy:
-                glow.x = max(0, min(COLS - 1, glow.x + dx))
-                glow.y = max(0, min(PLAY_ROWS - 1, glow.y + dy))
-                # Facing is the direction last moved; it aims the cone.
-                if dx:
-                    cone.facing = sources.RIGHT if dx > 0 else sources.LEFT
-                else:
-                    cone.facing = sources.DOWN if dy > 0 else sources.UP
-            cone.x, cone.y = glow.x, glow.y
+            player.move(keys[pygame.K_RIGHT] - keys[pygame.K_LEFT],
+                        keys[pygame.K_DOWN] - keys[pygame.K_UP],
+                        scene.is_solid)
+            glow.x, glow.y = player.cx, player.cy
+            cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
 
             roaming.update()
             cone.drain()
@@ -157,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             # they happen to be standing in.
             for spr, sx, sy in scenery:
                 sprites.draw(screen, spr, sx, sy)
-            sprites.draw(screen, sprites.PLAYER, glow.x * 8, glow.y * 8 - 8)
+            sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
             # Light decides colour, and nothing else does. This overwrites
             # every play-area attribute, so it must come after the drawing.

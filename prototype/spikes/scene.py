@@ -111,6 +111,12 @@ ENTITIES = (
     ("nest", 27 * 8 + 5, 19 * 8 + 1),
 )
 
-#: Where the player starts: on the edge of the room light, so the very first
-#: thing on screen is a figure straddling a light boundary.
-PLAYER_START = (6 * 8 + 4, 5 * 8)
+#: Where the player starts. Open floor with room to move in every direction, at
+#: an x offset that is not a multiple of 8 so the figure straddles two cell
+#: columns from the very first frame.
+#:
+#: Two things the first attempt got wrong: the whole 8x16 box has to clear the
+#: walls rather than just the cell the coordinates land in -- the first choice
+#: put the player's shoulder inside a wall and they could not move at all -- and
+#: the start should have room in every direction, not be tucked under a wall.
+PLAYER_START = (17 * 8 + 4, 9 * 8)

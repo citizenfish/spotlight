@@ -61,8 +61,23 @@ def test_light_zones_cover_every_authored_light_cell():
 
 
 def test_the_player_starts_somewhere_walkable():
+    """The whole 8x16 box must clear the walls, not just the cell the
+    coordinates land in. Checking one cell let a start position through that
+    had the player's shoulder inside a wall, unable to move at all."""
+    from spikes.player import HEIGHT, WIDTH
     px, py = scene.PLAYER_START
-    assert not scene.is_solid(px // 8, py // 8)
+    blocked = [(cx, cy)
+               for cx in range(px // 8, (px + WIDTH - 1) // 8 + 1)
+               for cy in range(py // 8, (py + HEIGHT - 1) // 8 + 1)
+               if scene.is_solid(cx, cy)]
+    assert not blocked, f"player starts inside walls at {blocked}"
+
+
+def test_the_player_can_actually_move_from_the_start():
+    from spikes.player import Player
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        p = Player(*scene.PLAYER_START)
+        assert p.move(dx, dy, scene.is_solid), f"cannot move ({dx}, {dy})"
 
 
 def test_entities_are_placed_off_the_cell_grid():
