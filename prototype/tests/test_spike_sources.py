@@ -795,3 +795,57 @@ def test_it_pauses_at_the_stations_and_the_pauses_vary():
     dwells = [d for d in S.tour_route(3)[1] if d]
     assert dwells, "never pauses"
     assert len(set(dwells)) > 1, "pauses are metronomic"
+
+
+# --- smoothing the motion (issue #10) --------------------------------------
+
+def _step_intervals(roam, seconds=180):
+    """How many frames apart consecutive moves are, and how far each moved."""
+    last, last_f, out = (roam.x, roam.y), 0, []
+    for f in range(1, seconds * 50 + 1):
+        roam.update()
+        if (roam.x, roam.y) != last:
+            far = abs(roam.x - last[0]) + abs(roam.y - last[1])
+            out.append((f - last_f, far))
+            last, last_f = (roam.x, roam.y), f
+    return out
+
+
+def test_a_diagonal_step_waits_longer_because_it_goes_further():
+    """Otherwise the beam speeds up by 41% whenever it moves diagonally, which
+    on a knight's tour is a constant stutter rather than a sweep."""
+    roam = S.Roaming(0, 0, radius=3)
+    steps = [(t, far) for t, far in _step_intervals(roam) if t <= 12]
+    flat = [t for t, far in steps if far == 1]
+    slant = [t for t, far in steps if far == 2]
+    assert flat and slant, "expected both kinds of step"
+    assert sum(slant) / len(slant) > sum(flat) / len(flat), \
+        "a diagonal step is given no longer than an orthogonal one"
+
+
+def test_the_beam_travels_at_a_steady_speed():
+    roam = S.Roaming(0, 0, radius=3)
+    steps = [(t, far) for t, far in _step_intervals(roam) if t <= 12]
+    # Cells covered per frame, counting a diagonal as the 1.41 it really is.
+    speeds = [(1414 if far == 2 else 1000) // t for t, far in steps]
+    assert max(speeds) - min(speeds) <= max(speeds) // 5, \
+        f"speed swings from {min(speeds)} to {max(speeds)} per frame"
+
+
+def test_it_does_not_stop_at_every_station():
+    """Forty-eight pauses in a circuit is not a light being aimed, it is a
+    stutter."""
+    dwells = S.tour_route(3)[1]
+    pauses = [d for d in dwells if d]
+    assert 2 <= len(pauses) <= len(dwells) // 3, \
+        f"{len(pauses)} pauses among {len(dwells)} stations"
+
+
+def test_the_pauses_are_a_small_part_of_a_circuit():
+    dwells = S.tour_route(3)[1]
+    roam = S.Roaming(0, 0, radius=3)
+    frames = 0
+    while roam.cycles < 1 and frames < 300000:
+        roam.update()
+        frames += 1
+    assert sum(dwells) * 5 < frames, "spends most of its time standing still"

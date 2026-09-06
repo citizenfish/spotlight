@@ -394,10 +394,14 @@ def arc_waypoints(radius: int, pivot: tuple[int, int], reach: int,
 #: the room, and the circuit is long enough already.
 _DIAGONAL = isqrt((COLS - 1) ** 2 + (PLAY_ROWS - 1) ** 2)
 
-#: Frames the beam holds still at each station, and how much that varies. An
-#: operator does not whip a searchlight from one place to the next without
-#: looking at either.
-DWELL, DWELL_SPREAD = 5, 14
+#: Frames the beam holds at a station it stops at, and how much that varies.
+#:
+#: **It does not stop at every station.** It did, and 48 pauses in a circuit is
+#: not a light being aimed, it is a stutter -- a stop about once a second, and a
+#: fifth of the circuit spent motionless. One station in `DWELL_EVERY` now, held
+#: for longer, which reads as an operator pausing to look at something rather
+#: than as the mechanism catching.
+DWELL, DWELL_SPREAD, DWELL_EVERY = 20, 30, 6
 
 #: The searchlight's stations: a grid, inset from the walls, spaced closely
 #: enough that a beam sitting on one lights out past its neighbours.
@@ -481,14 +485,15 @@ def tour_route(radius: int, seed: int = 0xACE1, start: int = 0,
     points: list[tuple[int, int]] = []
     dwells: list[int] = []
     state = seed or 1
-    for col, row in order:
+    for i, (col, row) in enumerate(order):
         if flip_x:
             col = STATION_COLS - 1 - col
         if flip_y:
             row = STATION_ROWS - 1 - row
         state = xorshift16(state)
         points.append(station(col, row))
-        dwells.append(DWELL + state % DWELL_SPREAD)
+        pause = state % DWELL_EVERY == 0
+        dwells.append(DWELL + state % DWELL_SPREAD if pause else 0)
     points.append(points[0])       # close the loop
     dwells.append(0)
     return points, dwells
@@ -598,6 +603,7 @@ class Roaming(Source):
         #: Where the current leg began, so the beam can walk a straight line
         #: to its target rather than a dog-leg.
         self._from = (x, y)
+
         if mode is None:
             mode = self.PATH if self.path else self.ARC
         self.mode = mode
@@ -683,12 +689,22 @@ class Roaming(Source):
     # --- movement ----------------------------------------------------------
 
     def update(self) -> None:
-        """Move. Called every frame; actually steps every `step_every`."""
+        """Move. Called every frame; actually steps every `step_every`.
+
+        **A diagonal step waits half again as long**, because it covers half
+        again as much ground. Giving every step the same interval makes the beam
+        speed up by 41% whenever it moves diagonally and slow down whenever it
+        does not, which on a knight's move -- where the two alternate constantly
+        -- is a visible stutter rather than a smooth sweep.
+        """
         if self._hold > 0:
             self._hold -= 1
             return
         self._tick += 1
-        if self._tick < self.step_every:
+        due = self.step_every
+        if self._next_is_slanted():
+            due += due // 2
+        if self._tick < due:
             return
         self._tick = 0
         if self.mode in (self.SWEEP, self.ARC):
@@ -702,6 +718,22 @@ class Roaming(Source):
         self.cycles += 1
         self._new_sweep()
 
+    def _next_is_slanted(self) -> bool:
+        """Would the step about to be taken be a diagonal one?
+
+        Asked *before* waiting rather than after stepping, which matters: the
+        interval has to belong to the step it pays for. Keying it to the step
+        just taken gets the timing exactly one step out of phase, and on a route
+        where diagonal and orthogonal steps alternate that is no better than not
+        compensating at all.
+        """
+        route = (self._sweep if self.mode in (self.SWEEP, self.ARC)
+                 else self.path if self.mode == self.PATH else None)
+        if not route:
+            return False
+        dx, dy = self._delta_towards(*route[self._leg])
+        return bool(dx and dy)
+
     def _follow(self, route, on_wrap=None) -> None:
         self._step_towards(*route[self._leg])
         if (self.x, self.y) == route[self._leg]:
@@ -714,7 +746,7 @@ class Roaming(Source):
                 if on_wrap:
                     on_wrap()
 
-    def _step_towards(self, tx: int, ty: int) -> None:
+    def _delta_towards(self, tx: int, ty: int) -> tuple[int, int]:
         """One cell along the straight line from where this leg began.
 
         Not "diagonally until one axis lines up, then straight", which is what
@@ -733,20 +765,22 @@ class Roaming(Source):
         sx = (tx > self.x) - (tx < self.x)
         sy = (ty > self.y) - (ty < self.y)
         if abs(dx) >= abs(dy):
-            if sx:
-                self.x += sx
-                # Where the minor axis should be, now the major has moved.
-                want = fy + (self.x - fx) * dy // (dx or 1)
-                self.y += (want > self.y) - (want < self.y)
-            else:
-                self.y += sy
-        else:
-            if sy:
-                self.y += sy
-                want = fx + (self.y - fy) * dx // (dy or 1)
-                self.x += (want > self.x) - (want < self.x)
-            else:
-                self.x += sx
+            if not sx:
+                return 0, sy
+            nx = self.x + sx
+            # Where the minor axis should be, now the major has moved.
+            want = fy + (nx - fx) * dy // (dx or 1)
+            return sx, (want > self.y) - (want < self.y)
+        if not sy:
+            return sx, 0
+        ny = self.y + sy
+        want = fx + (ny - fy) * dx // (dy or 1)
+        return (want > self.x) - (want < self.x), sy
+
+    def _step_towards(self, tx: int, ty: int) -> None:
+        dx, dy = self._delta_towards(tx, ty)
+        self.x += dx
+        self.y += dy
 
     def _drift(self) -> None:
         self._seed = xorshift16(self._seed)
