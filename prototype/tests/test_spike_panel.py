@@ -132,3 +132,35 @@ def test_the_bar_fills_from_the_left():
     filled = [s.point(cx * 8 + col, blood.row * 8 + row)
               for cx in range(blood.col, blood.col + blood.width)]
     assert filled == [True, True, True, False, False, False, False, False]
+
+
+# --- the power bar must not lie about being empty (issue #12) --------------
+
+def test_a_bar_reads_empty_only_when_it_is_empty():
+    """A carried spotlight with power left must never show a flat bar.
+
+    Truncating showed the starting spotlight as flat for its last five seconds
+    while it was still burning, which reads as the light failing rather than
+    draining.
+    """
+    assert panel.bar_pips(0, 1500) == 0
+    for power in (1, 100, 249, 250, 600):
+        assert panel.bar_pips(power, 1500) >= 1, f"{power} showed empty"
+
+
+def test_a_full_bar_is_full_and_never_overflows():
+    assert panel.bar_pips(1500, 1500) == 6
+    assert panel.bar_pips(9999, 1500) == 6
+
+
+def test_the_bar_is_scaled_against_the_strongest_light_in_the_level():
+    """So a weak spotlight visibly gives you less, which is the trap."""
+    weak = panel.bar_pips(150, 1500)
+    strong = panel.bar_pips(1500, 1500)
+    assert weak < strong
+
+
+def test_the_bar_falls_as_power_drains():
+    readings = [panel.bar_pips(p, 1500) for p in range(1500, -1, -50)]
+    assert readings == sorted(readings, reverse=True)
+    assert readings[0] == 6 and readings[-1] == 0

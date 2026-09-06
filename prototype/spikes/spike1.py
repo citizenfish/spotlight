@@ -39,14 +39,14 @@ from .player import Player
 from .spotlights import FloorLight, Spotlights
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
-from .panel import Panel, blank_strip
+from .panel import Panel, bar_pips, blank_strip
 
 PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 
 #: How long the searchlight's wake lingers, in frames, cycled with M. The
 #: beam's brightness is not on this list -- it reads lit whatever the wake is,
 #: because level and memory are separate (issue #12).
-WAKES = (lighting.CHARGE_SWEEP, 20, 80, 10)
+WAKES = (lighting.CHARGE_SWEEP, 10, 40, 80)
 
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 BINDINGS = (
@@ -83,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         glow.x, glow.y = player.cx, player.cy
         scene.validate()
         inks = scene.ink_map()
+        # This room authors none, but the source and the L key stay, so a
+        # zone can be put back into `scene.ROOM` and looked at.
         room_lights = [sources.RoomLight(*z) for z in scene.light_zones()]
-        room = room_lights[0]
         cone = sources.Cone(reach=7)
         cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
         kit = Spotlights(cone, [FloorLight(cx, cy, power)
@@ -150,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
                         for rl in room_lights:
                             rl.reveals = not rl.reveals
                         print("room lights show people:",
-                              room_lights[0].reveals)
+                              room_lights[0].reveals if room_lights
+                              else "(this room has none)")
                     elif event.key == pygame.K_m:
                         wake = (wake + 1) % len(WAKES)
                         roaming.memory = WAKES[wake]
@@ -191,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"swapped: carrying {cone.power}, left "
                       f"{'burning' if picked.burning else 'dark'} light at "
                       f"({picked.cx}, {picked.cy})")
-            panel.set("light", cone.power * 6 // max(1, cone_full))
+            panel.set("light", bar_pips(cone.power, cone_full))
             panel.set("lit", cone.lit)
 
             # Sources contribute, brightest wins, then everything decays.

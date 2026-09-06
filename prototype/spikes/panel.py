@@ -25,6 +25,21 @@ LABEL_INK = WHITE
 BAR, COUNT, FLAG = "bar", "count", "flag"
 
 
+def bar_pips(value: int, full: int, pips: int = 6) -> int:
+    """How many pips a bar shows for `value` out of `full`.
+
+    **Rounded up**, so the bar reads empty only when the thing itself is empty.
+    Truncating instead showed a carried spotlight as flat for its last five
+    seconds while it was still burning, and showed a full one as a third full
+    because the scale is the biggest light in the level rather than the one in
+    your hand. Between them that reads as the spotlight failing rather than as
+    the spotlight draining, which is the difference between a bug and a budget.
+    """
+    if value <= 0:
+        return 0
+    return min(pips, -(-value * pips // max(1, full)))
+
+
 @dataclass(frozen=True)
 class Region:
     """Where a readout lives and how it is drawn. All non-bright."""

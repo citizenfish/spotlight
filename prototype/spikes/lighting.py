@@ -73,7 +73,9 @@ CHARGE_DIM = LIT_THRESHOLD
 #: ground behind the beam is dim the instant it passes, and short, so it is dark
 #: again in well under a second. The one knob for how long the beam's wake
 #: lingers -- `M` in the spike harness cycles it.
-CHARGE_SWEEP = 40
+#:
+#: 20 frames, four tenths of a second, settled by playing it.
+CHARGE_SWEEP = 20
 
 assert CHARGE_LIT <= 0xFF, "charge must fit in a byte"
 

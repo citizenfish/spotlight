@@ -9,6 +9,13 @@ quickly. Legend:
     #  wall        D  door (its own hue)
     .  floor       K  key (its own hue)
     L  room light zone (floor, but authored as always lit)
+
+**There is no room light in this room.** There was one, a six-by-five block in
+the top-left corner, and in play it was a rectangle of dots that never changed:
+permanently lit ground with nothing to say, once room lights stopped revealing
+the people standing in them. The legend and `light_zones` stay, because
+`RoomLight` is still one of the four sources and is still under test -- this
+room simply does not author one.
 """
 
 from spotlight.core.constants import (
@@ -19,11 +26,11 @@ from .layout import PLAY_ROWS
 
 ROOM = (
     "################################",
-    "#LLLLLL#......................D#",
-    "#LLLLLL#.......................#",
-    "#LLLLLL#....########...........#",
-    "#LLLLLL#....#......#...........#",
-    "#LLLLLL#....#......#...........#",
+    "#......#......................D#",
+    "#......#.......................#",
+    "#......#....########...........#",
+    "#......#....#......#...........#",
+    "#......#....#......#...........#",
     "#...........#......#...........#",
     "#...........########...........#",
     "#..............................#",
