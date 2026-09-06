@@ -388,3 +388,61 @@ def test_whether_a_room_light_reveals_is_switchable():
     assert not _field(room).reveals_at(3, 3)
     room.reveals = True
     assert _field(room).reveals_at(3, 3)
+
+
+# --- the opening flash (issue #9) ------------------------------------------
+
+def test_the_flash_lights_the_whole_room():
+    """You cannot play a room you have never seen the shape of."""
+    flash = S.Flash()
+    flash.fire()
+    assert _lit_cells(_field(flash)) == {
+        (cx, cy) for cx in range(COLS) for cy in range(PLAY_ROWS)
+    }
+
+
+def test_the_flash_is_brief_and_then_stops_by_itself():
+    flash = S.Flash(frames=5)
+    flash.fire()
+    for _ in range(5):
+        assert flash.enabled
+        flash.update()
+    assert not flash.enabled
+    assert not _lit_cells(_field(flash))
+
+
+def test_the_room_fades_after_the_flash_rather_than_snapping_back():
+    """What the player keeps is what they held in their head."""
+    field = L.LightField()
+    flash = S.Flash(frames=2)
+    flash.fire()
+    for _ in range(2):
+        field.begin(); flash.apply(field); field.commit(); flash.update()
+    assert field.level_at(5, 5) == L.LIT
+    for _ in range(L.LIT_FRAMES + 1):
+        field.begin(); field.commit()
+    assert field.level_at(5, 5) == L.DIM, "should linger, not snap off"
+
+
+def test_the_flash_shows_the_building_not_who_is_in_it():
+    """Same rule as the room lights. Finding people stays the player's job."""
+    flash = S.Flash()
+    flash.fire()
+    field = _field(flash)
+    assert field.level_at(9, 9) == L.LIT
+    assert not field.reveals_at(9, 9)
+
+
+def test_the_flash_draws_the_swarm_nowhere():
+    """A light that is everywhere has no *toward* for a Cleg to climb."""
+    flash = S.Flash()
+    flash.fire()
+    assert flash.lure() is None
+
+
+def test_firing_again_restarts_it():
+    flash = S.Flash(frames=4)
+    flash.fire()
+    flash.update(); flash.update()
+    flash.fire()
+    assert flash.left == 4

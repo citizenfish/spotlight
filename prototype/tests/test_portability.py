@@ -12,9 +12,14 @@ FORBIDDEN = {"pygame", "numpy"}
 def _portable_sources():
     """Everything that has to survive the port to Z80.
 
-    That is all of core/, plus the spikes' logic modules. Spike entry points
-    (spike1.py, spike2.py ...) drive Pygame and are exempt -- they are the
-    throwaway host layer, the equivalent of frontend/.
+    That is all of core/, plus the spikes' logic modules. Anything named
+    spike* is exempt: the entry points (spike1.py ...) and the host drivers
+    beside them (spike_buzz.py) are the throwaway Pygame layer, the equivalent
+    of frontend/, and the port replaces them wholesale.
+
+    The split is worth keeping honest. The buzz, for instance, is two files on
+    purpose: deciding how loud it should be is portable and integer, and making
+    the noise is not.
     """
     yield from CORE.rglob("*.py")
     if SPIKES.is_dir():

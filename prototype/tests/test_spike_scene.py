@@ -88,14 +88,28 @@ def test_entities_are_placed_off_the_cell_grid():
     assert len(off_grid) >= 4, "most entities should sit at awkward offsets"
 
 
-def test_a_cleg_sits_against_a_wall_and_another_does_not():
-    clegs = [(x, y) for n, x, y in scene.ENTITIES if n == "cleg"]
-    assert len(clegs) >= 2
-    touching = [c for c in clegs
-                if any(scene.is_solid(c[0] // 8 + dx, c[1] // 8 + dy)
+def test_the_swarm_starts_on_floor_and_spread_out():
+    """Clegs are cell-dwellers now, and they start where they have to travel.
+
+    They were fixed scenery placed at pixel offsets while sprites were the
+    question. They move under their own rule now, so what matters is that none
+    starts inside a wall and none starts on top of the player.
+    """
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    assert len(scene.CLEGS) >= 4
+    for cx, cy in scene.CLEGS:
+        assert not scene.is_solid(cx, cy), f"Cleg starts in a wall at {cx},{cy}"
+        reach = max(abs(cx - player.cx), abs(cy - player.cy))
+        assert reach >= 5, f"Cleg at {cx},{cy} starts on top of the player"
+
+
+def test_a_cleg_starts_against_a_wall_and_another_does_not():
+    touching = [c for c in scene.CLEGS
+                if any(scene.is_solid(c[0] + dx, c[1] + dy)
                        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))]
     assert touching, "no Cleg is against a wall"
-    assert len(touching) < len(clegs), "every Cleg is against a wall"
+    assert len(touching) < len(scene.CLEGS), "every Cleg is against a wall"
 
 
 # --- a worker under a room light (issue #12) -------------------------------
@@ -168,3 +182,46 @@ def test_this_room_authors_no_light_zone():
     """It had one and it was removed -- a rectangle of dots that never changed."""
     assert scene.light_zones() == []
     assert not scene.cells_of(scene.ROOM_LIGHT)
+
+
+# --- the room has to be walkable (issue #9) --------------------------------
+
+def _reachable_from(start):
+    seen, stack = set(), [start]
+    while stack:
+        c = stack.pop()
+        if c in seen or scene.is_solid(*c):
+            continue
+        seen.add(c)
+        stack += [(c[0] + dx, c[1] + dy)
+                  for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    return seen
+
+
+def test_every_floor_cell_is_reachable_from_the_start():
+    """The inner room was a sealed box with a worker in it.
+
+    Nobody noticed while sprites were the question, because nobody had tried to
+    walk in. Found by playing, and this is what stops it coming back.
+    """
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    floor = {(x, y) for y in range(PLAY_ROWS) for x in range(COLS)
+             if not scene.is_solid(x, y)}
+    cut_off = floor - _reachable_from((player.cx, player.cy))
+    assert not cut_off, f"walled-off floor: {sorted(cut_off)}"
+
+
+def test_every_entity_stands_somewhere_reachable():
+    from spikes.player import Player
+    player = Player(*scene.PLAYER_START)
+    reachable = _reachable_from((player.cx, player.cy))
+    for name, x, y in scene.ENTITIES:
+        assert (x // CELL, y // CELL) in reachable, f"{name} is walled in"
+
+
+def test_the_inner_room_is_entered_through_a_one_cell_doorway():
+    """One cell wide on purpose -- it is the case the corner assist exists for."""
+    cx, cy = scene.INNER_DOOR
+    assert not scene.is_solid(cx, cy)
+    assert scene.is_solid(cx - 1, cy) and scene.is_solid(cx + 1, cy)

@@ -4,26 +4,44 @@ Run from the prototype directory:
 
     python -m spikes.spike1            # --scale N to resize
 
-Debug keys change the placeholder readouts so the strip can be judged:
+**The game is four directions and two buttons.** That is the whole control
+scheme and it is all a player ever touches:
 
-    arrows  walk, and set facing      G  toggle the personal glow
-    T       toggle the cone           L  toggle the room light
-    C       clear the light field     N  toggle the searchlight
-    R       force a strip repaint     V  searchlight: vary <-> repeat
-    SPACE   fire the flyspray         B  searchlight: beam radius 3 <-> 2
-    ESC     quit                      I  searchlight: run to the wall <-> inset
-    1-0     placeholder strip readouts
-    H       light hue: off -> on, memory keeps it -> on, memory reverts
-    M       how long the beam's wake lingers, in frames
-    W       whether room lights show people, or only the room
+    arrows   walk, and set your facing
+    T        your carried spotlight, on and off
+    SPACE    fire the flyspray ahead of you
 
-The searchlight keys are the issue #12 knobs: a short bright memory and its
-own hue, so the beam reads as a moving pool rather than a painted bar.
+Everything else is a debug key. None of it is part of the game; it is here so
+the thing can be judged without rebuilding it:
 
-There is no game here -- no collision, no AI. The four sources composite through
-the lighting model, and sprites are drawn over the top by pixel, so the shapes,
-the overlap, the fade behind a moving light and above all whether a two-toned
-sprite reads can all be judged.
+    ESC   quit                        F  flash the room again
+    C     wipe the remembered light   R  force a strip repaint
+    G     the personal glow           L  room lights
+    N     the searchlight             W  do room lights show people?
+    V     searchlight: vary <-> repeat
+    B     searchlight: radius 3 <-> 2
+    I     searchlight: run to the wall <-> turn short of it
+    M     searchlight: how long the wake lingers, in frames
+    H     light hue: off -> on, memory keeps it -> on, memory reverts
+    3/4   lives, still a placeholder   0  keys, still a placeholder
+
+**The room is shown once, at the start.** A flash of the whole layout, which
+then fades over three seconds -- you cannot play a room you have never seen the
+shape of, and what you keep is what you held in your head. It shows the building
+and not who is in it. F fires it again.
+
+**The light bargain is now live.** Clegs steer for the nearest lit source, so
+switching the spotlight on brings them and switching it off loses them. They
+attach, drain a bar of blood each, and drop off sated; the spray kills any that
+is not already on you. Blood, light and spray on the strip are real readouts.
+
+Turn the sound up. Clegs are only drawn where a light is on them, so in the dark
+the sonar is the only thing that tells you they are coming: slow clicks are a
+rumour, a fast rattle is a problem already on top of you.
+
+There is still no game here -- no doors, no workers, no quota. What there is is
+one room in which the decision the whole design rests on can actually be made:
+switch the light on to see, and be found because you did.
 """
 
 import sys
@@ -34,7 +52,10 @@ from spotlight.core.constants import BLACK, CELL, COLS, CYAN, FRAME_RATE, WHITE
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import floor, lighting, scene, sources, spray as spray_mod, sprites
+from . import (
+    buzz, clegs as clegs_mod, floor, lighting, scene, sources,
+    spike_buzz, spray as spray_mod, sprites,
+)
 from .player import Player
 from .spotlights import FloorLight, Spotlights
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
@@ -48,13 +69,17 @@ PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 #: because level and memory are separate (issue #12).
 WAKES = (lighting.CHARGE_SWEEP, 20, 40, 80)
 
+#: Blood, as points. Shown as eight pips, so each pip is a Cleg's worth: one
+#: attachment takes exactly one bar. A number small enough that the player can
+#: count what a swarm cost them.
+BLOOD_FULL = 64
+
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
+#: Blood, light, spray and the lit flag are all real readouts now and are no
+#: longer pushed about by hand; only lives and keys are still placeholders.
 BINDINGS = (
-    (pygame.K_1, "blood", -1), (pygame.K_2, "blood", +1),
     (pygame.K_3, "lives", -1), (pygame.K_4, "lives", +1),
-    (pygame.K_5, "light", -1), (pygame.K_6, "light", +1),
-    (pygame.K_8, "spray", -1), (pygame.K_9, "spray", +1),
-    (pygame.K_7, "lit", 0), (pygame.K_0, "keys", 0),
+    (pygame.K_0, "keys", 0),
 )
 
 
@@ -91,13 +116,23 @@ def main(argv: list[str] | None = None) -> int:
         kit = Spotlights(cone, [FloorLight(cx, cy, power)
                                 for cx, cy, power in scene.SPOTLIGHTS])
         spray = spray_mod.Spray(charges=5)
+        swarm = clegs_mod.Swarm([clegs_mod.Cleg(cx, cy, seed=0xBEEF + i)
+                                 for i, (cx, cy) in enumerate(scene.CLEGS)])
+        blood = BLOOD_FULL
+        sonar = buzz.Sonar()
+        speaker = spike_buzz.Speaker()
+        speaker.open()
+        # The room is shown once, at the start, and then taken away. What the
+        # player keeps is what they held in their head.
+        opening = sources.Flash()
+        opening.fire()
         # A prison searchlight quartering the room. One circuit covers
         # everywhere. It starts **varying** -- a different route each circuit,
         # so it cannot be planned around -- and runs to the wall rather than
         # turning short of it. Both settled by playing; V and I switch them.
         roaming = sources.Roaming(0, 0, radius=3, step_every=3, vary=True)
         wake = WAKES.index(roaming.memory)
-        all_sources = (glow, cone, roaming, *room_lights)
+        all_sources = (glow, cone, roaming, opening, *room_lights)
         cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
 
         # The building is remembered; its inhabitants are not. Fixtures stay
@@ -149,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
                         roaming.reshape(
                             inset=0 if roaming.inset else roaming.radius)
                         print(f"searchlight: inset {roaming.inset}")
+                    elif event.key == pygame.K_f:
+                        opening.fire()
                     elif event.key == pygame.K_w:
                         for rl in room_lights:
                             rl.reveals = not rl.reveals
@@ -189,7 +226,23 @@ def main(argv: list[str] | None = None) -> int:
             cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
 
             roaming.update()
+            opening.update()
             spray.tick()
+
+            # The one rule: Clegs steer for the nearest light that is actually
+            # lit. The glow is dim and so pulls nothing, which is what makes
+            # walking in the dark safe and the toggle a decision.
+            lures = [p for p in (s.lure() for s in all_sources) if p is not None]
+            lures += kit.floor_lures()
+            was_attached = len(swarm.attached())
+            blood = swarm.tick(lures, (player.cx, player.cy), scene.is_solid,
+                               blood)
+            # Spray reaches everything except a Cleg already on you.
+            killed = swarm.kill(spray.kills(swarm.sprayable()))
+            if killed:
+                print(f"spray killed {killed}; {len(swarm.clegs)} left")
+            if len(swarm.attached()) != was_attached:
+                print(f"attached: {len(swarm.attached())}  blood {blood}")
             picked = kit.tick(player)
             if picked is not None:
                 print(f"swapped: carrying {cone.power}, left "
@@ -197,6 +250,13 @@ def main(argv: list[str] | None = None) -> int:
                       f"({picked.cx}, {picked.cy})")
             panel.set("light", bar_pips(cone.power, cone_full))
             panel.set("lit", cone.lit)
+            panel.set("blood", bar_pips(blood, BLOOD_FULL, 8))
+            # You hear them before you see them -- and since a Cleg is only
+            # drawn where a light is on it, in the dark this is all you get.
+            # Clicks rather than a tone: a rate carries urgency, a drone does
+            # not, and a click is the cheapest noise the target can make.
+            if sonar.update(swarm.nearest_distance(player.cx, player.cy)):
+                speaker.click()
 
             # Sources contribute, brightest wins, then everything decays.
             field.begin()
@@ -223,6 +283,9 @@ def main(argv: list[str] | None = None) -> int:
                 sprites.draw(screen, spr, sx, sy)
             for spr, sx, sy in movers:
                 sprites.draw(screen, spr, sx, sy, visible=field.reveals_at)
+            for cleg in swarm.clegs:
+                sprites.draw(screen, sprites.CLEG, cleg.cx * CELL,
+                             cleg.cy * CELL, visible=field.reveals_at)
             sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
             # Sprayed ground gets its own droplet pattern and its own hue.
@@ -248,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             display.render(screen)
             clock.tick(FRAME_RATE)
     finally:
+        speaker.close()
         pygame.quit()
     return 0
 

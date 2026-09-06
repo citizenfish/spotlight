@@ -52,6 +52,30 @@ class Source:
     def light(self, field: LightField, cx: int, cy: int) -> None:
         field.add(cx, cy, self.level, self.memory, self.hue, self.reveals)
 
+    # --- what Clegs steer for ----------------------------------------------
+
+    def origin(self) -> tuple[int, int]:  # pragma: no cover - interface
+        """The cell a Cleg heads for when this light is what drew it."""
+        raise NotImplementedError
+
+    def lure(self) -> tuple[int, int] | None:
+        """Where this light pulls Clegs to, or None if it pulls at all.
+
+        **Only a LIT source attracts.** That is the whole rule, and it falls out
+        of the level a source already carries rather than needing a flag: the
+        personal glow is DIM, so it never draws anything, and the darkness is
+        genuinely safe until you switch something on. Switching the spotlight on
+        is therefore the decision that costs, which is the bargain the game is
+        built on.
+
+        Clegs steer for the light itself, not for the lit ground around it -- so
+        this is one point per source, checked per Cleg. There is no search over
+        cells and no route-finding anywhere in it.
+        """
+        if not self.enabled or self.level < LIT:
+            return None
+        return self.origin()
+
     def toggle(self) -> bool:
         self.enabled = not self.enabled
         return self.enabled
@@ -73,6 +97,9 @@ class Glow(Source):
         super().__init__(level, memory)
         self.x = 0
         self.y = 0
+
+    def origin(self) -> tuple[int, int]:
+        return self.x, self.y
 
     def emit(self, field: LightField) -> None:
         for dy in (-1, 0, 1):
@@ -99,6 +126,11 @@ class RoomLight(Source):
         super().__init__(level, memory, reveals=reveals)
         self.left, self.top = left, top
         self.width, self.height = width, height
+
+    def origin(self) -> tuple[int, int]:
+        """The middle of the zone. Close enough -- a Cleg heading for a lit
+        room does not need to pick a particular floor tile of it."""
+        return self.left + self.width // 2, self.top + self.height // 2
 
     def emit(self, field: LightField) -> None:
         for cy in range(self.top, self.top + self.height):
@@ -134,6 +166,19 @@ class Cone(Source):
         if self.lit:
             self.power = max(0, self.power - amount)
 
+    def origin(self) -> tuple[int, int]:
+        return self.x, self.y
+
+    def lure(self) -> tuple[int, int] | None:
+        """The player's own cell, not the wedge ahead of them.
+
+        A Cleg drawn by your spotlight is drawn to *you*: the wedge is where the
+        light lands, but the lamp -- and the blood -- are at its point. Steering
+        to the wedge would have the swarm converge somewhere in front of you and
+        then need a second rule to find you.
+        """
+        return (self.x, self.y) if self.lit else None
+
     def cells(self) -> list[tuple[int, int]]:
         fx, fy, sx, sy = _AXES[self.facing]
         out = []
@@ -149,6 +194,57 @@ class Cone(Source):
             return
         for cx, cy in self.cells():
             self.light(field, cx, cy)
+
+
+class Flash(Source):
+    """The whole room, lit for a moment, at the start of a level.
+
+    You cannot play a room you have never seen the shape of. The flash gives
+    the player the **layout** once, briefly, and then takes it away -- and
+    because it tops cells up to the ordinary full memory, the room does not
+    snap back to black but fades over the next few seconds. What the player
+    keeps is what they managed to hold in their head, which is the whole
+    premise of the game rather than a convenience bolted onto it.
+
+    **It shows the building, not who is in it.** Same rule as the room lights:
+    a flash that handed you every worker at the start would answer the question
+    the level exists to ask. See the design notes on the mains surge, which is
+    the moment that *does* show you everything, and is a different thing.
+    """
+
+    def __init__(self, frames: int = 12, level: int = LIT,
+                 memory: int = CHARGE_LIT) -> None:
+        super().__init__(level, memory, enabled=False, reveals=False)
+        self.frames = frames
+        self.left = 0
+
+    def fire(self) -> None:
+        """Start a flash. Firing again while one is running restarts it."""
+        self.left = self.frames
+        self.enabled = True
+
+    def update(self) -> None:
+        """Burn down. Call once a frame, before applying."""
+        if self.left > 0:
+            self.left -= 1
+            if self.left == 0:
+                self.enabled = False
+
+    def origin(self) -> tuple[int, int]:
+        return COLS // 2, PLAY_ROWS // 2
+
+    def lure(self) -> tuple[int, int] | None:
+        """Nothing. A light that is everywhere has no *toward*.
+
+        Clegs steer up a gradient, and a uniform flash has none -- so it draws
+        the swarm nowhere rather than drawing it to an arbitrary middle.
+        """
+        return None
+
+    def emit(self, field: LightField) -> None:
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                self.light(field, cx, cy)
 
 
 def xorshift16(state: int) -> int:
@@ -356,6 +452,9 @@ class Roaming(Source):
         dy = ((self._seed >> 2) & 0b11) - 1
         self.x = max(0, min(COLS - 1, self.x + max(-1, min(1, dx))))
         self.y = max(0, min(PLAY_ROWS - 1, self.y + max(-1, min(1, dy))))
+
+    def origin(self) -> tuple[int, int]:
+        return self.x, self.y
 
     def emit(self, field: LightField) -> None:
         r2 = self.radius * self.radius

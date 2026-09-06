@@ -32,7 +32,7 @@ ROOM = (
     "#......#....#......#...........#",
     "#......#....#......#...........#",
     "#...........#......#...........#",
-    "#...........########...........#",
+    "#...........###.####...........#",
     "#..............................#",
     "#####.#####....................#",
     "#..............................#",
@@ -107,6 +107,16 @@ def light_zones() -> list[tuple[int, int, int, int]]:
     return zones
 
 
+#: The inner room has a **one-cell doorway** in its bottom wall, at (15, 7).
+#: It was sealed until spike 2 was played -- a box with a worker in it that
+#: nobody could reach, because while sprites were the question nobody had tried
+#: to walk in. `test_every_floor_cell_is_reachable` now makes that impossible to
+#: reintroduce.
+#:
+#: One cell wide on purpose: it is exactly the case the corner assist in
+#: `player.NUDGE` exists for, so the room is also the test of it.
+INNER_DOOR = (15, 7)
+
 #: Which entity kinds move. Movers are only drawn where a light is on them
 #: this frame; the rest are fixtures the fade is allowed to remember.
 MOVERS = frozenset({"worker", "cleg"})
@@ -116,11 +126,17 @@ MOVERS = frozenset({"worker", "cleg"})
 ENTITIES = (
     ("worker", 14 * 8 + 3, 4 * 8 + 2),      # inside the inner room, dark
     ("worker", 3 * 8 + 4, 2 * 8),           # under the room light
-    ("cleg", 12 * 8 + 5, 6 * 8 + 3),        # hard against a wall
-    ("cleg", 20 * 8 + 2, 12 * 8 + 6),       # open floor
     ("body", 7 * 8 + 2, 17 * 8 + 4),
     ("nest", 27 * 8 + 5, 19 * 8 + 1),
 )
+
+#: Where the swarm starts, in cells. Clegs live on the cell grid -- they have
+#: no need of pixel placement, and putting them there would cost the Z80 a
+#: shift-and-mask per fly per frame for no gain.
+#:
+#: Spread wide and none of them near the player, so a swarm has to travel and
+#: you hear it coming long before it arrives.
+CLEGS = ((11, 6), (26, 14), (2, 3), (29, 8), (6, 20), (24, 19))
 
 #: Spotlight pickups lying about the building, as (cx, cy, power). Powers vary
 #: deliberately -- picking one up is a commitment, and a weak one is a trap.
