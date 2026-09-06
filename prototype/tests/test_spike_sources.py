@@ -2,7 +2,7 @@
 
 from spikes import lighting as L, sources as S
 from spikes.layout import PLAY_ROWS
-from spotlight.core.constants import COLS
+from spotlight.core.constants import COLS, YELLOW
 
 
 def _field(*srcs) -> L.LightField:
@@ -296,3 +296,68 @@ def test_path_and_drift_modes_still_work():
     assert roam.mode == S.Roaming.DRIFT
     roam.set_mode(S.Roaming.SWEEP)
     assert roam.mode == S.Roaming.SWEEP
+
+
+# --- issue #12: the searchlight is its own kind of light --------------------
+
+def test_the_searchlight_tops_up_to_the_sweep_charge_not_full():
+    roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
+    f = _field(roam)
+    assert f.charge[10 * COLS + 15] == L.CHARGE_SWEEP
+    assert L.CHARGE_SWEEP < L.CHARGE_LIT
+
+
+def test_the_searchlight_is_yellow_and_the_others_are_not():
+    roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
+    assert _field(roam).hue[10 * COLS + 15] == YELLOW
+    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
+    cone.facing, cone.enabled = S.RIGHT, True
+    assert _field(cone).hue[10 * COLS + 11] == L.UNCOLOURED
+    glow = S.Glow(); glow.x, glow.y = 5, 5
+    assert _field(glow).hue[5 * COLS + 5] == L.UNCOLOURED
+
+
+def test_the_cone_still_leaves_its_long_bright_trail():
+    """Change 1 must not touch the walked trail that spike 1 settled on."""
+    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
+    cone.facing, cone.enabled = S.RIGHT, True
+    f = _field(cone)
+    for _ in range(L.LIT_FRAMES - 1):
+        f.begin(); f.commit()
+    assert f.level_at(11, 10) == L.LIT
+
+
+def test_an_inset_sweep_keeps_the_whole_disc_on_the_room():
+    roam = S.Roaming(0, 0, radius=3, step_every=1, inset=3)
+    r = roam.radius
+    seen = set()
+    while roam.cycles < 1:
+        roam.update()
+        seen.add((roam.x, roam.y))
+    assert all(r <= x <= COLS - 1 - r and r <= y <= PLAY_ROWS - 1 - r
+               for x, y in seen), "beam centre strayed within a radius of a wall"
+
+
+def test_an_inset_sweep_still_covers_everything_inside_the_outer_ring():
+    """A round beam kept a radius in from the wall only touches the outer ring
+    at its own row, so ring cells between passes are the price of the inset.
+    In a room the ring is wall, so nothing that matters is missed."""
+    ring = {c for c in _whole_room()
+            if c[0] in (0, COLS - 1) or c[1] in (0, PLAY_ROWS - 1)}
+    for radius in (2, 3):
+        roam = S.Roaming(0, 0, radius=radius, step_every=1, inset=radius)
+        covered, _ = _covered_by(roam)
+        missed = _whole_room() - covered
+        assert missed <= ring, (f"radius {radius}: inset sweep missed inside "
+                                f"the ring: {sorted(missed - ring)[:6]}")
+        assert (0, 0) in missed, "the corners are the known cost"
+
+
+def test_reshape_rebuilds_the_sweep_for_the_new_radius():
+    roam = S.Roaming(0, 0, radius=3, step_every=1)
+    roam.reshape(radius=2)
+    covered, _ = _covered_by(roam)
+    assert covered == _whole_room()
+    rows = sorted({y for _, y in S.sweep_waypoints(2)})
+    gaps = {b - a for a, b in zip(rows, rows[1:])}
+    assert gaps <= {4}

@@ -1,13 +1,13 @@
 """The lighting model: levels, composition and the fade."""
 
 from spikes import layout, lighting as L
-from spotlight.core.constants import BLACK, COLS, YELLOW
+from spotlight.core.constants import BLACK, COLS, CYAN, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte, unpack_attr
 
 
-def _lit_then_left(cx=5, cy=5, level=L.LIT):
+def _lit_then_left(cx=5, cy=5, memory=L.CHARGE_LIT, level=L.LIT):
     f = L.LightField()
-    f.begin(); f.add(cx, cy, level); f.commit()
+    f.begin(); f.add(cx, cy, level, memory); f.commit()
     return f
 
 
@@ -34,21 +34,25 @@ def test_three_levels_map_onto_the_hardware():
 # --- composition -----------------------------------------------------------
 
 def test_brightest_wins_whichever_order_sources_arrive():
-    for first, second in ((L.DIM, L.LIT), (L.LIT, L.DIM)):
+    dim, lit = (L.DIM, L.CHARGE_DIM), (L.LIT, L.CHARGE_LIT)
+    for first, second in ((dim, lit), (lit, dim)):
         f = L.LightField()
-        f.begin(); f.add(3, 3, first); f.add(3, 3, second); f.commit()
+        f.begin()
+        f.add(3, 3, *first)
+        f.add(3, 3, *second)
+        f.commit()
         assert f.level_at(3, 3) == L.LIT
 
 
 def test_levels_do_not_sum():
     """Two lit sources are not brighter than one -- there is nothing brighter."""
     one = L.LightField()
-    one.begin(); one.add(3, 3, L.LIT); one.commit()
+    one.begin(); one.add(3, 3, L.LIT, L.CHARGE_LIT); one.commit()
 
     many = L.LightField()
     many.begin()
     for _ in range(5):
-        many.add(3, 3, L.LIT)
+        many.add(3, 3, L.LIT, L.CHARGE_LIT)
     many.commit()
 
     assert many.charge[3 * COLS + 3] == one.charge[3 * COLS + 3]
@@ -56,7 +60,7 @@ def test_levels_do_not_sum():
 
 def test_a_dim_source_does_not_read_as_lit():
     f = L.LightField()
-    f.begin(); f.add(3, 3, L.DIM); f.commit()
+    f.begin(); f.add(3, 3, L.DIM, L.CHARGE_DIM); f.commit()
     assert f.level_at(3, 3) == L.DIM
 
 
@@ -85,7 +89,7 @@ def test_fade_duration_follows_the_single_constant():
 def test_staying_lit_holds_a_cell_at_full_brightness():
     f = L.LightField()
     for _ in range(L.FADE_FRAMES * 2):
-        f.begin(); f.add(5, 5, L.LIT); f.commit()
+        f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
     assert f.level_at(5, 5) == L.LIT
 
 
@@ -93,7 +97,7 @@ def test_relighting_resets_the_fade():
     f = _lit_then_left()
     _idle(f, L.CHARGE_DIM + 5)
     assert f.level_at(5, 5) == L.DIM
-    f.begin(); f.add(5, 5, L.LIT); f.commit()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
     assert f.level_at(5, 5) == L.LIT
 
 
@@ -102,7 +106,7 @@ def test_the_fade_runs_everywhere_not_just_near_the_player():
     f = L.LightField()
     f.begin()
     for cx, cy in ((0, 0), (31, 21), (16, 11)):
-        f.add(cx, cy, L.LIT)
+        f.add(cx, cy, L.LIT, L.CHARGE_LIT)
     f.commit()
     _idle(f, L.FADE_FRAMES)
     assert all(f.level_at(cx, cy) == L.DARK
@@ -120,7 +124,7 @@ def test_out_of_bounds_sources_are_ignored():
     f = L.LightField()
     f.begin()
     for cx, cy in ((-1, 0), (COLS, 0), (0, -1), (0, layout.PLAY_ROWS)):
-        f.add(cx, cy, L.LIT)
+        f.add(cx, cy, L.LIT, L.CHARGE_LIT)
     f.commit()
     assert not any(f.charge)
 
@@ -181,13 +185,141 @@ def test_lit_is_a_short_head_and_dim_is_a_long_tail():
 def test_a_dim_source_never_reads_as_lit_however_long_it_shines():
     f = L.LightField()
     for _ in range(L.FADE_FRAMES * 2):
-        f.begin(); f.add(5, 5, L.DIM); f.commit()
+        f.begin(); f.add(5, 5, L.DIM, L.CHARGE_DIM); f.commit()
     assert f.level_at(5, 5) == L.DIM
 
 
 def test_a_dim_source_still_leaves_a_memory():
     f = L.LightField()
-    f.begin(); f.add(5, 5, L.DIM); f.commit()
+    f.begin(); f.add(5, 5, L.DIM, L.CHARGE_DIM); f.commit()
     for _ in range(L.FADE_FRAMES // 2):
         f.begin(); f.commit()
     assert f.level_at(5, 5) == L.DIM, "dim light should linger, not snap off"
+
+
+# --- charge per source (issue #12) -----------------------------------------
+
+def test_a_sweep_reads_lit_while_the_beam_is_on_it():
+    """Level is what is shining now, whatever the charge says."""
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP); f.commit()
+    assert f.level_at(5, 5) == L.LIT
+    assert f.remembered_at(5, 5) == L.DIM, "the memory it leaves is only dim"
+
+
+def test_the_ground_behind_the_beam_goes_out_quickly():
+    """The point of the change: a swept cell is dim at once and dark soon."""
+    f = _lit_then_left(memory=L.CHARGE_SWEEP)
+    assert f.level_at(5, 5) == L.LIT, "bright while the beam is on it"
+    _idle(f, 1)
+    assert f.level_at(5, 5) == L.DIM, "dim the very frame after it leaves"
+    _idle(f, L.CHARGE_SWEEP - 2)
+    assert f.level_at(5, 5) == L.DIM
+    _idle(f, 1)
+    assert f.level_at(5, 5) == L.DARK
+    assert L.CHARGE_SWEEP < L.FADE_FRAMES // 2, "the wake must be brief"
+
+
+def test_a_sweep_is_forgotten_far_sooner_than_the_cone():
+    swept = _lit_then_left(memory=L.CHARGE_SWEEP)
+    coned = _lit_then_left(memory=L.CHARGE_LIT)
+    _idle(swept, L.CHARGE_SWEEP)
+    _idle(coned, L.CHARGE_SWEEP)
+    assert swept.level_at(5, 5) == L.DARK
+    assert coned.level_at(5, 5) != L.DARK
+    assert L.CHARGE_SWEEP < L.LIT_THRESHOLD, "a sweep never leaves a lit memory"
+
+
+def test_brightness_now_does_not_extend_the_memory():
+    """A source shining on a cell shows bright without topping up the fade."""
+    f = L.LightField()
+    for _ in range(20):
+        f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP); f.commit()
+        assert f.level_at(5, 5) == L.LIT
+    assert f.charge[5 * COLS + 5] == L.CHARGE_SWEEP, "memory must not accumulate"
+
+
+def test_a_brighter_memory_is_not_dimmed_by_a_weaker_light():
+    """The cone has just left; the beam passing over must not shorten its trail."""
+    f = _lit_then_left(memory=L.CHARGE_LIT)
+    _idle(f, L.LIT_FRAMES + 20)          # well into the cone's dim tail
+    before = f.charge[5 * COLS + 5]
+    assert before > L.CHARGE_SWEEP
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP); f.commit()
+    assert f.charge[5 * COLS + 5] == before - 1, "decayed one frame, not topped"
+    assert f.level_at(5, 5) == L.LIT, "but the beam on it still reads bright"
+
+
+# --- hue per cell (issue #12) ----------------------------------------------
+
+def _paint_with_map(field, ink_map=None):
+    s = Screen()
+    ink = bytearray([L.UNCOLOURED]) * (COLS * layout.PLAY_ROWS)
+    if ink_map:
+        for (cx, cy), hue in ink_map.items():
+            ink[cy * COLS + cx] = hue
+    field.paint(s, ink)
+    return s
+
+
+def test_hue_rides_with_the_memory_that_wins():
+    f = L.LightField(light_hue=True)
+    f.begin()
+    f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
+    f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE)
+    f.commit()
+    assert f.hue[5 * COLS + 5] == WHITE, "the cone is brighter, so it colours"
+
+    f = L.LightField(light_hue=True)
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
+    assert f.hue[5 * COLS + 5] == YELLOW
+
+
+def test_uncoloured_contents_take_the_light_hue_and_coloured_keep_theirs():
+    f = L.LightField(light_hue=True)
+    f.begin()
+    f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
+    f.add(6, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
+    f.commit()
+    s = _paint_with_map(f, {(6, 5): CYAN})
+    assert s.get_attr(5, 5) == L.attr_for(L.LIT, YELLOW), "floor goes yellow"
+    assert s.get_attr(6, 5) == L.attr_for(L.LIT, CYAN), "a key stays cyan"
+
+
+def test_light_hue_is_off_by_default():
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
+    s = _paint_with_map(f)
+    assert s.get_attr(5, 5) == L.attr_for(L.LIT, L.UNCOLOURED)
+
+
+def test_memory_keeps_or_reverts_the_hue_as_asked():
+    for keeps in (True, False):
+        f = L.LightField(light_hue=True, hue_memory=keeps)
+        f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
+        _idle(f, 1)
+        assert f.level_at(5, 5) == L.DIM
+        s = _paint_with_map(f)
+        expected = YELLOW if keeps else L.UNCOLOURED
+        assert s.get_attr(5, 5) == L.attr_for(L.DIM, expected), f"keeps={keeps}"
+
+
+def test_a_brighter_light_keeps_its_hue_against_a_weaker_one():
+    f = L.LightField(light_hue=True)
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE); f.commit()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
+    assert f.hue[5 * COLS + 5] == WHITE
+
+
+def test_hue_state_is_one_byte_per_cell():
+    f = L.LightField()
+    assert len(f.hue) == COLS * layout.PLAY_ROWS == 704
+
+
+def test_a_passing_beam_does_not_recolour_ground_you_lit_yourself():
+    """The hue follows the memory, and the cone's memory outlasts the beam's."""
+    f = L.LightField(light_hue=True)
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE); f.commit()
+    _idle(f, L.LIT_FRAMES + 20)
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
+    assert f.hue[5 * COLS + 5] == WHITE

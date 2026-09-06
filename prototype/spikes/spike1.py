@@ -10,8 +10,14 @@ Debug keys change the placeholder readouts so the strip can be judged:
     T       toggle the cone           L  toggle the room light
     C       clear the light field     N  toggle the searchlight
     R       force a strip repaint     V  searchlight: repeat <-> vary
-    SPACE   fire the flyspray         T  toggle the carried spotlight
-    ESC     quit                      1-0  placeholder strip readouts
+    SPACE   fire the flyspray         B  searchlight: beam radius 3 <-> 2
+    ESC     quit                      I  searchlight: run to the wall <-> inset
+    1-0     placeholder strip readouts
+    H       light hue: off -> on, memory keeps it -> on, memory reverts
+    M       how long the beam's wake lingers, in frames
+
+The searchlight keys are the issue #12 knobs: a short bright memory and its
+own hue, so the beam reads as a moving pool rather than a painted bar.
 
 There is no game here -- no collision, no AI. The four sources composite through
 the lighting model, and sprites are drawn over the top by pixel, so the shapes,
@@ -35,6 +41,11 @@ from .lighting import LightField
 from .panel import Panel, blank_strip
 
 PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
+
+#: How long the searchlight's wake lingers, in frames, cycled with M. The
+#: beam's brightness is not on this list -- it reads lit whatever the wake is,
+#: because level and memory are separate (issue #12).
+WAKES = (lighting.CHARGE_SWEEP, 20, 80, 10)
 
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 BINDINGS = (
@@ -81,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         # A prison searchlight quartering the room. One circuit covers
         # everywhere; V switches between repeating and varying.
         roaming = sources.Roaming(0, 0, radius=3, step_every=3)
+        wake = WAKES.index(roaming.memory)
         all_sources = (glow, cone, roaming, *room_lights)
         cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
 
@@ -118,6 +130,32 @@ def main(argv: list[str] | None = None) -> int:
                         roaming.vary = not roaming.vary
                         print("searchlight:",
                               "varying" if roaming.vary else "repeating")
+                    elif event.key == pygame.K_b:
+                        roaming.reshape(radius=5 - roaming.radius)  # 3 <-> 2
+                        if roaming.inset:
+                            roaming.reshape(inset=roaming.radius)
+                        print(f"searchlight: radius {roaming.radius}")
+                    elif event.key == pygame.K_i:
+                        roaming.reshape(
+                            inset=0 if roaming.inset else roaming.radius)
+                        print(f"searchlight: inset {roaming.inset}")
+                    elif event.key == pygame.K_m:
+                        wake = (wake + 1) % len(WAKES)
+                        roaming.memory = WAKES[wake]
+                        print(f"searchlight wake: {roaming.memory} frames "
+                              f"({roaming.memory / FRAME_RATE:.1f}s)")
+                    elif event.key == pygame.K_h:
+                        # off -> on with memory -> on without -> off
+                        if not field.light_hue:
+                            field.light_hue, field.hue_memory = True, True
+                        elif field.hue_memory:
+                            field.hue_memory = False
+                        else:
+                            field.light_hue = False
+                        print("light hue:",
+                              "off" if not field.light_hue else
+                              "on, memory keeps it" if field.hue_memory else
+                              "on, memory reverts")
                     for key, name, delta in BINDINGS:
                         if event.key != key:
                             continue

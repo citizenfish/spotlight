@@ -15,7 +15,7 @@ A light dropped while burning goes on burning, and pulls Clegs to it. A light
 dropped switched off just lies there as a spare.
 """
 
-from .lighting import LIT
+from .lighting import CHARGE_LIT, LIT
 
 #: A dropped spotlight lights all round it, not in a cone -- nobody is aiming it.
 FLOOR_RADIUS = 2
@@ -58,7 +58,7 @@ class FloorLight:
         for dy in range(-self.radius, self.radius + 1):
             for dx in range(-self.radius, self.radius + 1):
                 if dx * dx + dy * dy <= r2:
-                    field.add(self.cx + dx, self.cy + dy, LIT)
+                    field.add(self.cx + dx, self.cy + dy, LIT, CHARGE_LIT)
 
 
 class Spotlights:

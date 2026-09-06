@@ -17,7 +17,7 @@ def _pixels_in_cell(s, cx, cy):
 def test_lit_floor_is_denser_than_dim_floor():
     """This is the contrast step the palette cannot give us."""
     s, f = Screen(), L.LightField()
-    f.begin(); f.add(1, 1, L.LIT); f.add(3, 1, L.DIM); f.commit()
+    f.begin(); f.add(1, 1, L.LIT, L.CHARGE_LIT); f.add(3, 1, L.DIM, L.CHARGE_DIM); f.commit()
     floor.draw(s, f, _never_solid)
     assert _pixels_in_cell(s, 1, 1) > _pixels_in_cell(s, 3, 1) > 0
 
@@ -31,14 +31,14 @@ def test_dark_floor_is_left_bare():
 def test_solid_cells_are_not_stippled():
     """A wall is already drawn; dotting it would only muddle the shape."""
     s, f = Screen(), L.LightField()
-    f.begin(); f.add(2, 2, L.LIT); f.commit()
+    f.begin(); f.add(2, 2, L.LIT, L.CHARGE_LIT); f.commit()
     floor.draw(s, f, lambda cx, cy: (cx, cy) == (2, 2))
     assert _pixels_in_cell(s, 2, 2) == 0
 
 
 def test_stipple_stays_inside_its_own_cell():
     s, f = Screen(), L.LightField()
-    f.begin(); f.add(4, 4, L.LIT); f.commit()
+    f.begin(); f.add(4, 4, L.LIT, L.CHARGE_LIT); f.commit()
     floor.draw(s, f, _never_solid)
     assert _pixels_in_cell(s, 4, 4) > 0
     for cx, cy in ((3, 4), (5, 4), (4, 3), (4, 5)):

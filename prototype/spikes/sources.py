@@ -7,13 +7,21 @@ light decides colour, and it does so in one place.
     1. Glow     one cell in every direction, always on, dim
     2. Room     an authored zone, fixed, always on
     3. Cone     a wedge in the facing direction, toggleable, with power
-    4. Roaming  a pool that moves on its own -- drifting or on a path
+    4. Roaming  a pool that moves on its own -- sweeping, on a path, or drifting
+
+Each source carries three things the field composites: the **level** it reads
+at while it is shining, the **memory** it leaves once it has gone, and a
+**hue**, which uncoloured cells take on. Level and memory are separate on
+purpose -- the searchlight is as bright as the carried spotlight and forgotten
+far sooner.
 """
 
-from spotlight.core.constants import COLS
+from spotlight.core.constants import COLS, YELLOW
 
 from .layout import PLAY_ROWS
-from .lighting import DIM, LIT, LightField
+from .lighting import (
+    CHARGE_DIM, CHARGE_LIT, CHARGE_SWEEP, DIM, LIT, UNCOLOURED, LightField,
+)
 
 # --- facing ----------------------------------------------------------------
 
@@ -31,9 +39,15 @@ _AXES = {
 class Source:
     """Common switching. Subclasses implement `emit`."""
 
-    def __init__(self, level: int = LIT, enabled: bool = True) -> None:
+    def __init__(self, level: int = LIT, memory: int = CHARGE_LIT,
+                 enabled: bool = True, hue: int = UNCOLOURED) -> None:
         self.level = level
+        self.memory = memory
+        self.hue = hue
         self.enabled = enabled
+
+    def light(self, field: LightField, cx: int, cy: int) -> None:
+        field.add(cx, cy, self.level, self.memory, self.hue)
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
@@ -52,15 +66,15 @@ class Glow(Source):
     play -- it is what stops total darkness being unplayable -- but switchable
     here so its contribution can be seen on its own."""
 
-    def __init__(self, level: int = DIM) -> None:
-        super().__init__(level)
+    def __init__(self, level: int = DIM, memory: int = CHARGE_DIM) -> None:
+        super().__init__(level, memory)
         self.x = 0
         self.y = 0
 
     def emit(self, field: LightField) -> None:
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
-                field.add(self.x + dx, self.y + dy, self.level)
+                self.light(field, self.x + dx, self.y + dy)
 
 
 class RoomLight(Source):
@@ -71,15 +85,15 @@ class RoomLight(Source):
     """
 
     def __init__(self, left: int, top: int, width: int, height: int,
-                 level: int = LIT) -> None:
-        super().__init__(level)
+                 level: int = LIT, memory: int = CHARGE_LIT) -> None:
+        super().__init__(level, memory)
         self.left, self.top = left, top
         self.width, self.height = width, height
 
     def emit(self, field: LightField) -> None:
         for cy in range(self.top, self.top + self.height):
             for cx in range(self.left, self.left + self.width):
-                field.add(cx, cy, self.level)
+                self.light(field, cx, cy)
 
 
 class Cone(Source):
@@ -92,8 +106,8 @@ class Cone(Source):
     """
 
     def __init__(self, reach: int = 7, power: int = 600,
-                 level: int = LIT) -> None:
-        super().__init__(level, enabled=False)
+                 level: int = LIT, memory: int = CHARGE_LIT) -> None:
+        super().__init__(level, memory, enabled=False)
         self.reach = reach
         self.power = power
         self.x = 0
@@ -124,7 +138,7 @@ class Cone(Source):
         if self.power <= 0:
             return
         for cx, cy in self.cells():
-            field.add(cx, cy, self.level)
+            self.light(field, cx, cy)
 
 
 def xorshift16(state: int) -> int:
@@ -140,7 +154,8 @@ def xorshift16(state: int) -> int:
 
 
 def sweep_waypoints(radius: int, offset: int = 0, from_left: bool = True,
-                    top_down: bool = True) -> list[tuple[int, int]]:
+                    top_down: bool = True, inset: int = 0
+                    ) -> list[tuple[int, int]]:
     """A serpentine route that covers every cell of the room.
 
     The beam runs the width of the room, steps down by its own diameter, and
@@ -150,22 +165,33 @@ def sweep_waypoints(radius: int, offset: int = 0, from_left: bool = True,
     `offset`, `from_left` and `top_down` shift the pattern without breaking that
     guarantee, which is what makes a varying sweep possible.
 
+    `inset` keeps the beam's centre that many cells in from the walls. With it
+    at the radius, the whole disc stays on the room instead of turning half
+    off-screen at each end of a pass. The columns beyond the turn are then
+    reached only from the passes above and below, so an inset route spaces its
+    rows one closer than the beam's diameter to keep them covered. What it still
+    misses is the outer ring of cells, which in a room is wall (issue #12).
+
     The route is **closed** -- it ends where it began. A serpentine that simply
     stops at the far corner would make the first circuit shorter than every one
     after it, since the beam has to travel back before it can start again. The
     return leg is part of the cycle, so it belongs in the route.
     """
+    top, bottom = inset, PLAY_ROWS - 1 - inset
     rows: list[int] = []
-    y = min(offset, radius)
+    y = top + min(offset, radius)
     while True:
-        rows.append(min(y, PLAY_ROWS - 1))
-        if y + radius >= PLAY_ROWS - 1:
+        row = min(y, bottom)
+        rows.append(row)
+        # Done when the beam reaches the room's edge -- not the centre's
+        # limit, which with an inset is a radius short of it.
+        if row + radius >= PLAY_ROWS - 1 or row == bottom:
             break
-        y += 2 * radius
+        y += 2 * radius - (1 if inset else 0)
     if not top_down:
         rows.reverse()
 
-    left, right = 0, COLS - 1
+    left, right = inset, COLS - 1 - inset
     points: list[tuple[int, int]] = []
     going_right = from_left
     for row in rows:
@@ -186,6 +212,11 @@ class Roaming(Source):
 
     What happens at the end of a circuit is the difficulty dial:
 
+    It reads as bright as the carried spotlight while it is on you, and leaves
+    only a short memory behind it -- the ground the beam has passed goes out in
+    well under a second, so the beam reads as a moving pool rather than as a bar
+    being painted across the room (issue #12).
+
     * **repeat** -- the same route every time. Learnable. Time your crossing.
     * **vary** -- a different route each circuit: another corner, another
       direction, the rows offset. Still total coverage, but you cannot plan
@@ -200,11 +231,14 @@ class Roaming(Source):
     def __init__(self, x: int, y: int, radius: int = 3,
                  path: list[tuple[int, int]] | None = None,
                  seed: int = 0xACE1, level: int = LIT,
-                 step_every: int = 3, mode: int | None = None,
-                 vary: bool = False) -> None:
-        super().__init__(level)
+                 memory: int = CHARGE_SWEEP,
+                 hue: int = YELLOW, step_every: int = 3,
+                 mode: int | None = None, vary: bool = False,
+                 inset: int = 0) -> None:
+        super().__init__(level, memory, hue=hue)
         self.x, self.y = x, y
         self.radius = radius
+        self.inset = inset
         self.path = path or []
         self._seed = seed or 1
         self._leg = 0
@@ -238,7 +272,7 @@ class Roaming(Source):
         """Lay out the next circuit. Identical unless `vary` is set."""
         if first or not self.vary:
             if first:
-                self._sweep = sweep_waypoints(self.radius)
+                self._sweep = sweep_waypoints(self.radius, inset=self.inset)
             # repeat mode simply re-runs the route it already has
         else:
             self._seed = xorshift16(self._seed)
@@ -247,10 +281,25 @@ class Roaming(Source):
                 offset=self._seed % (self.radius + 1),
                 from_left=bool(self._seed & 0b100),
                 top_down=bool(self._seed & 0b1000),
+                inset=self.inset,
             )
         self._leg = 0
         if first:
             self._snap_to_route_start()
+
+    def reshape(self, radius: int | None = None,
+                inset: int | None = None) -> None:
+        """Change the beam's size or how close it runs to the walls.
+
+        A sweep is laid out for a particular radius, so the route is rebuilt and
+        restarted from its first waypoint. Tuning knobs, for judging by eye.
+        """
+        if radius is not None:
+            self.radius = radius
+        if inset is not None:
+            self.inset = inset
+        if self.mode == self.SWEEP:
+            self._new_sweep(first=True)
 
     def set_mode(self, mode: int) -> None:
         if mode == self.PATH and not self.path:
@@ -304,4 +353,4 @@ class Roaming(Source):
             for dx in range(-self.radius, self.radius + 1):
                 # Squared distance keeps this integer -- no square roots.
                 if dx * dx + dy * dy <= r2:
-                    field.add(self.x + dx, self.y + dy, self.level)
+                    self.light(field, self.x + dx, self.y + dy)

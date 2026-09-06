@@ -6,13 +6,17 @@ from spotlight.core.constants import CELL, COLS, SCREEN_W, YELLOW
 from spotlight.core.screen import Screen
 
 
-def _lit_left_half(boundary_cx: int, left=L.LIT, right=L.DIM) -> L.LightField:
-    """A field split down a cell column, so sprites can straddle a boundary."""
+def _lit_left_half(boundary_cx: int, left=(L.LIT, L.CHARGE_LIT),
+                   right=(L.DIM, L.CHARGE_DIM)) -> L.LightField:
+    """A field split down a cell column, so sprites can straddle a boundary.
+
+    Each half is a (level, memory) pair, as a source gives them.
+    """
     f = L.LightField()
     f.begin()
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
-            f.add(cx, cy, left if cx < boundary_cx else right)
+            f.add(cx, cy, *(left if cx < boundary_cx else right))
     f.commit()
     return f
 
