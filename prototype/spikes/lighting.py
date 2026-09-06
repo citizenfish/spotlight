@@ -59,6 +59,11 @@ def attr_for(level: int, ink: int) -> int:
     return attr_byte(ink=ink, paper=BLACK, bright=level == LIT)
 
 
+#: (level << 3) | ink -> attribute byte, for per-cell ink maps.
+_COMBINED = bytes(
+    attr_for(min(i >> 3, LIT), i & 0b111) for i in range(256)
+)
+
 _ATTR_TABLES: dict[int, bytes] = {}
 
 
@@ -126,6 +131,24 @@ class LightField:
         """The whole field as one level per cell."""
         return self.charge.translate(_LEVEL_OF)
 
-    def paint(self, screen, ink: int) -> None:
-        """Write the play area's attributes. The strip is never touched."""
-        screen.attrs[0:_CELLS] = self.levels().translate(_attr_table(ink))
+    def paint(self, screen, ink) -> None:
+        """Write the play area's attributes. The strip is never touched.
+
+        `ink` is either one colour for the whole area, or a per-cell map of
+        them. The split of responsibility matters and is worth stating:
+
+            **light decides brightness; the cell's contents decide hue.**
+
+        Both are single-valued per cell, so there is still exactly one thing
+        choosing a cell's attribute and clash remains impossible. It is what
+        lets a key be cyan and a door be magenta without breaking the rule.
+        """
+        levels = self.levels()
+        if isinstance(ink, int):
+            screen.attrs[0:_CELLS] = levels.translate(_attr_table(ink))
+            return
+        if len(ink) != _CELLS:
+            raise ValueError(f"ink map must be {_CELLS} cells, got {len(ink)}")
+        screen.attrs[0:_CELLS] = bytes(
+            _COMBINED[(lv << 3) | hue] for lv, hue in zip(levels, ink)
+        )

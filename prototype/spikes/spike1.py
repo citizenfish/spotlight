@@ -22,19 +22,16 @@ import sys
 
 import pygame
 
-from spotlight.core.constants import BLACK, COLS, FRAME_RATE, WHITE, YELLOW
+from spotlight.core.constants import BLACK, CELL, COLS, FRAME_RATE, WHITE
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import lighting, sources, sprites
+from . import lighting, scene, sources, sprites
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
 
 PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
-
-#: Ink the play area wears. Light decides the level; this decides the hue.
-PLAY_INK = YELLOW
 
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 BINDINGS = (
@@ -67,8 +64,11 @@ def main(argv: list[str] | None = None) -> int:
 
         field = LightField()
         glow = sources.Glow()
-        glow.x, glow.y = COLS // 2, PLAY_ROWS // 2
-        room = sources.RoomLight(left=2, top=2, width=7, height=5)
+        glow.x, glow.y = scene.PLAYER_START[0] // CELL, scene.PLAYER_START[1] // CELL
+        scene.validate()
+        inks = scene.ink_map()
+        room_lights = [sources.RoomLight(*z) for z in scene.light_zones()]
+        room = room_lights[0]
         cone = sources.Cone(reach=7)
         cone.x, cone.y, cone.facing = glow.x, glow.y, sources.RIGHT
         roaming = sources.Roaming(
@@ -77,19 +77,13 @@ def main(argv: list[str] | None = None) -> int:
                   (COLS - 20, PLAY_ROWS - 4), (COLS - 20, 3)],
         )
         roaming.set_mode(sources.Roaming.DRIFT)
-        all_sources = (glow, room, cone, roaming)
+        all_sources = (glow, cone, roaming, *room_lights)
         cone_full = cone.power
 
-        # Placed at deliberately awkward pixel offsets so they straddle cells.
-        scenery = (
-            (sprites.WORKER, 3 * 8 + 4, 6 * 8 + 3),
-            (sprites.WORKER, 20 * 8, 4 * 8),
-            (sprites.CLEG, 12 * 8 + 5, 9 * 8 + 2),
-            (sprites.CLEG, 25 * 8 + 3, 14 * 8 + 6),
-            (sprites.BODY, 7 * 8 + 2, 16 * 8),
-            (sprites.NEST, 28 * 8, 18 * 8 + 4),
-            (sprites.KEY, 5 * 8 + 6, 12 * 8 + 1),
-        )
+        scenery = [(sprites.SPRITES[name], x, y)
+                   for name, x, y in scene.ENTITIES]
+        for cx, cy in scene.cells_of(scene.KEY):
+            scenery.append((sprites.KEY, cx * CELL, cy * CELL))
 
         repaints = 0
         running = True
@@ -107,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
                     elif event.key == pygame.K_g:
                         glow.toggle()
                     elif event.key == pygame.K_l:
-                        room.toggle()
+                        for rl in room_lights:
+                            rl.toggle()
                     elif event.key == pygame.K_t:
                         cone.toggle()
                     elif event.key == pygame.K_n:
@@ -149,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
             # The play area is cleared every frame; the strip is not touched.
             screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
 
+            for cy in range(PLAY_ROWS):
+                for cx in range(COLS):
+                    if scene.is_solid(cx, cy):
+                        screen.fill_cell_pixels(cx, cy, on=True)
+
             # Sprites set pixels only. Their colour comes from whichever cells
             # they happen to be standing in.
             for spr, sx, sy in scenery:
@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # Light decides colour, and nothing else does. This overwrites
             # every play-area attribute, so it must come after the drawing.
-            field.paint(screen, PLAY_INK)
+            field.paint(screen, inks)
 
             touched = panel.draw(screen)
             if touched:
