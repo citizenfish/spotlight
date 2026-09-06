@@ -40,14 +40,17 @@ class Source:
     """Common switching. Subclasses implement `emit`."""
 
     def __init__(self, level: int = LIT, memory: int = CHARGE_LIT,
-                 enabled: bool = True, hue: int = UNCOLOURED) -> None:
+                 enabled: bool = True, hue: int = UNCOLOURED,
+                 reveals: bool = True) -> None:
         self.level = level
         self.memory = memory
         self.hue = hue
         self.enabled = enabled
+        #: Whether this light shows people, or only the room they stand in.
+        self.reveals = reveals
 
     def light(self, field: LightField, cx: int, cy: int) -> None:
-        field.add(cx, cy, self.level, self.memory, self.hue)
+        field.add(cx, cy, self.level, self.memory, self.hue, self.reveals)
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
@@ -82,11 +85,18 @@ class RoomLight(Source):
 
     The level author's sharpest tool -- what a room shows you for free, and what
     it keeps dark, is most of what makes one room different from another.
+
+    **It shows the room, not who is in it.** A fixed light over a worker would
+    otherwise be a permanent window onto that worker, which reads as scenery
+    rather than as information and takes the room out of the dark for good.
+    Emergency lighting tells you the shape of the place; finding the people in
+    it is the player's job (issue #12).
     """
 
     def __init__(self, left: int, top: int, width: int, height: int,
-                 level: int = LIT, memory: int = CHARGE_LIT) -> None:
-        super().__init__(level, memory)
+                 level: int = LIT, memory: int = CHARGE_LIT,
+                 reveals: bool = False) -> None:
+        super().__init__(level, memory, reveals=reveals)
         self.left, self.top = left, top
         self.width, self.height = width, height
 

@@ -172,3 +172,32 @@ def test_the_cleg_is_the_widest_thing_at_its_waist():
     rather than as debris."""
     assert 0xFF in SP.CLEG
     assert SP.CLEG[1] == 0x42, "splayed legs, not a solid top"
+
+
+# --- the fade remembers the building, not its inhabitants (issue #12) ------
+
+def test_a_sprite_is_drawn_only_in_cells_its_test_allows():
+    s = Screen()
+    SP.draw(s, SP.WORKER, 10 * CELL, 5 * CELL, visible=lambda cx, cy: cx == 10)
+    drawn = {(px % SCREEN_W) // CELL
+             for px, on in enumerate(s.pixels) if on}
+    assert drawn == {10}
+
+
+def test_a_person_can_be_cut_in_half_by_the_edge_of_a_light():
+    """Half in the beam is drawn half, the same way two-tone works."""
+    s = Screen()
+    x = 10 * CELL + 4                      # straddling columns 10 and 11
+    SP.draw(s, SP.WORKER, x, 5 * CELL, visible=lambda cx, cy: cx == 10)
+    rows = [px // SCREEN_W for px, on in enumerate(s.pixels) if on]
+    cols = {(px % SCREEN_W) for px, on in enumerate(s.pixels) if on}
+    assert rows, "nothing drawn at all"
+    assert all(c < 11 * CELL for c in cols), "drew outside the lit cell"
+
+
+def test_no_test_means_drawn_everywhere_as_before():
+    lit, masked = Screen(), Screen()
+    SP.draw(lit, SP.WORKER, 10 * CELL + 3, 5 * CELL)
+    SP.draw(masked, SP.WORKER, 10 * CELL + 3, 5 * CELL,
+            visible=lambda cx, cy: True)
+    assert bytes(lit.pixels) == bytes(masked.pixels)

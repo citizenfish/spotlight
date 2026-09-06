@@ -1,8 +1,9 @@
 """The hand-built static room."""
 
-from spikes import scene
+from spikes import lighting as L, scene, sources as S, sprites as SP
 from spikes.layout import PLAY_ROWS
-from spotlight.core.constants import COLS
+from spotlight.core.constants import CELL, COLS
+from spotlight.core.screen import Screen
 
 
 def test_the_room_is_exactly_the_play_area():
@@ -95,3 +96,68 @@ def test_a_cleg_sits_against_a_wall_and_another_does_not():
                        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))]
     assert touching, "no Cleg is against a wall"
     assert len(touching) < len(clegs), "every Cleg is against a wall"
+
+
+# --- a worker under a room light (issue #12) -------------------------------
+
+def _worker_under_the_room_light():
+    """The scene worker standing in the authored light at the top left."""
+    zones = scene.light_zones()
+    for name, x, y in scene.ENTITIES:
+        if name != "worker":
+            continue
+        cx, cy = x // CELL, y // CELL
+        for left, top, width, height in zones:
+            if left <= cx < left + width and top <= cy < top + height:
+                return x, y
+    raise AssertionError("no worker stands in a room light")
+
+
+def _drawn(x, y, field):
+    s = Screen()
+    SP.draw(s, SP.WORKER, x, y, visible=field.reveals_at)
+    return any(s.pixels)
+
+
+def _field_of(*srcs):
+    f = L.LightField()
+    f.begin()
+    for src in srcs:
+        src.apply(f)
+    f.commit()
+    return f
+
+
+def test_a_room_light_does_not_show_the_worker_standing_in_it():
+    """Emergency lighting shows the room, not who is in it."""
+    x, y = _worker_under_the_room_light()
+    rooms = [S.RoomLight(*z) for z in scene.light_zones()]
+    field = _field_of(*rooms)
+    assert field.level_at(x // CELL, y // CELL) == L.LIT, "the ground is lit"
+    assert not _drawn(x, y, field), "but the worker should not be drawn"
+
+
+def test_the_worker_shows_when_the_player_gets_near():
+    x, y = _worker_under_the_room_light()
+    rooms = [S.RoomLight(*z) for z in scene.light_zones()]
+    glow = S.Glow()
+    glow.x, glow.y = x // CELL, y // CELL
+    assert _drawn(x, y, _field_of(*rooms, glow)), "your own glow should show them"
+
+
+def test_the_worker_shows_when_a_searchlight_crosses_them():
+    x, y = _worker_under_the_room_light()
+    beam = S.Roaming(x // CELL, y // CELL, radius=2, mode=S.Roaming.DRIFT)
+    assert _drawn(x, y, _field_of(beam))
+
+
+def test_the_worker_does_not_linger_once_the_light_has_gone():
+    """The fade remembers the room; it must not remember the person."""
+    x, y = _worker_under_the_room_light()
+    glow = S.Glow()
+    glow.x, glow.y = x // CELL, y // CELL
+    field = _field_of(glow)
+    assert _drawn(x, y, field)
+    field.begin(); field.commit()          # the player has stepped away
+    assert field.level_at(x // CELL, y // CELL) != L.DARK, "ground remembered"
+    assert not _drawn(x, y, field), "the worker should be gone"

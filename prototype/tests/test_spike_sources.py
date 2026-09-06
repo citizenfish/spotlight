@@ -361,3 +361,30 @@ def test_reshape_rebuilds_the_sweep_for_the_new_radius():
     rows = sorted({y for _, y in S.sweep_waypoints(2)})
     gaps = {b - a for a, b in zip(rows, rows[1:])}
     assert gaps <= {4}
+
+
+# --- room lights show the room, not who is in it (issue #12) ---------------
+
+def test_a_room_light_lights_the_ground_without_revealing_people():
+    room = S.RoomLight(2, 3, 4, 2)
+    f = _field(room)
+    assert f.level_at(3, 3) == L.LIT, "the ground is lit"
+    assert not f.reveals_at(3, 3), "but it does not show who is standing there"
+
+
+def test_every_other_source_reveals():
+    glow = S.Glow(); glow.x, glow.y = 5, 5
+    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
+    cone.facing, cone.enabled = S.RIGHT, True
+    roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
+    assert _field(glow).reveals_at(5, 5)
+    assert _field(cone).reveals_at(11, 10)
+    assert _field(roam).reveals_at(15, 10)
+
+
+def test_whether_a_room_light_reveals_is_switchable():
+    """So it can be judged by eye rather than argued about."""
+    room = S.RoomLight(2, 3, 4, 2)
+    assert not _field(room).reveals_at(3, 3)
+    room.reveals = True
+    assert _field(room).reveals_at(3, 3)

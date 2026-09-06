@@ -100,11 +100,15 @@ def light_zones() -> list[tuple[int, int, int, int]]:
     return zones
 
 
+#: Which entity kinds move. Movers are only drawn where a light is on them
+#: this frame; the rest are fixtures the fade is allowed to remember.
+MOVERS = frozenset({"worker", "cleg"})
+
 #: Entities, at deliberately awkward pixel offsets so they straddle cells.
 #: (sprite name, x, y) in pixels.
 ENTITIES = (
     ("worker", 14 * 8 + 3, 4 * 8 + 2),      # inside the inner room, dark
-    ("worker", 3 * 8 + 4, 2 * 8),           # in the room light, fully lit
+    ("worker", 3 * 8 + 4, 2 * 8),           # under the room light
     ("cleg", 12 * 8 + 5, 6 * 8 + 3),        # hard against a wall
     ("cleg", 20 * 8 + 2, 12 * 8 + 6),       # open floor
     ("body", 7 * 8 + 2, 17 * 8 + 4),

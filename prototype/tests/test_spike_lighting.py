@@ -323,3 +323,45 @@ def test_a_passing_beam_does_not_recolour_ground_you_lit_yourself():
     _idle(f, L.LIT_FRAMES + 20)
     f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
     assert f.hue[5 * COLS + 5] == WHITE
+
+
+# --- what the fade may remember (issue #12) --------------------------------
+
+def test_a_light_reveals_only_while_it_is_on_the_cell():
+    """Memory is of the building, never of who was standing in it."""
+    f = _lit_then_left(memory=L.CHARGE_LIT)
+    assert f.reveals_at(5, 5), "revealed while the light is on it"
+    _idle(f, 1)
+    assert f.level_at(5, 5) == L.LIT, "still brightly remembered"
+    assert not f.reveals_at(5, 5), "but no longer revealing"
+
+
+def test_a_light_that_does_not_reveal_still_lights_the_ground():
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, reveals=False); f.commit()
+    assert f.level_at(5, 5) == L.LIT
+    assert not f.reveals_at(5, 5)
+
+
+def test_one_revealing_source_is_enough():
+    """A worker under a room light and in your glow is visible."""
+    f = L.LightField()
+    f.begin()
+    f.add(5, 5, L.LIT, L.CHARGE_LIT, reveals=False)
+    f.add(5, 5, L.DIM, L.CHARGE_DIM, reveals=True)
+    f.commit()
+    assert f.reveals_at(5, 5)
+
+
+def test_revealing_is_cleared_between_frames():
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
+    assert f.reveals_at(5, 5)
+    f.begin(); f.commit()
+    assert not f.reveals_at(5, 5)
+
+
+def test_reading_revealing_outside_the_play_area_is_false():
+    f = L.LightField()
+    assert not f.reveals_at(-1, 0)
+    assert not f.reveals_at(0, layout.PLAY_ROWS)

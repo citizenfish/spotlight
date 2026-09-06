@@ -1,5 +1,11 @@
 """Sprites: 8x16 people, 8x8 everything else, positioned by pixel.
 
+**What the fade may remember.** The building is remembered; its inhabitants are
+not. Walls, keys, bodies and nests stay drawn in ground the player is only
+recalling, because they will still be where they were. People and Clegs move,
+so drawing them from stale light would show the player where somebody is now
+using light that has gone -- see `draw`'s `visible` argument.
+
 **The colour rule.** A sprite sets pixels and never touches an attribute. Each
 cell keeps whatever ink its light level gives it, so a sprite spanning a light
 boundary is drawn part bright and part dim -- and two things can never disagree
@@ -136,22 +142,40 @@ WIDTH = 8
 
 
 def draw(screen, sprite: tuple[int, ...], x: int, y: int,
-         clip_bottom: int = PLAY_BOTTOM_PX) -> None:
+         clip_bottom: int = PLAY_BOTTOM_PX, visible=None) -> None:
     """Draw a sprite at pixel (x, y). Sets pixels; never writes an attribute.
 
     Pixels are set, never cleared, so a sprite composites over what is already
     there rather than punching a hole in it.
+
+    `visible` is an optional test taking a cell and returning whether the
+    sprite may be drawn in it. People and Clegs pass one, so that they show
+    only where a light is actually on them; the building's fixtures do not,
+    because the fade is allowed to remember those. Drawing is already per cell,
+    so a worker half inside a beam is drawn half -- the same mechanism that
+    gives a figure its two-tone edge, cutting all the way to nothing.
     """
+    shown: dict[tuple[int, int], bool] = {}
     for dy, bits in enumerate(sprite):
         py = y + dy
         if not 0 <= py < min(SCREEN_H, clip_bottom):
             continue
+        cy = py // CELL
         base = py * SCREEN_W
         for dx in range(WIDTH):
-            if bits & (0x80 >> dx):
-                px = x + dx
-                if 0 <= px < SCREEN_W:
-                    screen.pixels[base + px] = 1
+            if not bits & (0x80 >> dx):
+                continue
+            px = x + dx
+            if not 0 <= px < SCREEN_W:
+                continue
+            if visible is not None:
+                cell = (px // CELL, cy)
+                ok = shown.get(cell)
+                if ok is None:
+                    ok = shown[cell] = bool(visible(*cell))
+                if not ok:
+                    continue
+            screen.pixels[base + px] = 1
 
 
 def cells_spanned(x: int, y: int, height: int) -> set[tuple[int, int]]:

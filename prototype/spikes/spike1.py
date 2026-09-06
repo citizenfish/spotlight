@@ -15,6 +15,7 @@ Debug keys change the placeholder readouts so the strip can be judged:
     1-0     placeholder strip readouts
     H       light hue: off -> on, memory keeps it -> on, memory reverts
     M       how long the beam's wake lingers, in frames
+    W       whether room lights show people, or only the room
 
 The searchlight keys are the issue #12 knobs: a short bright memory and its
 own hue, so the beam reads as a moving pool rather than a painted bar.
@@ -96,10 +97,16 @@ def main(argv: list[str] | None = None) -> int:
         all_sources = (glow, cone, roaming, *room_lights)
         cone_full = max(p for _, _, p in scene.SPOTLIGHTS)
 
-        scenery = [(sprites.SPRITES[name], x, y)
-                   for name, x, y in scene.ENTITIES]
+        # The building is remembered; its inhabitants are not. Fixtures stay
+        # drawn in remembered ground, because they will still be there. People
+        # and Clegs are drawn only where a light is on them right now.
+        fixtures = [(sprites.SPRITES[name], x, y)
+                    for name, x, y in scene.ENTITIES
+                    if name not in scene.MOVERS]
+        movers = [(sprites.SPRITES[name], x, y)
+                  for name, x, y in scene.ENTITIES if name in scene.MOVERS]
         for cx, cy in scene.cells_of(scene.KEY):
-            scenery.append((sprites.KEY, cx * CELL, cy * CELL))
+            fixtures.append((sprites.KEY, cx * CELL, cy * CELL))
 
         repaints = 0
         running = True
@@ -139,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
                         roaming.reshape(
                             inset=0 if roaming.inset else roaming.radius)
                         print(f"searchlight: inset {roaming.inset}")
+                    elif event.key == pygame.K_w:
+                        for rl in room_lights:
+                            rl.reveals = not rl.reveals
+                        print("room lights show people:",
+                              room_lights[0].reveals)
                     elif event.key == pygame.K_m:
                         wake = (wake + 1) % len(WAKES)
                         roaming.memory = WAKES[wake]
@@ -203,8 +215,10 @@ def main(argv: list[str] | None = None) -> int:
 
             # Sprites set pixels only. Their colour comes from whichever cells
             # they happen to be standing in.
-            for spr, sx, sy in scenery:
+            for spr, sx, sy in fixtures:
                 sprites.draw(screen, spr, sx, sy)
+            for spr, sx, sy in movers:
+                sprites.draw(screen, spr, sx, sy, visible=field.reveals_at)
             sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
             # Sprayed ground gets its own droplet pattern and its own hue.

@@ -28,6 +28,13 @@ the ground behind the beam goes out quickly instead of hanging around lit.
 Cost: the override touches only the cells a source lit this frame, which is a
 short list, not the whole field.
 
+**A source also says whether it reveals people.** The fade remembers the
+building; it must never remember who is standing in it, or a worker seen once
+goes on showing in ground you are only recalling. So people and Clegs are drawn
+only where a light is on them *this frame*, and only where that light is one
+that reveals. Fixed room lighting shows you the room and not its occupants --
+see the note in the vault, this is a design change and not merely a fix.
+
 The field also remembers **which light lit each cell**, as a hue. Contents with
 a colour of their own keep it; floor and walls, which have none, take the hue of
 the light that lit them. That is how the searchlight gets to be yellow.
@@ -131,7 +138,7 @@ class LightField:
     """
 
     __slots__ = ("charge", "display", "hue", "light_hue", "hue_memory",
-                 "_illum", "_memory", "_pending_hue", "_touched")
+                 "_illum", "_memory", "_pending_hue", "_reveal", "_touched")
 
     def __init__(self, light_hue: bool = False, hue_memory: bool = True) -> None:
         self.charge = bytearray(_CELLS)
@@ -144,6 +151,8 @@ class LightField:
         self._illum = bytearray(_CELLS)
         self._memory = bytearray(_CELLS)
         self._pending_hue = bytearray(_CELLS)
+        #: Cells a revealing light is on this frame. Never remembered.
+        self._reveal = bytearray(_CELLS)
         self._touched: list[int] = []
 
     # --- sources -----------------------------------------------------------
@@ -153,10 +162,12 @@ class LightField:
         for idx in self._touched:
             self._illum[idx] = 0
             self._memory[idx] = 0
+            self._reveal[idx] = 0
         self._touched.clear()
 
     def add(self, cx: int, cy: int, level: int = LIT,
-            memory: int = CHARGE_LIT, hue: int = UNCOLOURED) -> None:
+            memory: int = CHARGE_LIT, hue: int = UNCOLOURED,
+            reveals: bool = True) -> None:
         """Contribute light to a cell. **Brightest wins** -- nothing sums.
 
         `level` is how bright the cell reads while this source is on it.
@@ -168,6 +179,9 @@ class LightField:
         The hue follows the **memory**, not the brightness, because the hue has
         to outlive the frame. A beam crossing ground you lit yourself does not
         recolour your memory of it.
+
+        `reveals` says whether this light shows people, as opposed to showing
+        the room they are in. It is deliberately not remembered.
         """
         if level <= DARK or not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return
@@ -179,6 +193,8 @@ class LightField:
         if memory > self._memory[idx]:
             self._memory[idx] = memory
             self._pending_hue[idx] = hue
+        if reveals:
+            self._reveal[idx] = 1
 
     def commit(self) -> None:
         """Decay everything, top up what was lit, then work out what shows.
@@ -209,6 +225,16 @@ class LightField:
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return DARK
         return self.display[cy * COLS + cx]
+
+    def reveals_at(self, cx: int, cy: int) -> bool:
+        """Is a light that shows people on this cell right now?
+
+        Never true from memory, however brightly the cell is remembered. This
+        is what stops a worker seen once from staying on screen.
+        """
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return False
+        return bool(self._reveal[cy * COLS + cx])
 
     def remembered_at(self, cx: int, cy: int) -> int:
         """What the cell would show with every source switched off."""
