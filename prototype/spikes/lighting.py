@@ -1,0 +1,131 @@
+"""The lighting model: three levels, brightest-wins composition, and the fade.
+
+Light decides a cell's colour and nothing else does. That single rule is what
+makes attribute clash impossible -- there is only ever one thing choosing a
+cell's ink, so two things can never disagree about it.
+
+Three levels only, because that is what the hardware gives for free: a colour
+with its BRIGHT bit set, the same colour without it, and black.
+
+The fade is stored as a **charge** per cell -- one byte, 704 of them for a whole
+play area. A lit cell is topped up to full charge every frame it stays lit; an
+unlit one loses a point per frame. The displayed level is a threshold on that
+charge, so a cell decays LIT -> DIM -> DARK on its own with no timers to manage.
+
+Decay applies to every cell every frame whether or not the player is looking,
+which is what makes the fade keep running while you are out of a room.
+"""
+
+from spotlight.core.constants import BLACK, COLS
+from spotlight.core.screen import attr_byte
+
+from .layout import PLAY_ROWS
+
+# --- levels ----------------------------------------------------------------
+
+DARK, DIM, LIT = 0, 1, 2
+
+#: Frames for a fully lit cell to fade to black. The one tuning knob.
+#: 50 frames is one second, so 150 is three.
+FADE_FRAMES = 150
+
+CHARGE_LIT = FADE_FRAMES
+CHARGE_DIM = FADE_FRAMES // 2
+
+assert CHARGE_LIT <= 0xFF, "charge must fit in a byte"
+
+#: Charge a source of each level tops a cell up to.
+CHARGE_FOR = (0, CHARGE_DIM, CHARGE_LIT)
+
+#: charge -> displayed level. Above half charge a cell still reads as lit, so a
+#: LIT cell spends the first half of its fade bright and the second half dim.
+_LEVEL_OF = bytes(
+    LIT if c > CHARGE_DIM else DIM if c > 0 else DARK for c in range(256)
+)
+
+#: charge -> charge, one frame later. Decay as a translate table costs nothing.
+_DECAY = bytes(max(0, c - 1) for c in range(256))
+
+_CELLS = COLS * PLAY_ROWS
+
+
+def attr_for(level: int, ink: int) -> int:
+    """The attribute a cell wears at a given light level.
+
+    DARK is black ink on black paper -- not merely dim, but invisible.
+    """
+    if level == DARK:
+        return attr_byte(ink=BLACK, paper=BLACK, bright=False)
+    return attr_byte(ink=ink, paper=BLACK, bright=level == LIT)
+
+
+_ATTR_TABLES: dict[int, bytes] = {}
+
+
+def _attr_table(ink: int) -> bytes:
+    """level -> attribute byte, as a translate table, cached per ink."""
+    table = _ATTR_TABLES.get(ink)
+    if table is None:
+        table = bytes(attr_for(min(level, LIT), ink) for level in range(256))
+        _ATTR_TABLES[ink] = table
+    return table
+
+
+class LightField:
+    """Per-cell light for one play area.
+
+    Usage per frame::
+
+        field.begin()
+        field.add(cx, cy, LIT)      # each source contributes
+        field.commit()              # fold in, then decay
+        field.paint(screen, ink)    # write attributes
+    """
+
+    __slots__ = ("charge", "_illum", "_touched")
+
+    def __init__(self) -> None:
+        self.charge = bytearray(_CELLS)
+        self._illum = bytearray(_CELLS)
+        self._touched: list[int] = []
+
+    # --- sources -----------------------------------------------------------
+
+    def begin(self) -> None:
+        """Start a frame. Clears what sources said last time."""
+        for idx in self._touched:
+            self._illum[idx] = 0
+        self._touched.clear()
+
+    def add(self, cx: int, cy: int, level: int = LIT) -> None:
+        """Contribute light to a cell. **Brightest wins** -- levels never sum."""
+        if level <= DARK or not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return
+        idx = cy * COLS + cx
+        if self._illum[idx] == 0:
+            self._touched.append(idx)
+        if level > self._illum[idx]:
+            self._illum[idx] = level
+
+    def commit(self) -> None:
+        """Decay everything, then top up whatever a source lit this frame."""
+        self.charge[:] = self.charge.translate(_DECAY)
+        for idx in self._touched:
+            topped = CHARGE_FOR[self._illum[idx]]
+            if topped > self.charge[idx]:
+                self.charge[idx] = topped
+
+    # --- reading -----------------------------------------------------------
+
+    def level_at(self, cx: int, cy: int) -> int:
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return DARK
+        return _LEVEL_OF[self.charge[cy * COLS + cx]]
+
+    def levels(self) -> bytes:
+        """The whole field as one level per cell."""
+        return self.charge.translate(_LEVEL_OF)
+
+    def paint(self, screen, ink: int) -> None:
+        """Write the play area's attributes. The strip is never touched."""
+        screen.attrs[0:_CELLS] = self.levels().translate(_attr_table(ink))

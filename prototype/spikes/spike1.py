@@ -1,4 +1,4 @@
-"""Spike 1 harness: screen regions and the status strip.
+"""Spike 1 harness: screen regions, the status strip, and the lighting model.
 
 Run from the prototype directory:
 
@@ -6,27 +6,35 @@ Run from the prototype directory:
 
 Debug keys change the placeholder readouts so the strip can be judged:
 
-    1/2  blood down/up        7    toggle spotlight lit
-    3/4  lives down/up        8/9  spray down/up
-    5/6  light down/up        0    toggle key held
-    R    force a full repaint  M   toggle the region-separation marker
-    ESC  quit
+    arrows  move the test light      1/2  blood down/up
+    SPACE   hold to light a cell      3/4  lives down/up
+    D       drop a dim source         5/6  light down/up
+    C       clear the light field     7    toggle spotlight lit
+    R       force a strip repaint     8/9  spray down/up
+    M       toggle the marker         0    toggle key held
+    ESC     quit
 
-There is no game here. The strip carries placeholder values only.
+There is no game here. The strip carries placeholder values, and the test light
+exists only so the fade can be watched decaying LIT -> DIM -> DARK.
 """
 
 import sys
 
 import pygame
 
-from spotlight.core.constants import BLACK, COLS, FRAME_RATE, WHITE
+from spotlight.core.constants import BLACK, COLS, FRAME_RATE, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
+from . import lighting
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
+from .lighting import LightField
 from .panel import Panel, blank_strip
 
 PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
+
+#: Ink the play area wears. Light decides the level; this decides the hue.
+PLAY_INK = YELLOW
 
 #: (key, readout, delta) -- flags use a delta of 0 and toggle instead.
 BINDINGS = (
@@ -57,7 +65,9 @@ def main(argv: list[str] | None = None) -> int:
             panel.set(name, value)
         panel.draw(screen)
 
-        marker_on, marker_x, repaints = True, 0, 0
+        field = LightField()
+        light_x, light_y = COLS // 2, PLAY_ROWS // 2
+        marker_on, marker_x, repaints = False, 0, 0
         running = True
         while running:
             for event in pygame.event.get():
@@ -70,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
                         panel.draw(screen, force=True)
                     elif event.key == pygame.K_m:
                         marker_on = not marker_on
+                    elif event.key == pygame.K_c:
+                        field.charge[:] = bytes(len(field.charge))
                     for key, name, delta in BINDINGS:
                         if event.key != key:
                             continue
@@ -77,13 +89,34 @@ def main(argv: list[str] | None = None) -> int:
                         panel.set(name, (not current) if delta == 0
                                   else current + delta)
 
+            keys = pygame.key.get_pressed()
+            light_x = max(0, min(COLS - 1, light_x
+                                 + keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]))
+            light_y = max(0, min(PLAY_ROWS - 1, light_y
+                                 + keys[pygame.K_DOWN] - keys[pygame.K_UP]))
+
+            # Lighting: sources contribute, brightest wins, then everything
+            # decays by a frame.
+            field.begin()
+            if keys[pygame.K_SPACE]:
+                field.add(light_x, light_y, lighting.LIT)
+            if keys[pygame.K_d]:
+                field.add(light_x, light_y, lighting.DIM)
+            field.commit()
+
             # The play area is cleared every frame; the strip is not touched.
             screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
+            for cy in range(PLAY_ROWS):
+                for cx in range(COLS):
+                    if field.level_at(cx, cy):
+                        screen.fill_cell_pixels(cx, cy, on=True)
             if marker_on:
-                # Proves the two regions repaint independently.
                 marker_x = (marker_x + 1) % COLS
                 screen.fill_cell_pixels(marker_x, PLAY_ROWS // 2, on=True)
-                screen.set_attr(marker_x, PLAY_ROWS // 2, PLAY_ATTR)
+
+            # Light decides colour, and nothing else does. This overwrites
+            # every play-area attribute, so it must come after the drawing.
+            field.paint(screen, PLAY_INK)
 
             touched = panel.draw(screen)
             if touched:

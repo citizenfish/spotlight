@@ -3,8 +3,23 @@
 import ast
 import pathlib
 
-CORE = pathlib.Path(__file__).resolve().parents[1] / "spotlight" / "core"
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+CORE = ROOT / "spotlight" / "core"
+SPIKES = ROOT / "spikes"
 FORBIDDEN = {"pygame", "numpy"}
+
+
+def _portable_sources():
+    """Everything that has to survive the port to Z80.
+
+    That is all of core/, plus the spikes' logic modules. Spike entry points
+    (spike1.py, spike2.py ...) drive Pygame and are exempt -- they are the
+    throwaway host layer, the equivalent of frontend/.
+    """
+    yield from CORE.rglob("*.py")
+    if SPIKES.is_dir():
+        yield from (p for p in SPIKES.rglob("*.py")
+                    if not p.name.startswith("spike"))
 
 
 def _imported_modules(path: pathlib.Path) -> set[str]:
@@ -20,19 +35,19 @@ def _imported_modules(path: pathlib.Path) -> set[str]:
 
 def test_core_imports_no_host_libraries():
     offenders = {}
-    for path in CORE.rglob("*.py"):
+    for path in _portable_sources():
         bad = _imported_modules(path) & FORBIDDEN
         if bad:
             offenders[path.name] = sorted(bad)
-    assert not offenders, f"core must not import host libraries: {offenders}"
+    assert not offenders, f"portable code must not import host libraries: {offenders}"
 
 
 def test_core_uses_no_float_literals():
     """Floats do not exist on a Z80. Catch them before they spread."""
     offenders = []
-    for path in CORE.rglob("*.py"):
+    for path in _portable_sources():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, float):
                 offenders.append(f"{path.name}:{node.lineno}")
-    assert not offenders, f"float literals in core: {offenders}"
+    assert not offenders, f"float literals in portable code: {offenders}"
