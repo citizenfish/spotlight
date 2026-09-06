@@ -12,9 +12,10 @@ Debug keys change the placeholder readouts so the strip can be judged:
     R       force a strip repaint     P  roaming: drift <-> path
     ESC     quit                      1-0  placeholder strip readouts
 
-There is no game here -- no collision, no entities. The four sources composite
-through the lighting model so their shapes, their overlap and the fade behind a
-moving light can be judged.
+There is no game here -- no collision, no AI. The four sources composite through
+the lighting model, and sprites are drawn over the top by pixel, so the shapes,
+the overlap, the fade behind a moving light and above all whether a two-toned
+sprite reads can all be judged.
 """
 
 import sys
@@ -25,7 +26,7 @@ from spotlight.core.constants import BLACK, COLS, FRAME_RATE, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import lighting, sources
+from . import lighting, sources, sprites
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, blank_strip
@@ -78,6 +79,17 @@ def main(argv: list[str] | None = None) -> int:
         roaming.set_mode(sources.Roaming.DRIFT)
         all_sources = (glow, room, cone, roaming)
         cone_full = cone.power
+
+        # Placed at deliberately awkward pixel offsets so they straddle cells.
+        scenery = (
+            (sprites.WORKER, 3 * 8 + 4, 6 * 8 + 3),
+            (sprites.WORKER, 20 * 8, 4 * 8),
+            (sprites.CLEG, 12 * 8 + 5, 9 * 8 + 2),
+            (sprites.CLEG, 25 * 8 + 3, 14 * 8 + 6),
+            (sprites.BODY, 7 * 8 + 2, 16 * 8),
+            (sprites.NEST, 28 * 8, 18 * 8 + 4),
+            (sprites.KEY, 5 * 8 + 6, 12 * 8 + 1),
+        )
 
         repaints = 0
         running = True
@@ -136,10 +148,12 @@ def main(argv: list[str] | None = None) -> int:
 
             # The play area is cleared every frame; the strip is not touched.
             screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
-            for cy in range(PLAY_ROWS):
-                for cx in range(COLS):
-                    if field.level_at(cx, cy):
-                        screen.fill_cell_pixels(cx, cy, on=True)
+
+            # Sprites set pixels only. Their colour comes from whichever cells
+            # they happen to be standing in.
+            for spr, sx, sy in scenery:
+                sprites.draw(screen, spr, sx, sy)
+            sprites.draw(screen, sprites.PLAYER, glow.x * 8, glow.y * 8 - 8)
 
             # Light decides colour, and nothing else does. This overwrites
             # every play-area attribute, so it must come after the drawing.
