@@ -38,6 +38,12 @@ def test_keys_and_doors_have_hues_of_their_own():
     assert scene.INK[scene.KEY] != scene.INK[scene.DOOR]
 
 
+def test_this_room_places_no_key():
+    """It did nothing: doors and keys are not in this spike, so it was a glyph
+    that could not be picked up and opened nothing."""
+    assert scene.cells_of(scene.KEY) == []
+
+
 def test_walls_are_solid_and_floor_is_not():
     wall = next(iter([(cx, cy) for cy, row in enumerate(scene.ROOM)
                       for cx, c in enumerate(row) if c == scene.WALL]))

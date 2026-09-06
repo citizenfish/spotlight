@@ -165,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         fixtures = [(sprites.SPRITES[name], x, y)
                     for name, x, y in scene.ENTITIES
                     if name not in scene.MOVERS]
+        # A key would be drawn here. This room places none -- see scene.
         for cx, cy in scene.cells_of(scene.KEY):
             fixtures.append((sprites.KEY, cx * CELL, cy * CELL))
         rescue = rescue_mod.Rescue(scene.WORKERS)

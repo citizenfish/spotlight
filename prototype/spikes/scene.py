@@ -7,10 +7,16 @@ The room is written as text because it has to be read by a person, not parsed
 quickly. Legend:
 
     #  wall        D  door (its own hue)
-    .  floor       K  key (its own hue)
+    .  floor       K  key (its own hue) -- none in this room
     L  room light zone (floor, but authored as always lit)
 
-**There is no room light in this room.** There was one, a six-by-five block in
+**There is no key in this room, and no room light.**
+
+The key went because it did nothing: doors and keys are not being built in this
+spike, so it was a cyan glyph on the floor that could not be picked up and
+opened nothing. The legend and the hue stay, since a key is a real thing in
+[[Building Structure]] and the colour rule is worth keeping exercised, but this
+room does not place one. There was one, a six-by-five block in
 the top-left corner, and in play it was a rectangle of dots that never changed:
 permanently lit ground with nothing to say, once room lights stopped revealing
 the people standing in them. The legend and `light_zones` stay, because
@@ -38,7 +44,7 @@ ROOM = (
     "#..............................#",
     "#.........#####................#",
     "#..............................#",
-    "#....K.........................#",
+    "#..............................#",
     "#..............................#",
     "#..........########............#",
     "#..............................#",
