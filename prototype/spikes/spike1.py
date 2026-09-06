@@ -10,6 +10,7 @@ Debug keys change the placeholder readouts so the strip can be judged:
     T       toggle the cone           L  toggle the room light
     C       clear the light field     N  toggle the searchlight
     R       force a strip repaint     V  searchlight: repeat <-> vary
+    SPACE   fire the flyspray         T  toggle the carried spotlight
     ESC     quit                      1-0  placeholder strip readouts
 
 There is no game here -- no collision, no AI. The four sources composite through
@@ -22,11 +23,11 @@ import sys
 
 import pygame
 
-from spotlight.core.constants import BLACK, CELL, COLS, FRAME_RATE, WHITE
+from spotlight.core.constants import BLACK, CELL, COLS, CYAN, FRAME_RATE, WHITE
 from spotlight.core.screen import Screen, attr_byte
 from spotlight.frontend.display import Display
 
-from . import floor, lighting, scene, sources, sprites
+from . import floor, lighting, scene, sources, spray as spray_mod, sprites
 from .player import Player
 from .spotlights import FloorLight, Spotlights
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
@@ -76,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
         kit = Spotlights(cone, [FloorLight(cx, cy, power)
                                 for cx, cy, power in scene.SPOTLIGHTS])
+        spray = spray_mod.Spray(charges=5)
         # A prison searchlight quartering the room. One circuit covers
         # everywhere; V switches between repeating and varying.
         roaming = sources.Roaming(0, 0, radius=3, step_every=3)
@@ -109,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
                         kit.toggle()
                     elif event.key == pygame.K_n:
                         roaming.toggle()
+                    elif event.key == pygame.K_SPACE:
+                        if spray.fire(player.cx, player.cy, player.facing):
+                            panel.set("spray", spray.charges)
                     elif event.key == pygame.K_v:
                         roaming.vary = not roaming.vary
                         print("searchlight:",
@@ -130,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
             cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
 
             roaming.update()
+            spray.tick()
             picked = kit.tick(player)
             if picked is not None:
                 print(f"swapped: carrying {cone.power}, left "
@@ -163,9 +169,19 @@ def main(argv: list[str] | None = None) -> int:
                 sprites.draw(screen, spr, sx, sy)
             sprites.draw(screen, sprites.PLAYER, player.x, player.y)
 
-            # Light decides colour, and nothing else does. This overwrites
+            # Sprayed ground gets its own droplet pattern and its own hue.
+            # Hue is per-cell, so this does not disturb the clash guarantee.
+            frame_inks = bytearray(inks)
+            for cx, cy in spray.patches:
+                for dy, bits in enumerate(spray_mod.STIPPLE):
+                    for dx in range(CELL):
+                        if bits & (0x80 >> dx):
+                            screen.plot(cx * CELL + dx, cy * CELL + dy)
+                frame_inks[cy * COLS + cx] = CYAN
+
+            # Light decides brightness, contents decide hue. This overwrites
             # every play-area attribute, so it must come after the drawing.
-            field.paint(screen, inks)
+            field.paint(screen, frame_inks)
 
             touched = panel.draw(screen)
             if touched:
