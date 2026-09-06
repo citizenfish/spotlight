@@ -650,3 +650,35 @@ def test_neither_a_flash_nor_a_surge_lures_anything():
     for surge in (False, True):
         flash.fire(surge=surge)
         assert flash.lure() is None
+
+
+def test_a_held_flash_stays_on_until_let_go():
+    """A real surge is a quarter of a second; this is for watching things in."""
+    flash = S.Flash(frames=3)
+    flash.hold(True)
+    for _ in range(500):
+        flash.update()
+    assert flash.enabled and flash.reveals
+    field = _field(flash)
+    assert field.level_at(9, 9) == L.LIT and field.reveals_at(9, 9)
+
+    flash.hold(False)
+    assert not flash.enabled
+    assert not _lit_cells(_field(flash))
+
+
+def test_holding_it_does_not_change_what_the_clegs_do():
+    """A light that is everywhere offers nothing to steer toward."""
+    flash = S.Flash()
+    flash.hold(True)
+    assert flash.lure() is None
+
+
+def test_a_timed_surge_still_counts_down_after_a_hold():
+    flash = S.Flash(frames=4)
+    flash.hold(True)
+    flash.hold(False)
+    flash.fire(surge=True)
+    for _ in range(4):
+        flash.update()
+    assert not flash.enabled

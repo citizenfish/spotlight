@@ -14,7 +14,7 @@ scheme and it is all a player ever touches:
 Everything else is a debug key. None of it is part of the game; it is here so
 the thing can be judged without rebuilding it:
 
-    ESC   quit                        F  a mains surge: everything, briefly
+    ESC   quit                        F  debug view: hold everything visible
     C     wipe the remembered light   R  force a strip repaint
     G     the personal glow           L  room lights
     N     the searchlight             W  do room lights show people?
@@ -33,8 +33,14 @@ then fades over three seconds -- you cannot play a room you have never seen the
 shape of, and what you keep is what you held in your head. It shows the building
 and not who is in it.
 
-**F is a mains surge**, which is a different thing: everything, people included,
-for a moment. That is the memorisation beat the game is built around.
+**F holds a debug view on**: the room lit and everything in it drawn, until you
+press it again. It is for watching the Clegs decide where to go, and it changes
+nothing about what they do -- a flash lures nobody, so the swarm behaves exactly
+as it would in the dark, in full view.
+
+In the game proper this moment is the **mains surge**: the same thing for a
+quarter of a second, which is the memorisation beat the design is built around.
+That is far too brief to study anything in, which is why the debug view exists.
 
 **There are seven people in the room and you have to find them.** That is the
 objective, and it is the whole reason light is worth anything: the flash gives
@@ -225,9 +231,11 @@ def main(argv: list[str] | None = None) -> int:
                               "arcs" if roaming.mode == sources.Roaming.ARC
                               else "straight rows")
                     elif event.key == pygame.K_f:
-                        # A surge, not the opening flash: the mains coming back
-                        # shows you everybody, which is what F is wanted for.
-                        opening.fire(surge=True)
+                        # Held on, not a real surge: a quarter of a second is
+                        # too short to watch anything happen in.
+                        opening.hold(not opening.held)
+                        print("debug view:",
+                              "everything shown" if opening.held else "off")
                     elif event.key == pygame.K_w:
                         for rl in room_lights:
                             rl.reveals = not rl.reveals

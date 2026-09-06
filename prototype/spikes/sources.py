@@ -255,6 +255,8 @@ class Flash(Source):
         super().__init__(level, memory, enabled=False, reveals=False)
         self.frames = frames
         self.left = 0
+        #: Debug: held on indefinitely rather than counting down.
+        self.held = False
 
     def fire(self, surge: bool = False) -> None:
         """Start a flash. Firing again while one is running restarts it.
@@ -272,8 +274,28 @@ class Flash(Source):
         self.enabled = True
         self.reveals = surge
 
+    def hold(self, on: bool) -> None:
+        """Hold the surge on, or let it go. **A debug view, not a mechanic.**
+
+        A real surge is a quarter of a second, which is the point of it and also
+        why it is no use for watching anything: by the time you have registered
+        what is on screen it has gone. Held on, the room stays lit and everything
+        in it stays drawn, so the Clegs can be watched deciding where to go.
+
+        It changes nothing about their behaviour. A flash lures nobody -- a light
+        that is everywhere offers nothing to steer toward -- so the swarm does
+        exactly what it would have done in the dark, in full view.
+        """
+        self.held = on
+        self.enabled = on
+        self.reveals = on
+        if not on:
+            self.left = 0
+
     def update(self) -> None:
         """Burn down. Call once a frame, before applying."""
+        if self.held:
+            return
         if self.left > 0:
             self.left -= 1
             if self.left == 0:
