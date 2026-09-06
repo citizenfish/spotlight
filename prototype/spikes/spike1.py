@@ -8,8 +8,8 @@ Debug keys change the placeholder readouts so the strip can be judged:
 
     arrows  walk, and set facing      G  toggle the personal glow
     T       toggle the cone           L  toggle the room light
-    C       clear the light field     N  toggle the roaming spotlight
-    R       force a strip repaint     P  roaming: drift <-> path
+    C       clear the light field     N  toggle the searchlight
+    R       force a strip repaint     V  searchlight: repeat <-> vary
     ESC     quit                      1-0  placeholder strip readouts
 
 There is no game here -- no collision, no AI. The four sources composite through
@@ -73,12 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         room = room_lights[0]
         cone = sources.Cone(reach=7)
         cone.x, cone.y, cone.facing = player.cx, player.cy, player.facing
-        roaming = sources.Roaming(
-            x=COLS - 6, y=PLAY_ROWS - 5, radius=3,
-            path=[(COLS - 4, 3), (COLS - 4, PLAY_ROWS - 4),
-                  (COLS - 20, PLAY_ROWS - 4), (COLS - 20, 3)],
-        )
-        roaming.set_mode(sources.Roaming.DRIFT)
+        # A prison searchlight quartering the room. One circuit covers
+        # everywhere; V switches between repeating and varying.
+        roaming = sources.Roaming(0, 0, radius=3, step_every=3)
         all_sources = (glow, cone, roaming, *room_lights)
         cone_full = cone.power
 
@@ -109,10 +106,10 @@ def main(argv: list[str] | None = None) -> int:
                         cone.toggle()
                     elif event.key == pygame.K_n:
                         roaming.toggle()
-                    elif event.key == pygame.K_p:
-                        roaming.set_mode(sources.Roaming.DRIFT
-                                         if roaming.mode == sources.Roaming.PATH
-                                         else sources.Roaming.PATH)
+                    elif event.key == pygame.K_v:
+                        roaming.vary = not roaming.vary
+                        print("searchlight:",
+                              "varying" if roaming.vary else "repeating")
                     for key, name, delta in BINDINGS:
                         if event.key != key:
                             continue

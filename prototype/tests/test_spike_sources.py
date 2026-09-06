@@ -158,7 +158,8 @@ def test_mode_falls_back_to_drift_without_a_path():
 
 
 def test_roaming_pool_is_a_disc():
-    roam = S.Roaming(15, 10, radius=2)
+    # DRIFT, because a sweeping light owns its own position.
+    roam = S.Roaming(15, 10, radius=2, mode=S.Roaming.DRIFT)
     cells = _lit_cells(_field(roam))
     assert (15, 10) in cells
     assert (17, 10) in cells and (15, 12) in cells      # on the radius
@@ -187,3 +188,111 @@ def test_all_four_composite_brightest_wins():
     # The glow alone would leave this cell dim; the others make it lit.
     assert f.level_at(10, 10) == L.LIT
     assert _field(glow).level_at(10, 10) == L.DIM
+
+
+# --- the searchlight sweep -------------------------------------------------
+
+def _covered_by(roam, circuits=1, limit=100000):
+    """Every cell the beam touches until it has finished `circuits` circuits."""
+    seen, frames = set(), 0
+    r2 = roam.radius * roam.radius
+    while roam.cycles < circuits and frames < limit:
+        roam.update()
+        frames += 1
+        for dy in range(-roam.radius, roam.radius + 1):
+            for dx in range(-roam.radius, roam.radius + 1):
+                if dx * dx + dy * dy <= r2:
+                    seen.add((roam.x + dx, roam.y + dy))
+    assert frames < limit, "sweep never completed a circuit"
+    return {c for c in seen
+            if 0 <= c[0] < COLS and 0 <= c[1] < PLAY_ROWS}, frames
+
+
+def _whole_room():
+    return {(x, y) for x in range(COLS) for y in range(PLAY_ROWS)}
+
+
+def test_one_circuit_lights_the_entire_room():
+    """The point of a searchlight: nowhere is permanently safe."""
+    covered, _ = _covered_by(S.Roaming(0, 0, radius=3, step_every=1))
+    assert covered == _whole_room()
+
+
+def test_coverage_holds_at_other_beam_sizes():
+    for radius in (2, 3, 4, 5):
+        covered, _ = _covered_by(S.Roaming(0, 0, radius=radius, step_every=1))
+        missed = _whole_room() - covered
+        assert not missed, f"radius {radius} missed {sorted(missed)[:4]}"
+
+
+def test_repeating_sweeps_run_the_same_route_every_circuit():
+    """Easy mode: learnable, so you can time your crossing."""
+    roam = S.Roaming(0, 0, radius=3, step_every=1, vary=False)
+    routes = []
+    for _ in range(3):      # includes the first circuit, which must match too
+        target = roam.cycles + 1
+        path = []
+        while roam.cycles < target:
+            roam.update()
+            path.append((roam.x, roam.y))
+        routes.append(path)
+    assert routes[0] == routes[1] == routes[2]
+
+
+def test_varying_sweeps_change_between_circuits():
+    """Hard mode: still total coverage, but you cannot plan around it."""
+    roam = S.Roaming(0, 0, radius=3, step_every=1, vary=True)
+    routes = []
+    for _ in range(4):
+        target = roam.cycles + 1
+        path = []
+        while roam.cycles < target:
+            roam.update()
+            path.append((roam.x, roam.y))
+        routes.append(tuple(path))
+    assert len(set(routes)) > 1, "vary mode repeated itself every circuit"
+
+
+def test_a_varying_sweep_still_covers_everything_each_circuit():
+    """Varying must not mean leaving gaps."""
+    roam = S.Roaming(0, 0, radius=3, step_every=1, vary=True)
+    for circuit in range(4):
+        target = roam.cycles + 1
+        seen = set()
+        while roam.cycles < target:
+            roam.update()
+            for dy in range(-3, 4):
+                for dx in range(-3, 4):
+                    if dx * dx + dy * dy <= 9:
+                        seen.add((roam.x + dx, roam.y + dy))
+        missed = _whole_room() - seen
+        assert not missed, f"circuit {circuit} missed {sorted(missed)[:4]}"
+
+
+def test_sweep_waypoints_span_the_full_width():
+    points = S.sweep_waypoints(3)
+    assert min(x for x, _ in points) == 0
+    assert max(x for x, _ in points) == COLS - 1
+
+
+def test_sweep_rows_are_spaced_by_the_beam_diameter():
+    rows = sorted({y for _, y in S.sweep_waypoints(3)})
+    gaps = {b - a for a, b in zip(rows, rows[1:])}
+    assert gaps <= {6}, f"uneven row spacing: {sorted(gaps)}"
+
+
+def test_a_circuit_takes_a_sensible_number_of_frames():
+    """Slow enough to be a threat you can see coming, fast enough to matter."""
+    roam = S.Roaming(0, 0, radius=3)
+    _, frames = _covered_by(roam)          # frames, not steps
+    seconds = frames / 50
+    assert 5 <= seconds <= 20, f"a full sweep takes {seconds:.1f}s"
+
+
+def test_path_and_drift_modes_still_work():
+    roam = S.Roaming(5, 5, path=[(5, 5), (10, 5)], step_every=1)
+    assert roam.mode == S.Roaming.PATH
+    roam.set_mode(S.Roaming.DRIFT)
+    assert roam.mode == S.Roaming.DRIFT
+    roam.set_mode(S.Roaming.SWEEP)
+    assert roam.mode == S.Roaming.SWEEP
