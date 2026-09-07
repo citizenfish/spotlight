@@ -233,6 +233,11 @@ def metrics(run) -> dict:
         "torch_seconds": run.tally.lit_seconds,
         "dark_seconds": run.seconds - run.tally.lit_seconds,
         "torch_percent": run.tally.lit_percent,
+        # **When the torch died on them**, and how often (issue #31). A run
+        # that never got there spent the whole of it in hand; `None` is that
+        # answer rather than a missing one.
+        "first_torch_out_seconds": when(session_mod.TORCH_OUT),
+        "torch_outs": sum(1 for e in log if e.kind == session_mod.TORCH_OUT),
         "sprays_fired": run.tally.sprays,
         "clegs_killed": run.tally.swatted,
         "clegs_left": len(run.swarm.clegs),

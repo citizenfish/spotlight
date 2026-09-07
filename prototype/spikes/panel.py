@@ -26,6 +26,12 @@ LABEL_INK = WHITE
 #: once the total stops being small enough to count at a glance.
 BAR, COUNT, FLAG, TALLY = "bar", "count", "flag", "tally"
 
+#: How long a readout flashes when something happens to it: two seconds, which
+#: is three blinks of the Spectrum's 32-frame flash cycle. Long enough to catch
+#: an eye that was in the dark at the other end of the screen, short enough
+#: that it is over before it becomes part of the furniture.
+ALERT_FRAMES = 96
+
 
 def bar_pips(value: int, full: int, pips: int = 6) -> int:
     """How many pips a bar shows for `value` out of `full`.
@@ -52,12 +58,21 @@ class Region:
     ink: int
     kind: str
     glyph: tuple[int, ...] = font.BAR_FULL
-    #: TALLY only: drawn one cell to the left of the number, as its label.
-    badge: tuple[int, ...] | None = None
+    #: TALLY only: a word, drawn to the left of the number with a cell of gap,
+    #: so the tally says what it is counting. It replaced a 6-pixel figure of a
+    #: person (issue #31): the badge was legible to somebody who already knew
+    #: what it was for, which is exactly the reader the playtest does not have.
+    label: str | None = None
 
     @property
-    def attr(self) -> int:
-        return attr_byte(ink=self.ink, paper=BLACK, bright=False)
+    def label_col(self) -> int:
+        """Where the label starts: right-aligned against the gap before the
+        number, so adding a letter grows the readout leftwards into the gap the
+        hearts leave rather than pushing the digits about."""
+        return self.col - 1 - len(self.label or "")
+
+    def attr(self, flash: bool = False) -> int:
+        return attr_byte(ink=self.ink, paper=BLACK, bright=False, flash=flash)
 
 
 _TOP, _BOTTOM = STRIP_TOP, STRIP_TOP + 1
@@ -74,14 +89,18 @@ REGIONS: dict[str, Region] = {
     "blood": Region(_TOP, STATUS_LEFT + 6, 8, RED, BAR),
     "lives": Region(_BOTTOM, STATUS_LEFT + 6, 3, RED, COUNT, font.HEART),
     "light": Region(_TOP, ACTION_LEFT + 6, 6, YELLOW, BAR),
-    "lit": Region(_TOP, ACTION_LEFT + 13, 1, YELLOW, FLAG, font.LIT),
+    # Against the bar, not a cell clear of it: they are one readout, and the
+    # cell that gap used to cost is the tally's word (issue #31).
+    "lit": Region(_TOP, ACTION_LEFT + 12, 1, YELLOW, FLAG, font.LIT),
     "spray": Region(_BOTTOM, ACTION_LEFT + 6, 5, CYAN, COUNT, font.PIP),
     "keys": Region(_BOTTOM, ACTION_LEFT + 12, 1, CYAN, FLAG, font.KEY),
-    # Bottom left, in the gap the three hearts leave. A badge and up to five
-    # characters, so "10/12" fits without a word of label -- there is no room
-    # for one and the little figure says it.
-    "rescued": Region(_BOTTOM, STATUS_LEFT + 11, 5, WHITE, TALLY,
-                      badge=font.PERSON),
+    # Bottom left, in the gap the three hearts leave, and now filling it: the
+    # word costs four cells and the tally is three, which is "0/7" through
+    # "7/7" and every quota this building has. It used to be five cells wide so
+    # that "10/12" fitted, and a two-digit quota is what paid for the word --
+    # see `_draw_tally` for what a total too wide to fit does instead of lying.
+    "rescued": Region(_BOTTOM, STATUS_LEFT + 15, 3, WHITE, TALLY,
+                      label="SAFE"),
 }
 
 
@@ -93,6 +112,8 @@ class Panel:
         #: TALLY denominators, set once when the level is known.
         self.totals: dict[str, int] = {name: 0 for name in REGIONS}
         self._dirty: set[str] = set(REGIONS)
+        #: Frames of flashing left on each readout. See `alert`.
+        self._alerts: dict[str, int] = {}
 
     def set_total(self, name: str, total: int) -> None:
         """How many there are to find. The denominator of a tally."""
@@ -124,6 +145,36 @@ class Panel:
     def dirty(self) -> frozenset[str]:
         return frozenset(self._dirty)
 
+    # --- alerts ------------------------------------------------------------
+
+    def alert(self, name: str, frames: int = ALERT_FRAMES) -> None:
+        """Flash a readout for a while, because something just happened to it.
+
+        The strip is otherwise the quietest thing on the screen -- dim ink,
+        repainted only when a number moves -- and that is deliberate. An alert
+        is the exception: a readout that changed for a reason the player did
+        not ask for and has to notice.
+
+        It is the **attribute flash bit**, which the Spectrum blinks in
+        hardware at no cost per frame: two repaints for the whole event, one to
+        start it and one to stop it. Nothing here animates.
+        """
+        if name not in REGIONS:
+            raise KeyError(f"no such readout: {name}")
+        self._alerts[name] = frames
+        self._dirty.add(name)
+
+    def tick(self) -> None:
+        """Count the alerts down. One frame, called whether or not it draws."""
+        for name in list(self._alerts):
+            self._alerts[name] -= 1
+            if self._alerts[name] <= 0:
+                del self._alerts[name]
+                self._dirty.add(name)
+
+    def flashing(self, name: str) -> bool:
+        return name in self._alerts
+
     # --- drawing -----------------------------------------------------------
 
     def draw_labels(self, screen: Screen) -> None:
@@ -146,8 +197,9 @@ class Panel:
     def _draw_region(self, screen: Screen, name: str) -> list[tuple[int, int]]:
         region = REGIONS[name]
         value = self.values[name]
+        attr = region.attr(flash=name in self._alerts)
         if region.kind == TALLY:
-            return self._draw_tally(screen, region, value, name)
+            return self._draw_tally(screen, region, value, name, attr)
         touched = []
         for i in range(region.width):
             if region.kind == BAR:
@@ -158,30 +210,41 @@ class Panel:
                 glyph = region.glyph if value else font.BLANK
             cx = region.col + i
             font.draw_glyph(screen, cx, region.row, glyph)
-            screen.set_attr(cx, region.row, region.attr)
+            screen.set_attr(cx, region.row, attr)
             touched.append((cx, region.row))
         return touched
 
     def _draw_tally(self, screen: Screen, region, value: int,
-                    name: str) -> list[tuple[int, int]]:
-        """Draw "n/m", with the badge in the cell before it.
+                    name: str, attr: int) -> list[tuple[int, int]]:
+        """Draw "n/m", with the word that says what is being counted before it.
 
         Left-aligned and padded, so the slash does not walk about as the
         numbers change -- a readout that moves is one the eye has to find again
         every time it changes, which is the opposite of what it is for.
+
+        **A total too wide for the region loses its denominator rather than its
+        digits.** Truncating "10/12" to fit three cells draws "10/", which is
+        not a smaller truth, it is a different one. The count alone is honest,
+        and the word carries the meaning either way. Nothing in this building
+        reaches it -- the quota is seven -- and if a level ever does, the strip
+        wants reflowing rather than a readout that quietly rounds.
         """
         touched = []
-        text = f"{value}/{self.totals[name]}"[:region.width]
+        text = f"{value}/{self.totals[name]}"
+        if len(text) > region.width:
+            text = f"{value}"[:region.width]
         text += " " * (region.width - len(text))
-        if region.badge is not None:
-            font.draw_glyph(screen, region.col - 1, region.row, region.badge)
-            screen.set_attr(region.col - 1, region.row, region.attr)
-            touched.append((region.col - 1, region.row))
+        if region.label:
+            font.draw_text(screen, region.label_col, region.row, region.label)
+            for i in range(len(region.label)):
+                cx = region.label_col + i
+                screen.set_attr(cx, region.row, attr)
+                touched.append((cx, region.row))
         for i, ch in enumerate(text):
             cx = region.col + i
             font.draw_glyph(screen, cx, region.row,
                             font.GLYPHS.get(ch, font.BLANK))
-            screen.set_attr(cx, region.row, region.attr)
+            screen.set_attr(cx, region.row, attr)
             touched.append((cx, region.row))
         return touched
 

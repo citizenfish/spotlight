@@ -116,6 +116,12 @@ SPRAY_KILL = "spray_kill"
 #: is a few hundred events in the worst run.
 DRAINED = "drained"
 SWAPPED = "swapped"
+#: The carried torch burned its last frame of power (issue #31). Its own kind
+#: rather than a `SWAPPED` with a zero count, because it is the one thing that
+#: happens to the player's kit **without the player asking for it** -- and
+#: because "how long before a first-timer's torch died, and what did they do
+#: next" is a question the playtest wants to be able to ask of a run.
+TORCH_OUT = "torch_out"
 #: The player stepped through a doorway (issue #21). `count` is the room they
 #: arrived in, `room` the room they left. It is logged because a second room is
 #: only worth having if people go into it, and "did a first-timer ever find the
@@ -687,13 +693,28 @@ class Session:
             if self.lives > 0:
                 self._respawn()
 
+        # **Say the light ran out** (issue #31). A first-timer switches the
+        # torch on to see, leaves it on, and goes dark twenty seconds later --
+        # and until now nothing said so. The bar has been sliding towards empty
+        # the whole time, but a bar you are not looking at is not an event, and
+        # the moment it matters is exactly the moment the player is looking at
+        # something else in the dark.
+        #
+        # Swapping onto a fresh spotlight on the same frame is not the torch
+        # running out: the bar refills in front of you and the player did that
+        # on purpose. The alert is for the thing that happened *to* them.
+        was_lit = self.cone.lit
         picked = self.kit.tick(self.player, self.here)
         if picked is not None:
             self._record(SWAPPED, count=self.cone.power, room=room)
+        elif was_lit and self.cone.power <= 0:
+            self._record(TORCH_OUT, room=room)
+            self.panel.alert("light")
 
         self.panel.set("light", bar_pips(self.cone.power, self.cone_full))
         self.panel.set("lit", self.cone.lit)
         self.panel.set("blood", bar_pips(self.blood, self.blood_full, 8))
+        self.panel.tick()
 
         # You hear them before you see them -- and since a Cleg is only drawn
         # where a light is on it, in the dark this is all you get.

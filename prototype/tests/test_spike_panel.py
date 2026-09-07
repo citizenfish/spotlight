@@ -1,5 +1,7 @@
 """The status strip: dim styling, and repainting only what changed."""
 
+import pytest
+
 from spikes import font, layout, panel
 from spotlight.core.constants import BLACK, COLS
 from spotlight.core.screen import Screen, attr_byte, unpack_attr
@@ -78,9 +80,9 @@ def test_an_unchanged_panel_repaints_nothing():
 def test_force_repaints_everything():
     s, p = _fresh()
     touched = p.draw(s, force=True)
-    expected = sum(r.width + (1 if r.badge else 0)
+    expected = sum(r.width + len(r.label or "")
                    for r in panel.REGIONS.values())
-    assert len(touched) == expected, "a badge cell counts too"
+    assert len(touched) == expected, "the tally's word counts too"
 
 
 # --- values ----------------------------------------------------------------
@@ -233,12 +235,19 @@ def test_the_tally_cannot_exceed_its_total():
     assert p.values["rescued"] == 7
 
 
-def test_a_double_figure_total_still_fits():
+def test_a_total_too_wide_to_fit_loses_the_denominator_not_the_digits():
+    """Three cells and a quota of twelve: "10/" would be a different number.
+
+    The tally was five cells wide until issue #31, which spent two of them on
+    the word SAFE. Nothing in this building has a two-figure quota, and if one
+    ever does the strip wants reflowing -- but a readout that silently rounds
+    is worse than one that says less, so this one says less.
+    """
     s, p = _fresh()
     p.set_total("rescued", 12)
     p.set("rescued", 10)
     p.draw(s, force=True)
-    assert _read(s, panel.REGIONS["rescued"]) == "10/12"
+    assert _read(s, panel.REGIONS["rescued"]).rstrip() == "10"
 
 
 def test_changing_the_total_repaints_it():
@@ -251,5 +260,87 @@ def test_changing_the_total_repaints_it():
 def test_the_tally_sits_in_the_gap_the_hearts_leave():
     lives, rescued = panel.REGIONS["lives"], panel.REGIONS["rescued"]
     assert rescued.row == lives.row
-    assert rescued.col - 1 > lives.col + lives.width, "badge would overlap lives"
-    assert rescued.col + rescued.width <= layout.HALF, "spills into the kit half"
+    assert rescued.label_col > lives.col + lives.width, "the word overlaps lives"
+    assert rescued.col + rescued.width <= layout.ACTION_LEFT, "spills into the kit"
+
+
+# --- the word that says what is being counted (issue #31) ------------------
+
+def _word(screen, region):
+    """The label drawn to the left of a tally, read back off the bitmap."""
+    out = []
+    for i in range(len(region.label)):
+        drawn = _cell_rows(screen, region.label_col + i, region.row)
+        for ch, glyph in font.GLYPHS.items():
+            if tuple(glyph) == drawn:
+                out.append(ch)
+                break
+        else:
+            out.append("?")
+    return "".join(out)
+
+
+def test_the_tally_says_in_words_what_it_is_counting():
+    """`*3/7` left a first-timer to guess. The testers do not know the game."""
+    s, p = _tally()
+    p.set("rescued", 3)
+    p.draw(s, force=True)
+    assert _word(s, panel.REGIONS["rescued"]) == "SAFE"
+    assert _read(s, panel.REGIONS["rescued"]).rstrip() == "3/7"
+
+
+def test_the_word_is_drawn_a_cell_clear_of_the_number():
+    """A word butted against the digits reads as one string, not two things."""
+    rescued = panel.REGIONS["rescued"]
+    assert rescued.label_col + len(rescued.label) == rescued.col - 1
+
+
+def test_the_word_repaints_with_the_number():
+    s, p = _tally()
+    p.draw(s, force=True)
+    p.set("rescued", 1)
+    touched = p.draw(s)
+    rescued = panel.REGIONS["rescued"]
+    assert (rescued.label_col, rescued.row) in touched
+
+
+# --- alerts (issue #31) ----------------------------------------------------
+
+def _flashing(screen, region):
+    """Is the flash bit set on the readout's first cell?"""
+    return unpack_attr(screen.get_attr(region.col, region.row))[3]
+
+
+def test_an_alert_flashes_the_readout():
+    s, p = _fresh()
+    p.draw(s, force=True)
+    assert not _flashing(s, panel.REGIONS["light"])
+    p.alert("light")
+    p.draw(s)
+    assert _flashing(s, panel.REGIONS["light"])
+
+
+def test_an_alert_repaints_a_readout_that_did_not_change():
+    """Nothing about the light's value moves when the last frame of it goes."""
+    s, p = _fresh()
+    p.draw(s, force=True)
+    p.alert("light")
+    assert "light" in p.dirty
+
+
+def test_an_alert_stops_of_its_own_accord():
+    s, p = _fresh()
+    p.alert("light", frames=3)
+    p.draw(s, force=True)
+    for _ in range(3):
+        assert p.flashing("light")
+        p.tick()
+    assert not p.flashing("light")
+    p.draw(s)
+    assert not _flashing(s, panel.REGIONS["light"])
+
+
+def test_an_alert_on_an_unknown_readout_is_a_mistake():
+    p = panel.Panel()
+    with pytest.raises(KeyError):
+        p.alert("torch")

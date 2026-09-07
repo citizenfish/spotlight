@@ -73,18 +73,11 @@ HEART = (0x00, 0x6C, 0xFE, 0xFE, 0x7C, 0x38, 0x10, 0x00)
 KEY = (0x00, 0x1C, 0x22, 0x22, 0x1C, 0x08, 0x0E, 0x00)
 LIT = (0x00, 0x10, 0x54, 0x38, 0x54, 0x10, 0x00, 0x00)
 
-#: A person, for the rescue count. Squat enough to read at 8x8, where the 8x16
-#: worker sprite would only lose its legs.
-PERSON = (
-    0x00,
-    0x18,  # ...##...   head
-    0x18,  # ...##...
-    0x7E,  # .######.   arms out
-    0x18,  # ...##...   body
-    0x18,  # ...##...
-    0x24,  # ..#..#..   legs
-    0x00,
-)
+# There was a PERSON glyph here -- a squat 8x8 figure that badged the rescue
+# count. Issue #31 replaced it with the word SAFE: a badge is a picture you
+# have to have been taught, and the testers are people who have been taught
+# nothing about this game on purpose.
+
 BLANK = GLYPHS[" "]
 
 MISSING = (0x00, 0x7C, 0x7C, 0x7C, 0x7C, 0x7C, 0x7C, 0x00)

@@ -22,6 +22,14 @@ def test_regions_tile_the_screen_without_overlap():
     assert layout.PLAY_CELLS + layout.STRIP_CELLS == COLS * ROWS
 
 
-def test_strip_splits_down_the_middle():
+def test_the_kit_half_is_exactly_as_wide_as_it_needs_to_be():
+    """The split is not the middle, and the two cells it gave up are a word.
+
+    Issue #31: the rescue tally had to say what it was counting, and the only
+    cells left to say it in were the ones the kit half was not using. LIGHT is
+    the widest thing on that side -- label, gap, six bar cells, gap, the lit
+    flag -- and that is fourteen.
+    """
     assert layout.STATUS_LEFT == 0
-    assert layout.ACTION_LEFT == COLS // 2
+    assert layout.ACTION_LEFT == COLS - 13
+    assert layout.ACTION_LEFT > COLS // 2, "the status half is the bigger one"

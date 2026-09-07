@@ -20,10 +20,12 @@ from spotlight.core.constants import CELL
 from spotlight.core.screen import Screen
 
 from spikes import (
-    clegs as clegs_mod, rescue as rescue_mod, scene, session,
+    clegs as clegs_mod, panel, rescue as rescue_mod, scene, session,
 )
 from spikes.session import Intent, Session
 from spikes.spotlights import FloorLight
+
+import screenreader
 
 
 def run_until_over(run: Session, limit: int = 20000,
@@ -886,3 +888,67 @@ def test_the_run_carries_on_past_a_loss_so_the_loss_can_be_felt():
         "the swarm froze when somebody died"
     assert [w.blood for w in run.rescue.alive_waiting()] != blood, \
         "the clock stopped for everybody else"
+
+
+# --- the torch running out (issue #31) -------------------------------------
+
+def test_the_torch_running_out_is_an_event_and_it_flashes():
+    """A first-timer switches it on to see, leaves it on, and goes dark.
+
+    Until this, nothing said so: the bar slid to empty over twenty seconds and
+    the light simply stopped. The bar is not an event -- the moment it matters
+    is the moment the player is looking at something else, in the dark.
+    """
+    run = Session()
+    run.cone.power = 3
+    # The frame the torch is switched on burns a frame of it, like any other.
+    run.step(Intent(torch=True))
+    assert run.cone.lit and run.cone.power == 2
+
+    run.step()
+    assert run.cone.lit, "went out a frame early"
+    assert not any(e.kind == session.TORCH_OUT for e in run.frame_events)
+
+    events = run.step()
+    assert [e.kind for e in events if e.kind == session.TORCH_OUT] == \
+        [session.TORCH_OUT]
+    assert not run.cone.lit
+    assert run.panel.flashing("light")
+
+
+def test_the_torch_going_out_is_announced_once_and_then_stops_flashing():
+    run = Session()
+    run.cone.power = 1
+    run.step(Intent(torch=True))
+    for _ in range(panel.ALERT_FRAMES + 10):
+        run.step()
+    assert sum(1 for e in run.log if e.kind == session.TORCH_OUT) == 1
+    assert not run.panel.flashing("light"), "the alert never ended"
+
+
+def test_swapping_onto_a_fresh_light_is_not_the_torch_running_out():
+    """The bar refills in front of you, and you did it on purpose.
+
+    The alert is for the thing that happens *to* the player. A spotlight picked
+    up on the same frame the last one died is not that.
+    """
+    run = Session()
+    cx, cy = run.player.cx, run.player.cy
+    run.kit.floor.append(FloorLight(cx, cy, power=500, room=run.here))
+    run.cone.power = 1
+    run.step(Intent(torch=True))
+    assert any(e.kind == session.SWAPPED for e in run.frame_events)
+    assert not any(e.kind == session.TORCH_OUT for e in run.frame_events)
+    assert not run.panel.flashing("light")
+
+
+def test_the_strip_says_in_words_how_many_are_safe():
+    """Issue #31: `*3/7` left the reader to guess what was being counted."""
+    run = Session()
+    screen = Screen()
+    run.draw(screen)
+    region = panel.REGIONS["rescued"]
+    assert screenreader.read(screen, region.label_col, region.row,
+                             len(region.label)) == "SAFE"
+    assert screenreader.read(screen, region.col, region.row,
+                             region.width).rstrip() == "0/7"
