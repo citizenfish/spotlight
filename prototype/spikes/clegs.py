@@ -130,6 +130,58 @@ DRAIN_EVERY = 12
 SATED_FRAMES = 500
 SATED_DRIFT_EVERY = 9
 
+# --- what happens to a Cleg riding a player who bleeds out ------------------
+#
+# **Death must not remove Clegs from the game.** It used to: the session's death
+# branch dropped every attached fly out of the swarm list, permanently, so a run
+# with two deaths was played against half a swarm and the gap between the first
+# death and the second was nearly four times as long as the gap before the first.
+# Dying was rewarded, which inverts the whole bargain (issue #27).
+#
+# Two things had to be decided with the fix, and both change how dangerous the
+# minute after a death is:
+#
+# **Where they go.** They scatter into the free cells around the spot you fell
+# on. They do not ride you to the entrance -- that is instant re-death and no
+# player could read it -- and they do not stay stacked on the one cell either,
+# because the swarm's own rule is that no two share a cell and six flies in one
+# square is not a swarm, it is one Cleg drawn six times. Scattering leaves the
+# place you died a knot of flies you can see coming and learn to walk around.
+#
+# **Whether they are fed.** They are. A fly that was drinking when the blood ran
+# out has had the whole budget off you, and the design already says what a fed
+# fly does: it goes sated and drifts briskly away, because otherwise it "sits on
+# the cell it fed from, notices the glow it is standing in, and bites again for
+# ever". Detaching them hungry reproduces exactly that leak on top of a player
+# who has just been put back with a fresh eight pips, which is the instant
+# re-death the issue rules out. Being fed is not a reprieve the player earned by
+# dying: it is ten seconds bought with a full blood budget, against a swarm that
+# is still the size it was.
+#
+# Rejected, and recorded because it is the obvious alternative: **letting a
+# part-fed Cleg keep its progress** across the death, so a fly on 6 of 8 needs
+# only two more bites from the new life. It is defensible -- it makes the minute
+# after a death harsher, which is the direction this bug wants correcting in --
+# but it stacks a second drain on a player who cannot yet have moved, and the
+# issue asks explicitly that the respawn be survivable. The blood is charged
+# once, for one meal.
+
+#: Where a detached Cleg is put, relative to the cell it was feeding on. Tried
+#: in this order: the four orthogonal neighbours, then the diagonals, then the
+#: ring at two cells. Ordered by squared distance, so a fly ends up as close to
+#: where it was as the room allows.
+#:
+#: A fixed table, deliberately. It is two adds and a solidity test per entry
+#: until one fits -- no search, no route-finding, nothing a Cleg is not allowed
+#: to have. `(0, 0)` is not in it: every detached fly leaves the square you fell
+#: on, which is the square you are put back on if you died at the entrance.
+SCATTER = ((0, -1), (0, 1), (-1, 0), (1, 0),
+           (-1, -1), (1, -1), (-1, 1), (1, 1),
+           (0, -2), (0, 2), (-2, 0), (2, 0),
+           (-1, -2), (1, -2), (-1, 2), (1, 2),
+           (-2, -1), (2, -1), (-2, 1), (2, 1),
+           (-2, -2), (2, -2), (-2, 2), (2, 2))
+
 # --- hunger ----------------------------------------------------------------
 #
 # **A Cleg that has not fed notices fainter light.**
@@ -464,12 +516,52 @@ class Swarm:
             cleg.taken += 1
             self.drained += bite
             if cleg.taken >= DRAIN_TOTAL:
-                cleg.state = SATED
-                cleg._timer = SATED_FRAMES
-                cleg._tick = 0
-                cleg.goal = None
-                cleg.hunger = 0        # fed, and no longer straining to find you
+                self._sate(cleg)
         return blood
+
+    @staticmethod
+    def _sate(cleg: Cleg) -> None:
+        """It has eaten. Off you, uninterested, and away for a while.
+
+        Shared by the fly that drank its fill and by the fly that was still
+        drinking when the blood ran out -- see `detach` and issue #27. Hunger
+        goes back to zero, which is what stops a fed fly noticing the glow it
+        is standing in and biting again for ever.
+        """
+        cleg.state = SATED
+        cleg._timer = SATED_FRAMES
+        cleg._tick = 0
+        cleg.goal = None
+        cleg.hunger = 0            # fed, and no longer straining to find you
+
+    def detach(self, is_solid) -> int:
+        """Take every attached Cleg off the player. Returns how many.
+
+        Called when the player bleeds out. **Nothing is removed from the
+        swarm** -- that was issue #27, where the death branch deleted every
+        attached fly and made dying the cheapest way to empty the room.
+
+        They are fed, and they scatter into the free cells around where you
+        fell. Both choices are argued at `SCATTER` above. A fly that finds
+        nowhere free stays exactly where it is: it may be inconvenient, it is
+        never deleted.
+        """
+        freed = [c for c in self.clegs if c.state == ATTACHED]
+        if not freed:
+            return 0
+        taken = {(c.cx, c.cy) for c in self.clegs if c.state != ATTACHED}
+        for cleg in freed:
+            for dx, dy in SCATTER:
+                nx, ny = cleg.cx + dx, cleg.cy + dy
+                if not (0 <= nx < COLS and 0 <= ny < PLAY_ROWS):
+                    continue
+                if (nx, ny) in taken or is_solid(nx, ny):
+                    continue
+                cleg.cx, cleg.cy = nx, ny
+                break
+            taken.add((cleg.cx, cleg.cy))
+            self._sate(cleg)
+        return len(freed)
 
     # --- what the rest of the game sees -------------------------------------
 

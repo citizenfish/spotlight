@@ -561,3 +561,77 @@ def test_they_can_still_all_reach_the_player():
     swarm = C.Swarm([C.Cleg(20, 10) for _ in range(4)])
     _run(swarm, [(20, 10)], player=(20, 10), frames=1)
     assert len(swarm.attached()) == 4
+
+
+# --- dying must not empty the room (issue #27) -----------------------------
+
+def test_detaching_never_removes_a_cleg_from_the_swarm():
+    """The bug: the session's death branch deleted every attached fly.
+
+    A lit Statue on seed 3 went from six Clegs to three across two deaths and
+    finished the run with a try in hand, so **dying made the game easier**.
+    Whatever else `detach` does, the swarm it returns is the swarm it was given.
+    """
+    swarm = C.Swarm([C.Cleg(20, 10, seed=0xBEEF + i) for i in range(4)])
+    _run(swarm, [(20, 10)], player=(20, 10), frames=1)
+    assert len(swarm.attached()) == 4
+    assert swarm.detach(OPEN) == 4
+    assert len(swarm.clegs) == 4
+    assert swarm.attached() == []
+
+
+def test_detached_clegs_scatter_rather_than_stack():
+    """They were all riding the same cell, and no two Clegs may share one --
+    six in one square is not a swarm, it is one Cleg drawn six times.
+
+    They land as close to where you fell as the room allows, so the place you
+    died is a knot of flies rather than a clean slate.
+    """
+    swarm = C.Swarm([C.Cleg(20, 10, seed=0xBEEF + i) for i in range(6)])
+    _run(swarm, [(20, 10)], player=(20, 10), frames=1)
+    swarm.detach(OPEN)
+    where = [(c.cx, c.cy) for c in swarm.clegs]
+    assert len(set(where)) == len(where), f"stacked: {where}"
+    assert (20, 10) not in where, "nobody stays on the square you fell on"
+    for cx, cy in where:
+        assert max(abs(cx - 20), abs(cy - 10)) <= 2, "scattered, not teleported"
+
+
+def test_a_detached_cleg_never_lands_in_a_wall_and_is_never_lost():
+    """Boxed in on every side, it stays where it is. Inconvenient is fine;
+    deleted is the bug."""
+    boxed = lambda cx, cy: (cx, cy) != (20, 10)      # noqa: E731
+    swarm = C.Swarm([C.Cleg(20, 10, seed=0xBEEF + i) for i in range(3)])
+    _run(swarm, [(20, 10)], player=(20, 10), frames=1, is_solid=boxed)
+    swarm.detach(boxed)
+    assert len(swarm.clegs) == 3
+    assert all((c.cx, c.cy) == (20, 10) for c in swarm.clegs)
+
+
+def test_a_cleg_that_was_drinking_when_you_bled_out_has_had_its_meal():
+    """The second decision in issue #27, and it is the one that keeps the
+    respawn survivable.
+
+    A part-fed fly does **not** carry its progress into your next life. It has
+    had the whole blood budget off you, so it is sated: off, uninterested, and
+    drifting briskly away for ten seconds. Detaching them hungry instead
+    reproduces exactly the leak the design already names -- a fed fly that sits
+    on the cell it fed from, notices the glow it is standing in, and bites again
+    for ever -- on top of a player who has just been handed a fresh eight pips
+    and cannot yet have moved.
+    """
+    swarm = C.Swarm([C.Cleg(20, 10)])
+    cleg = swarm.clegs[0]
+    _run(swarm, [(20, 10)], player=(20, 10), frames=C.DRAIN_EVERY * 3 + 1)
+    assert cleg.state == C.ATTACHED and 0 < cleg.taken < C.DRAIN_TOTAL
+    swarm.detach(OPEN)
+    assert cleg.state == C.SATED
+    assert cleg._timer == C.SATED_FRAMES
+    assert cleg.hunger == 0, "fed, so not straining to find you"
+    assert cleg.goal is None
+
+
+def test_detaching_nobody_is_not_an_error():
+    swarm = C.Swarm([C.Cleg(2, 2), C.Cleg(9, 9)])
+    assert swarm.detach(OPEN) == 0
+    assert len(swarm.clegs) == 2

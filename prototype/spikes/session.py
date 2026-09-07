@@ -355,7 +355,21 @@ class Session:
 
         # Death costs a try and puts you back at the entrance. The building
         # carries on regardless: workers you did not reach are still bleeding,
-        # and the swarm is where you left it.
+        # and the swarm is where you left it -- **all of it**.
+        #
+        # This branch used to read `self.swarm.clegs = [c for c in ... if
+        # c.state != ATTACHED]`, which deleted every fly that was on you at the
+        # moment you died, for the rest of the run. A lit Statue on seed 3 went
+        # from six Clegs to three across two deaths and finished with a try in
+        # hand, and the gap between the first death and the second was nearly
+        # four times the gap before the first, because the room had emptied.
+        # **Dying was the cheapest way to make the game easier**, which inverts
+        # the bargain the whole design rests on (issue #27). Every measurement
+        # taken from a run with a death in it was taken against a depleted
+        # swarm.
+        #
+        # `Swarm.detach` puts them back in the room instead; where they land
+        # and why they are fed is argued in `clegs.SCATTER`.
         if self.blood <= 0:
             self.lives -= 1
             self.panel.set("lives", self.lives)
@@ -363,8 +377,7 @@ class Session:
             if self.lives > 0:
                 self.blood = self.blood_full
                 self.player.x, self.player.y = scene.PLAYER_START
-                self.swarm.clegs = [c for c in self.swarm.clegs
-                                    if c.state != clegs_mod.ATTACHED]
+                self.swarm.detach(scene.is_solid)
 
         picked = self.kit.tick(self.player)
         if picked is not None:

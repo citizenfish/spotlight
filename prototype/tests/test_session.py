@@ -305,3 +305,86 @@ def test_every_death_is_announced_exactly_once():
     assert lengths[:-1] == [rescue_mod.CALL_FRAMES] * (len(lengths) - 1), \
         f"death calls lasted {lengths} frames"
     assert run.over == session.NOBODY_LEFT
+
+
+# --- dying must not empty the room (issue #27) -----------------------------
+
+#: Seed 3 with the torch held on is the run the bug was reported and measured
+#: on: it loses its first try at 35 seconds and used to come out of it with
+#: half a swarm. Named here so the regression is pinned on the run that showed
+#: it rather than on a run chosen to be convenient.
+BUG_SEED = 3
+
+
+def _lit_statue_run(seed: int = BUG_SEED, frames: int = 9000):
+    """The reported run, driven for real. Returns the session and the frame of
+    every try lost."""
+    from spikes import bots
+    bot = bots.Statue(seed=seed, light=True)
+    run = Session(seed=seed)
+    sizes, deaths = set(), []
+    while run.over is None and run.frame < frames:
+        for event in run.step(bot.intent(run)):
+            if event.kind == session.LIFE_LOST:
+                deaths.append(run.frame)
+        sizes.add(len(run.swarm.clegs))
+    return run, sizes, deaths
+
+
+def test_the_swarm_is_the_same_size_across_a_run_with_deaths():
+    """**The bug found in play, and the reason every measurement taken from a
+    run with a death in it has to be retaken.**
+
+    The death branch removed every Cleg attached to the player, permanently. On
+    this seed the swarm went from six to three across two deaths and the run
+    finished with a try in hand and half the room's threat gone, so the gap
+    between the first death and the second was nearly four times the gap before
+    the first. **Dying was the cheapest way to make the game easier.**
+
+    Nothing kills a Cleg but the spray, and a Statue never sprays, so on this
+    run the count may not move at all.
+    """
+    run, sizes, deaths = _lit_statue_run()
+    assert len(deaths) >= 2, f"wanted a run with deaths in it, got {deaths}"
+    assert run.tally.swatted == 0, "a Statue never sprays"
+    assert sizes == {len(scene.CLEGS)}, f"the swarm changed size: {sizes}"
+
+
+def test_the_player_does_not_instantly_re_die_at_the_entrance():
+    """The other half of the fix. Putting the swarm back must not put it back
+    *on* you: leaving the flies attached across a respawn, or detaching them
+    hungry onto the square you are returned to, spends the next try in a couple
+    of seconds and reads as the game cheating.
+
+    Five seconds is a floor rather than a target -- the run measured 57 and 58
+    seconds between consecutive deaths -- and it is the quantity that fails
+    loudly if a detached fly ever comes back hungry.
+    """
+    _run, _sizes, deaths = _lit_statue_run()
+    gaps = [b - a for a, b in zip(deaths, deaths[1:])]
+    assert gaps, "needed at least two deaths to have a gap"
+    assert min(gaps) > 250, f"a try was spent in under five seconds: {gaps}"
+
+
+def test_dying_detaches_rather_than_deletes():
+    """The mechanism, at the frame it happens on, without waiting for a run.
+
+    The player is put back at the entrance and the flies that were on them are
+    still in the room -- sated, so they drift off, and scattered, so they are
+    not stacked on the square you are standing on.
+    """
+    from spikes import clegs as clegs_mod
+    run = Session(lives=3)
+    run.step()
+    for cleg in run.swarm.clegs[:3]:
+        cleg.cx, cleg.cy = run.player.cx, run.player.cy
+        run.swarm._attach(cleg)
+    before = len(run.swarm.clegs)
+    run.blood = 0
+    run.step()
+    assert run.lives == 2
+    assert len(run.swarm.clegs) == before
+    assert run.swarm.attached() == []
+    assert all(c.state == clegs_mod.SATED for c in run.swarm.clegs[:3])
+    here = (run.player.cx, run.player.cy)
+    assert here not in [(c.cx, c.cy) for c in run.swarm.clegs[:3]]
