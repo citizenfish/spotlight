@@ -57,6 +57,16 @@ ROOM = (
 
 WALL, FLOOR, DOOR, KEY, ROOM_LIGHT = "#", ".", "D", "K", "L"
 
+#: What to call this room when a report has to say where somebody was lost.
+#:
+#: There is one room, so the name is not doing much work yet. It exists because
+#: issue #21 adds a second one and the question the user will want to ask a
+#: tester is "you lost the one in the far room at about a minute -- did you know
+#: they were there?". A room that cannot be named cannot be asked about, and
+#: retrofitting the name to the reports afterwards is more work than carrying an
+#: unused string now.
+ROOM_NAME = "the main room"
+
 #: The way out. Where you came in, and where rescued workers have to be led.
 #: It is the door: a room with a door you cannot leave by is a strange room.
 EXIT = DOOR
