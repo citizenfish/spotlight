@@ -1,0 +1,27 @@
+; player
+;
+; The player: the one in kit, seen from above.
+; The only figure that touches both edges of its column at the shoulders.
+;
+; 8x16, one row per line, '#' set and '.' clear.
+; Comments start with ';' -- a row of pixels can start with '#'.
+;
+; This is the source; the hex in prototype/spikes/sprites.py is the
+; copy, and tests/test_spike_sprites.py fails if the two disagree.
+
+........
+........
+..####..
+..####..
+..####..
+########
+########
+##.##.##
+##.##.##
+##.##.##
+.######.
+.##..##.
+.##..##.
+........
+........
+........

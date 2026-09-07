@@ -434,11 +434,16 @@ def test_a_follower_who_has_not_crossed_yet_is_still_in_the_room_behind_you():
     """The moment the whole thing exists for: part of your line is somewhere you
     cannot see, and there is nothing on screen to tell you how many.
 
-    Shown as an A/B on the real drawing path. The straggler is put in the cell
-    the player is standing in, so your own glow is on them and there is no
-    question of their being invisible for some other reason -- and they are
-    still not drawn, because they are in the room next door. Move them to this
-    room without moving them a pixel and the picture changes.
+    Shown as an A/B on the real drawing path. The straggler is put alongside the
+    player, so your own glow is on them and there is no question of their being
+    invisible for some other reason -- and they are still not drawn, because
+    they are in the room next door. Move them to this room without moving them a
+    pixel and the picture changes.
+
+    Alongside rather than exactly on top: since the people were redrawn from
+    above (issue #31), a follower's silhouette is contained inside the player's
+    -- the player is the same figure with kit on -- so a follower drawn under
+    the player sets no pixel the player has not already set.
     """
     run = Session(seed=1)
     tail = _tail_of(run, 3)
@@ -452,7 +457,7 @@ def test_a_follower_who_has_not_crossed_yet_is_still_in_the_room_behind_you():
     assert behind, "the whole tail teleported across with the player"
 
     straggler = behind[0]
-    straggler.x, straggler.y = run.player.x, run.player.y
+    straggler.x, straggler.y = run.player.x + CELL, run.player.y
     screen = Screen()
     run.draw(screen)
     without = bytes(screen.pixels)

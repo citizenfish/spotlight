@@ -1080,14 +1080,23 @@ class Session:
         # in this room. A body is not a person any more: it is part of the
         # building, and the fade may remember it -- and it stays where it fell,
         # in the room it fell in.
+        # A body is a person, drawn in the person's own box at the person's own
+        # position: the cell of downward offset went with the 8x8 slab it was
+        # written for.
         for body in self.rescue.bodies(self.here):
-            sprites.draw(screen, sprites.BODY, body.x, body.y + CELL)
+            sprites.draw(screen, sprites.BODY, body.x, body.y)
+        # **Waiting workers have their arms up and followers have them down.**
+        # Raised arms mean "I still need reaching", so a person who is already
+        # walking behind you must not be drawn making the signal -- and a
+        # follower dropped by the player's death goes back to arms up on the
+        # frame they are dropped, because the sprite is chosen from the state
+        # rather than remembered.
         for worker in self.rescue.alive_waiting(self.here):
             sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
                          visible=field.reveals_at)
         for worker in self.rescue.tail:
             if worker.room == self.here:
-                sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
+                sprites.draw(screen, sprites.FOLLOWER, worker.x, worker.y,
                              visible=field.reveals_at)
         for cleg in place.swarm.clegs:
             sprites.draw(screen, sprites.CLEG, cleg.cx * CELL, cleg.cy * CELL,

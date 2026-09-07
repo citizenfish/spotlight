@@ -1,0 +1,27 @@
+; worker
+;
+; A trapped worker, waiting: arms up and out, the silhouette of
+; somebody calling for help. Narrower shoulders than the player - no kit.
+;
+; 8x16, one row per line, '#' set and '.' clear.
+; Comments start with ';' -- a row of pixels can start with '#'.
+;
+; This is the source; the hex in prototype/spikes/sprites.py is the
+; copy, and tests/test_spike_sprites.py fails if the two disagree.
+
+........
+........
+##....##
+##....##
+#..##..#
+#.####.#
+.######.
+.######.
+..####..
+..####..
+..#..#..
+..#..#..
+..#..#..
+........
+........
+........

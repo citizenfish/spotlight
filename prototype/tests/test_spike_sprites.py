@@ -124,10 +124,20 @@ def test_sprites_set_pixels_without_clearing_the_background():
 
 # --- silhouettes -----------------------------------------------------------
 
-def test_people_are_8x16_and_everything_else_is_8x8():
-    assert len(SP.PLAYER) == len(SP.WORKER) == 16
-    for name in ("cleg", "body", "nest", "key"):
+def test_people_are_8x16_alive_or_dead_and_everything_else_is_8x8():
+    """The size rule lost its exception when the body became a person.
+
+    It used to read "people are 8x16, everything else is 8x8", and a body was
+    an 8x8 slab -- which is what made it read as debris. Seen from above,
+    somebody lying down has the same plan as somebody standing up, so size
+    cannot be the tell and pose has to be: **size says whether a thing is a
+    person, pose says whether it is still alive.**
+    """
+    for name in SP.PEOPLE:
+        assert len(SP.SPRITES[name]) == 16, name
+    for name in ("cleg", "nest", "key", "lamp"):
         assert len(SP.SPRITES[name]) == 8, name
+    assert set(SP.PEOPLE) | {"cleg", "nest", "key", "lamp"} == set(SP.SPRITES)
 
 
 def test_every_silhouette_is_distinct():
@@ -139,9 +149,57 @@ def test_every_silhouette_is_distinct():
         seen[key] = name
 
 
-def test_player_and_worker_differ_in_the_top_row_of_the_head():
-    """The helmet is what tells you which is which at a glance."""
-    assert SP.PLAYER[:3] != SP.WORKER[:3]
+# --- drawn from above (issue #31) ------------------------------------------
+
+def _edges(sprite):
+    """Which rows of a figure touch both edges of its 8-pixel column."""
+    return [i for i, row in enumerate(sprite) if row & 0x80 and row & 0x01]
+
+
+def test_which_figure_is_yours_is_a_body_and_not_a_hat():
+    """The old pair differed at the helmet, which is one row of eight pixels.
+
+    They are near-inverses now: the player is empty at the top edges and full
+    at the shoulders, a waiting worker the other way round. That is the whole
+    of item 1 of issue #31 -- *a different body, not a different hat*.
+    """
+    player, worker = _edges(SP.PLAYER), _edges(SP.WORKER)
+    assert player and worker
+    # The worker's width is all above the head; the player's is all shoulders
+    # and below. They overlap on one row and are opposite everywhere else.
+    assert min(worker) < min(player) and max(worker) < max(player)
+    assert len(set(worker) & set(player)) <= 1
+    assert sum(1 for a, b in zip(SP.PLAYER, SP.WORKER) if a != b) >= 8
+
+
+def test_no_figure_has_anything_above_its_head():
+    """Seen from above a head is the topmost thing and there is no hat on it.
+
+    Two blank rows at the top of every figure, which is also what keeps the
+    box 8x16 while the drawing is eleven or twelve rows of it.
+    """
+    for name in SP.PEOPLE:
+        assert SP.SPRITES[name][:2] == (0x00, 0x00), name
+
+
+def test_the_living_are_symmetric_and_the_dead_are_not():
+    """The tell for a body is pose, because from above the plan is the same."""
+    def mirror(row):
+        return sum(1 << (7 - i) for i in range(8) if row & (1 << i))
+
+    for name in ("player", "worker", "follower"):
+        sprite = SP.SPRITES[name]
+        assert all(row == mirror(row) for row in sprite), \
+            f"{name} is not symmetric about its centre column"
+    assert not any(row == mirror(row) for row in SP.BODY if row), \
+        "the body is symmetric somewhere, which reads as somebody standing"
+
+
+def test_a_follower_has_its_arms_down_and_a_waiting_worker_has_them_up():
+    """Raised arms mean "I still need reaching", so somebody already walking
+    behind you must not be drawn making the signal."""
+    assert _edges(SP.WORKER), "a waiting worker's hands reach both edges"
+    assert not _edges(SP.FOLLOWER), "a follower is still signalling"
 
 
 def test_no_sprite_is_blank():
@@ -201,3 +259,43 @@ def test_no_test_means_drawn_everywhere_as_before():
     SP.draw(masked, SP.WORKER, 10 * CELL + 3, 5 * CELL,
             visible=lambda cx, cy: True)
     assert bytes(lit.pixels) == bytes(masked.pixels)
+
+
+# --- the art is in assets/ too (issue #31) ---------------------------------
+
+def _assets():
+    """`assets/sprites/`, which is the source-of-truth art in editable form."""
+    from pathlib import Path
+    return Path(__file__).resolve().parents[2] / "assets" / "sprites"
+
+
+def _read_asset(path):
+    rows = [line for line in path.read_text().splitlines()
+            if line and not line.startswith(";")]
+    return tuple(sum(1 << (7 - i) for i, ch in enumerate(row) if ch == "#")
+                 for row in rows)
+
+
+def test_every_sprite_is_in_the_assets_directory_as_well_as_in_code():
+    """`assets/` is the source of truth for art and it was empty.
+
+    A grid of `#` and `.` rather than hex, because it is the form the next
+    person can edit -- and because the two representations having to agree is
+    the only thing that stops them drifting. The Spectrum's converter reads
+    this, not the Python.
+
+    Comments start with `;` rather than `#`, which is what a row of eight set
+    pixels starts with. That is not a style choice: the first version of this
+    used `#` and silently ate the player's shoulders.
+    """
+    for name, sprite in SP.SPRITES.items():
+        path = _assets() / f"{name}.txt"
+        assert path.exists(), f"{name} is drawn in code and nowhere else"
+        assert _read_asset(path) == tuple(sprite), \
+            f"{name}.txt and sprites.py disagree"
+
+
+def test_the_assets_directory_holds_nothing_the_game_does_not_draw():
+    drawn = {f"{name}.txt" for name in SP.SPRITES}
+    on_disk = {p.name for p in _assets().glob("*.txt")}
+    assert on_disk == drawn, "art nobody draws, or a sprite with no source"
