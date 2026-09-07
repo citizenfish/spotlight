@@ -13,6 +13,13 @@ scheme and it is all a player ever touches:
 
     ESC      quit, from anywhere
 
+**Everything else is inert unless the game is started with `--debug`.** There
+are sixteen developer keys on ordinary letters and one of them, `F`, reveals the
+entire room and everybody in it and holds it there. A tester who presses a key
+to find out what it does could silently destroy the run we are asking them
+about and never know they had. They are all still there and they all still
+work; they are simply not reachable by accident. See `Debug`.
+
 Those three are now **named on the title screen**, in words, because they used
 to be named only here: the window opened straight into the opening flash and a
 stranger had no way to learn that `T` existed at all. `T` is the bargain the
@@ -89,8 +96,20 @@ PANEL_KEYS = (
 TITLE, PLAY, ENDED = "title", "play", "ended"
 
 
+#: The command-line switch that unlocks the developer keys. Off by default, and
+#: deliberately not mentioned on any screen a tester will see.
+DEBUG_FLAG = "--debug"
+
+
 class Debug:
     """The developer's keys: everything that is not one of the three controls.
+
+    **Only reachable with `--debug` on the command line.** Without it this class
+    is never built, so there is no key sequence that can get at it -- the point
+    is not that a tester is asked not to press `F`, it is that pressing `F` does
+    nothing. The sixteen keys below sit on ordinary letters and a tester who
+    fidgets used to be able to solve the game by accident and never know they
+    had cheated.
 
     None of it is part of the game. It is here so the thing can be judged
     without rebuilding it -- watch the swarm decide where to go, try the
@@ -229,11 +248,15 @@ class Shell:
     clear, and the list is wrong the first time somebody adds a field.
     """
 
-    def __init__(self, screen: Screen, on_click=None) -> None:
+    def __init__(self, screen: Screen, on_click=None,
+                 debug: bool = False) -> None:
         self.screen = screen
         self.state = TITLE
         self.run: Session | None = None
+        #: Built only when the developer keys are unlocked, so that with them
+        #: locked there is nothing for a stray key to reach.
         self.debug: Debug | None = None
+        self.debug_enabled = debug
         #: The host makes the noise; the session only says when.
         self.on_click = on_click
         self._torch = False
@@ -257,8 +280,9 @@ class Shell:
             self._torch = True
         elif key == pygame.K_SPACE:
             self._spray = True
-        else:
+        elif self.debug is not None:
             self.debug.handle(key, self.screen)
+        # ...and otherwise nothing at all. An unbound key is ignored.
         return True
 
     # --- the run ------------------------------------------------------------
@@ -266,7 +290,7 @@ class Shell:
     def start(self) -> None:
         """Begin a fresh run. Nothing survives from the last one."""
         self.run = Session()
-        self.debug = Debug(self.run)
+        self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
 
@@ -294,6 +318,7 @@ class Shell:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     scale = int(argv[argv.index("--scale") + 1]) if "--scale" in argv else 3
+    debug = DEBUG_FLAG in argv
 
     pygame.init()
     try:
@@ -302,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         screen = Screen()
         speaker = spike_buzz.Speaker()
         speaker.open()
-        shell = Shell(screen, on_click=speaker.click)
+        shell = Shell(screen, on_click=speaker.click, debug=debug)
 
         running = True
         while running:

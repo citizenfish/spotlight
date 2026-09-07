@@ -20,6 +20,24 @@ python -m spotlight            # --scale N to resize the window (default 3)
 That starts the game. Three controls, and the title screen names them: arrow
 keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
 
+## Developer keys
+
+Off by default, and deliberately not mentioned on any screen:
+
+```sh
+python -m spotlight --debug
+```
+
+That unlocks about sixteen keys on ordinary letters — the searchlight's shape
+and speed, the light hue, the remembered-light wipe, and `F`, which reveals the
+whole room and everybody in it and holds it there. They are listed in the
+`Debug` class in `spikes/spike1.py`.
+
+Without the flag only the three controls and `ESC` do anything, and every other
+key is ignored. That is the point: a playtester who presses a key to see what it
+does would otherwise be able to solve the game by accident and never know they
+had.
+
 ## Test
 
 ```sh
