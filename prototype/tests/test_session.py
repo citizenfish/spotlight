@@ -54,6 +54,25 @@ def touch(run: Session, worker) -> None:
     run.player.x, run.player.y = worker.x, worker.y
 
 
+def at_the_door(run: Session) -> None:
+    """Put the player in the doorway. Touching it is a delivery, not an ending."""
+    run.here, (ex, ey) = scene.BUILDING.exit
+    run.player.x, run.player.y = ex * CELL, ey * CELL
+
+
+def push_out(run: Session, frames: int = session.LEAVE_FRAMES) -> str | None:
+    """Lean on the door the way a player does, and see if it lets go.
+
+    Issue #28: leaving is `LEAVE_FRAMES` of still walking into the door after
+    arriving at it. Every test that used to end a run by touching the exit ends
+    it by pushing through, because that is now what leaving is.
+    """
+    out = Intent(*run.exit_facing)
+    for _ in range(frames):
+        run.step(out)
+    return run.over
+
+
 def test_a_fresh_session_has_everybody_in_the_room():
     run = Session()
     assert run.total == 7
@@ -129,10 +148,12 @@ def test_walking_out_of_the_exit_ends_the_run():
     """
     run = Session()
     run.step()                           # one frame in the room they came into
-    run.here, (ex, ey) = scene.BUILDING.exit
-    run.player.x, run.player.y = ex * 8, ey * 8
+    at_the_door(run)
     run.step()
-    assert run.over == session.NOBODY_LEFT
+    assert run.over is None, "a brush against the door ended the run"
+
+    assert push_out(run) == session.ABANDONED, \
+        "seven people are alive in there and the run said otherwise"
     assert run.rescued == 0
     assert run.tally_adds_up()
 
@@ -147,18 +168,16 @@ def test_the_door_is_not_an_ending_until_you_have_gone_in():
     it is cheap, rather than found by a tester whose run lasted 0:00.
     """
     run = Session()
-    run.here, (ex, ey) = scene.BUILDING.exit
-    run.player.x, run.player.y = ex * 8, ey * 8
+    at_the_door(run)
     run._gone_in = False                 # as if they had started here
-    run.step()
-    assert run.over is None, "the run ended on the doorstep"
+    assert push_out(run, session.LEAVE_FRAMES * 2) is None, \
+        "the run ended on the doorstep"
 
     # Step off the door and come back: now it is a way out.
     run.player.x, run.player.y = scene.PLAYER_START
     run.step()
-    run.player.x, run.player.y = ex * 8, ey * 8
-    run.step()
-    assert run.over == session.NOBODY_LEFT
+    at_the_door(run)
+    assert push_out(run) == session.ABANDONED
 
 
 def test_running_out_of_tries_ends_the_run():
@@ -188,10 +207,11 @@ def test_getting_everybody_out_is_its_own_ending():
         touch(run, worker)
         run.step()
     assert len(run.rescue.tail) == run.total
-    run.here, (ex, ey) = scene.BUILDING.exit
-    run.player.x, run.player.y = ex * 8, ey * 8
+    at_the_door(run)
     run.step()
-    assert run.over == session.ALL_OUT
+    assert run.rescued == run.total, "the door did not hand them over on touch"
+    assert run.over is None, "delivering ended the run"
+    assert push_out(run) == session.ALL_OUT
     assert run.rescued == run.total
     assert run.tally_adds_up()
 
@@ -814,20 +834,33 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     for worker in list(sweep.rescue.workers):
         touch(sweep, worker)
         sweep.step()
-    sweep.here, (ex, ey) = scene.BUILDING.exit
-    sweep.player.x, sweep.player.y = ex * 8, ey * 8
-    sweep.step()
+    at_the_door(sweep)
+    push_out(sweep)
     endings[sweep.over] = sweep
 
-    # Walked out without them, with three in the tail and four still waiting.
+    # Walked out on people who are still alive: three delivered, four waiting.
     part = Session()
     for worker in list(part.rescue.workers)[:3]:
         touch(part, worker)
         part.step()
-    part.here = scene.BUILDING.exit[0]
-    part.player.x, part.player.y = ex * 8, ey * 8
-    part.step()
+    at_the_door(part)
+    push_out(part)
     endings[part.over] = part
+
+    # Walked out when there was nobody living left to go back for.
+    empty = Session()
+    for worker in list(empty.rescue.workers)[:3]:
+        touch(empty, worker)
+        empty.step()
+    at_the_door(empty)
+    empty.step()
+    for worker in empty.rescue.alive_waiting():
+        worker.blood = 0
+    while empty.rescue.waiting:
+        empty.step()
+    at_the_door(empty)
+    push_out(empty)
+    endings[empty.over] = empty
 
     # Out of tries.
     spent = Session(lives=1)
@@ -836,8 +869,8 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     spent.step()
     endings[spent.over] = spent
 
-    assert set(endings) == {session.ALL_OUT, session.NOBODY_LEFT,
-                            session.NO_LIVES}
+    assert set(endings) == {session.ALL_OUT, session.ABANDONED,
+                            session.NOBODY_LEFT, session.NO_LIVES}
     for name, run in endings.items():
         assert run.tally_adds_up(), \
             f"{name}: {run.rescued} + {run.lost} + {run.inside} " \
@@ -856,12 +889,12 @@ def test_arriving_with_a_tail_banks_them_before_the_run_is_judged():
     for worker in list(run.rescue.workers)[:2]:
         touch(run, worker)
         run.step()
-    run.here, (ex, ey) = scene.BUILDING.exit
-    run.player.x, run.player.y = ex * 8, ey * 8
+    at_the_door(run)
     run.step()
-    assert run.over == session.NOBODY_LEFT
     assert run.rescued == 2 and len(run.rescue.tail) == 0
-    assert run.inside == 5
+    assert run.over is None
+    assert push_out(run) == session.ABANDONED
+    assert run.rescued == 2 and run.inside == 5
 
 
 def test_the_run_carries_on_past_a_loss_so_the_loss_can_be_felt():
@@ -952,3 +985,91 @@ def test_the_strip_says_in_words_how_many_are_safe():
                              len(region.label)) == "SAFE"
     assert screenreader.read(screen, region.col, region.row,
                              region.width).rstrip() == "0/7"
+
+
+# --- the door is two acts (issue #28) --------------------------------------
+
+def test_delivering_twice_in_one_run():
+    """Multi-trip play, which the design calls the game and #20 had deleted.
+
+    Deliver, walk back in, collect somebody else, deliver again. Under the old
+    rule the first delivery was the last thing that ever happened in a run.
+    """
+    run = Session()
+    people = list(run.rescue.workers)
+    touch(run, people[0])
+    run.step()
+    at_the_door(run)
+    run.step()
+    assert run.rescued == 1 and run.over is None
+
+    run.player.x, run.player.y = scene.PLAYER_START
+    run.step()
+    touch(run, people[1])
+    run.step()
+    assert len(run.rescue.tail) == 1, "nobody would follow the second time"
+    at_the_door(run)
+    run.step()
+    assert run.rescued == 2 and run.over is None
+    assert run.tally_adds_up()
+
+
+def test_standing_in_the_doorway_is_not_leaving():
+    """The whole point: you are in the door with a decision, not falling out."""
+    run = Session()
+    run.step()
+    at_the_door(run)
+    for _ in range(session.LEAVE_FRAMES * 4):
+        run.step()
+    assert run.over is None
+    assert run.at_exit and run.leaving == 0
+
+
+def test_walking_along_the_wall_past_the_door_is_not_leaving():
+    """A brush is a delivery. Only the outward direction is a way out."""
+    run = Session()
+    run.step()
+    at_the_door(run)
+    fx, fy = run.exit_facing
+    alongside = Intent(dx=-fy, dy=-fx)          # square to the way out
+    for _ in range(session.LEAVE_FRAMES * 4):
+        run.step(alongside)
+    assert run.over is None
+
+
+def test_a_diagonal_slides_you_out_of_a_person_high_doorway():
+    """What the rule says, and what this door actually does with it.
+
+    The rule is that the **outward component** is what counts, so leaning on
+    the door diagonally is still pushing. This doorway is exactly one person
+    tall, though, and the sideways half of a diagonal is blocked by the wall
+    under it -- which puts the corner assist (`player.NUDGE`) to work and walks
+    you a whole cell clear of the door. So the honest statement about this
+    level is that only a straight push leaves, and it leaves because you kept
+    walking into the way out rather than because you brushed it.
+    """
+    run = Session()
+    run.step()
+    at_the_door(run)
+    fx, fy = run.exit_facing
+    run.step(Intent(dx=fx or 1, dy=fy or 1))
+    assert not run.at_exit, "the assist stopped shifting people out of doorways"
+    assert run.leaving == 0
+    assert run.over is None
+
+
+def test_letting_go_of_the_door_starts_the_push_again():
+    """Half a second of *sustained* walking, not half a second of touching."""
+    run = Session()
+    run.step()
+    at_the_door(run)
+    out = Intent(*run.exit_facing)
+    for _ in range(session.LEAVE_FRAMES - 1):
+        run.step(out)
+    run.step()                                   # one frame of letting go
+    assert run.leaving == 0
+    for _ in range(session.LEAVE_FRAMES - 1):
+        run.step(out)
+    assert run.over is None
+    run.step(out)
+    assert run.over == session.ABANDONED

@@ -200,6 +200,39 @@ def test_the_way_out_is_in_the_near_rooms_west_wall():
     assert scene.BUILDING.exit[0] == near.index
 
 
+def test_the_way_out_has_a_direction_that_leads_out_of_it():
+    """A door you push through needs an outside (issue #28)."""
+    near = _room(scene.NEAR_NAME)
+    assert near.exit_facing() == (-1, 0), "the west wall is the way out"
+    assert scene.BUILDING.exit_facing == (-1, 0)
+
+
+def test_a_way_out_in_a_corner_has_no_direction_and_is_refused():
+    """Two walls at once, and no answer to "which way is out"."""
+    rows = [list(row) for row in _room(scene.NEAR_NAME).rows]
+    for cy in range(len(rows)):
+        for cx in range(COLS):
+            if rows[cy][cx] == scene.EXIT:
+                rows[cy][cx] = B.WALL
+    rows[0][0] = scene.EXIT
+    corner = B.Room("corner", ["".join(r) for r in rows])
+    with pytest.raises(ValueError, match="corner"):
+        corner.exit_facing()
+
+
+def test_a_way_out_in_no_wall_at_all_is_refused():
+    """A hole in the middle of the floor: walking off it any way is still in."""
+    rows = [list(row) for row in _room(scene.NEAR_NAME).rows]
+    for cy in range(len(rows)):
+        for cx in range(COLS):
+            if rows[cy][cx] == scene.EXIT:
+                rows[cy][cx] = B.WALL
+    rows[10][10] = scene.EXIT
+    island = B.Room("island", ["".join(r) for r in rows])
+    with pytest.raises(ValueError, match="not in a wall"):
+        island.exit_facing()
+
+
 def test_the_way_out_is_two_cells_tall_so_somebody_fits_in_it():
     near = _room(scene.NEAR_NAME)
     doors = near.cells_of(scene.EXIT)

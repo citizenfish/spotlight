@@ -272,6 +272,23 @@ class Walker(Bot):
         room, cell = scene.BUILDING.exit
         return stand_cells(room, *cell)
 
+    def _leave(self, run) -> Intent:
+        """Walk to the door, and then keep walking into it until it lets go.
+
+        Issue #28 made the exit two acts rather than one: touching it hands
+        over whoever is behind you, and leaving is `LEAVE_FRAMES` of still
+        walking into it. A bot that stopped when it arrived would deliver and
+        then stand in the doorway for the rest of the run, so a bot that means
+        to leave has to lean on the door like a player does.
+
+        It is still only pressing keys. Nothing here reaches into the run.
+        """
+        if run.rescue.at_exit(run.here, run.player.occupied_cells()):
+            dx, dy = run.exit_facing
+            return Intent(dx=dx, dy=dy,
+                          torch=self.light and not run.cone.enabled)
+        return self._walk(run, self._exit_cells())
+
 
 class Listener(Walker):
     """Walks to the last shout it heard, and leaves in batches of three.
@@ -320,7 +337,13 @@ class Listener(Walker):
                     break
 
         if len(run.rescue.tail) >= self.batch:
-            return self._walk(run, self._exit_cells())
+            # **Delivering is not leaving any more** (issue #28), so this walks
+            # to the door, hands them over on touch, and then goes on pushing
+            # until the run ends -- which is what this bot did before the door
+            # became two acts, and keeps T1 measuring the same thing. What it
+            # is *not* is the multi-trip play the new rule makes possible: that
+            # wants the batch gone, and the batch is issue #24's.
+            return self._leave(run)
 
         if self._target is not None and self._target.state != rescue_mod.WAITING:
             self._target, self._heard = None, None
@@ -338,7 +361,7 @@ class Listener(Walker):
                 else:
                     return self._walk(run, stand_cells(*self._doorway))
             if run.rescue.tail:
-                return self._walk(run, self._exit_cells())
+                return self._leave(run)
             # Nobody has called yet, or the last caller is accounted for. Stand
             # still rather than wander: this bot's whole point is that it acts
             # only on what the room told it.
@@ -367,7 +390,7 @@ class Oracle(Walker):
         if waiting:
             goals = [c for w in waiting for c in stand_cells(*worker_cell(w))]
             return self._walk(run, goals)
-        return self._walk(run, self._exit_cells())
+        return self._leave(run)
 
 
 #: What each letter means in a script. Directions are held; the two buttons are

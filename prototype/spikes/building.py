@@ -299,6 +299,29 @@ class Room:
             raise ValueError(f"{self.name} has no way out")
         return doors[0]
 
+    def exit_facing(self) -> tuple[int, int]:
+        """Which way is out, as a direction to walk in.
+
+        The exit delivers on touch and **leaving is pushing through it** (issue
+        #28), so the door needs an outside: a wall it is set into, and a
+        direction that carries you out of it rather than along it.
+
+        That is exactly why it **cannot sit in a corner**. A cell in the top-left
+        is in two walls at once and there is no answer to "which way is out",
+        so this refuses rather than picking one. A door that is in no wall at
+        all is refused for the same reason -- it is a hole in the floor, and
+        walking off it in any direction just puts you back in the room.
+        """
+        ex, ey = self.exit_cell()
+        walls = [(-1, 0)] * (ex == 0) + [(1, 0)] * (ex == COLS - 1) \
+            + [(0, -1)] * (ey == 0) + [(0, 1)] * (ey == PLAY_ROWS - 1)
+        if len(walls) != 1:
+            raise ValueError(
+                f"{self.name}: the way out at {(ex, ey)} is "
+                + ("in a corner" if walls else "not in a wall")
+                + ", so there is no direction that leads out of it")
+        return walls[0]
+
     def exit_sign_cells(self, word: str) -> list[tuple[int, int]]:
         """Where the sign hangs: alongside the door, on the same row.
 
@@ -380,6 +403,14 @@ class Building:
         for i, room in enumerate(self.rooms):
             if room.has_exit:
                 return i, room.exit_cell()
+        raise ValueError("this building has no way out")
+
+    @property
+    def exit_facing(self) -> tuple[int, int]:
+        """The direction you have to keep walking in to leave (issue #28)."""
+        for room in self.rooms:
+            if room.has_exit:
+                return room.exit_facing()
         raise ValueError("this building has no way out")
 
     # --- crossing -----------------------------------------------------------

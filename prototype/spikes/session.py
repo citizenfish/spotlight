@@ -50,6 +50,23 @@ PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 #: count what a swarm cost them.
 BLOOD_FULL = 64
 
+#: How long the player has to keep walking into the doorway before the building
+#: lets them out (issue #28). Half a second.
+#:
+#: **The exit delivers on touch; leaving is a separate act.** A brush against
+#: the door banks whoever is behind you and costs nothing, and only a sustained
+#: walk *into* it ends the run -- so the way out stops being a trapdoor a
+#: first-timer falls through in the opening seconds, and going back in for one
+#: more becomes possible at all. *Progression and Scoring* calls that decision
+#: the game.
+#:
+#: The number is this file's rather than the vault's: the vault says "sustained"
+#: and leaves the frames to whoever can measure them. Half a second is longer
+#: than any brush past the door and shorter than the deliberate act of walking
+#: out of a building, and it is one held direction rather than a prompt or a
+#: second button -- the game has neither to spare.
+LEAVE_FRAMES = 25
+
 #: How many times the player can bleed out before the run is over. Deliberately
 #: not called "lives" anywhere a player will read it: the testers are people who
 #: do not know 8-bit games and that word carries none of its usual freight.
@@ -70,8 +87,8 @@ DEFAULT_SEED = 0xBEEF
 
 #: Walked out of the exit with everybody alive and accounted for.
 ALL_OUT = "all_out"
-#: Walked out of the exit without them. Some are dead; some may still be in
-#: there. Either way the player chose to leave, which is what #20 made possible.
+#: Walked out with **nobody living left inside**: some of them died, and there
+#: was nothing still in there to go back for.
 NOBODY_LEFT = "nobody_left"
 NO_LIVES = "no_lives"
 #: The driver ran out of frames, or the player closed the window. Not endings
@@ -89,7 +106,11 @@ ENDING_TEXT = {
     NO_LIVES: ("YOU BLED OUT FOR THE LAST TIME",
                "THE FLIES HAVE FINISHED YOU"),
     FRAME_LIMIT: ("TIME RAN OUT", "THE RUN WAS STOPPED"),
-    ABANDONED: ("YOU LEFT THE BUILDING", "THE RUN WAS STOPPED"),
+    # **Somebody living was still in there when you walked out** (issue #28).
+    # Telling that player the rest of them bled to death is not a wrong screen,
+    # it is a lie -- so this ending says what they actually did.
+    ABANDONED: ("YOU LEFT THE BUILDING",
+                "THERE ARE PEOPLE STILL ALIVE IN THERE"),
 }
 
 # --- what happened, as events ----------------------------------------------
@@ -361,6 +382,13 @@ class Session:
         #: Is the player touching the way out right now, and have they ever not
         #: been? Both are read only by `_ending`, which explains them.
         self.at_exit = False
+        #: Frames spent walking into the doorway. `LEAVE_FRAMES` of it is the
+        #: way out; anything less is standing in the door with a decision to
+        #: make, which is what issue #28 exists to give back.
+        self.leaving = 0
+        #: Which way is out, as a direction to hold. Read once: it is authored
+        #: level data and on the Z80 it is two bytes of ROM.
+        self.exit_facing = self.building.exit_facing
         self._gone_in = False
         self.over: str | None = None
         self.calls_on = True
@@ -656,6 +684,14 @@ class Session:
             self._record(DELIVERED, who=self._index[id(saved)], room=room)
         self.at_exit = at_door
         self._gone_in = self._gone_in or not at_door
+        # **Leaving is pushing through it.** Not the frame you touch the door
+        # -- that is the delivery -- but the half-second of still walking into
+        # it afterwards. The outward component is what counts, so leaning on
+        # the door diagonally is leaving; walking *along* the wall past it is
+        # not, and neither is standing in it.
+        fx, fy = self.exit_facing
+        pushing = ((intent.dx == fx or not fx) and (intent.dy == fy or not fy))
+        self.leaving = self.leaving + 1 if at_door and pushing else 0
         if self.rescue.saved != self.tally.found:
             self.tally.found = self.rescue.saved
             self.panel.set("rescued", self.rescue.saved)
@@ -845,66 +881,54 @@ class Session:
     def _ending(self) -> str | None:
         """Has the run ended, and how?
 
-        **Two conditions, and nothing else ends a run** (issue #20): you reach
-        the exit, or you lose the last life. The three endings are the same
-        three; what changed is what fires them.
+        **Two things end a run: you walk out of the building, or you lose the
+        last life.** Nothing else, and in particular not reaching the exit --
+        issue #20 read *"reaching the exit ends the level"* literally and it
+        deleted the decision *Progression and Scoring* calls the game. Issue #28
+        is the correction:
 
-        What it removes is `rescue.settled` -- *everybody saved or dead* -- which
-        stopped the run on the exact frame the last worker died. That cost three
-        things at once, and all three are the reason this issue exists:
+        * **Touching the door banks whoever is behind you and the run carries
+          on.** You are standing in the doorway with an empty tail and a
+          building still full of people, and the question is whether you go back
+          in. That question is the game; a rule that ends the level the moment
+          you deliver deletes it.
+        * **Leaving is pushing through** -- `LEAVE_FRAMES` of still walking into
+          the door after you have arrived at it. A brush delivers and costs
+          nothing, which is what stops the way out being a trapdoor: a Wanderer
+          used to end its run in under two seconds on three seeds in twelve by
+          random-walking into a door a hundred pixels from the start.
 
-        * **A loss could not be felt**, because there was no *after* to feel it
-          in. The screen went to a tally on the frame the person died.
-        * **A body was never seen.** Bodies were created on the frame the level
-          ended, so `rescue.BODY_FRAMES` -- ten seconds in which a flyspray could
-          have saved a corpse from becoming a nest -- had never once elapsed on
-          screen in the whole life of the prototype.
-        * **A player who could not save anybody had no way to leave**, and being
-          made to stand in a room you have failed until your blood runs out is
-          not an ending, it is a punishment for having lost.
+        **Which ending it is depends on what you left behind, not on what
+        triggered it.** Three of them, and the middle one was unreachable from
+        inside the game until now:
 
-        So the exit is a finish line, not a delivery hatch: *Progression and
-        Scoring* says "reach the exit with at least the quota of rescued
-        workers", and this is that rule. Arriving with a tail hands them over
-        first -- `deliver` runs earlier in `step` -- so the count is right before
-        the run is judged. **A player with people still alive and unreachable
-        can walk out**, and should be able to; they take the loss with them.
+        * Everybody out alive -- `ALL_OUT`.
+        * Somebody **living** still in there -- `ABANDONED`. "You left the
+          building", which is the honest name for the decision the design is
+          about. Telling that player *"there is nobody left to save, the rest of
+          them bled to death"* with four people alive behind them is not a wrong
+          screen, it is a lie.
+        * Nobody living left, but not everybody got out -- `NOBODY_LEFT`, which
+          now says only what is true.
 
         `_gone_in` is what stops the door being an ending on frame one. The
-        prototype's start is a patch of open floor in the middle of the room,
-        so today the flag is set on the first frame and changes nothing at all
-        -- but *Building Structure* settled on 2026-09-07 that **the player
-        starts at the exit, because that is where they came in**, and on the day
-        that lands, a door that ends the run on contact ends every run
-        instantly. One bit, set the first time you are anywhere else, and the
-        door means "back out the way I came" rather than "here I am".
-
-        **Two things this leaves open, both measured and both the vault's to
-        settle rather than this method's.** They are written down here because
-        the next person to read this code will hit them and should know they
-        were seen.
-
-        1. **A door you can leave by is a door you can leave by *accidentally*.**
-           A Wanderer -- the bot that models a first-timer's opening minute --
-           ends its run in under two seconds on three of twelve seeds, by
-           random-walking into the exit with nobody rescued. The exit is about
-           a hundred pixels from the start, its sign is permanently lit, and
-           nothing asks the player whether they meant it.
-        2. **`NOBODY_LEFT` reads "THERE IS NOBODY LEFT TO SAVE / THE REST OF
-           THEM BLED TO DEATH", and that is now sometimes untrue** -- a player
-           who walks out with four people still alive in there gets told they
-           are dead. `ABANDONED` already carries the right words ("YOU LEFT THE
-           BUILDING") and is currently unreachable from inside the game.
-
-        Neither is fixed here, because issue #20 says in as many words that the
-        three endings do not change and only their triggers do. Both want an
-        answer before a stranger plays it.
+        prototype's start is a patch of open floor in the middle of the room, so
+        today the flag is set on the first frame and changes nothing -- but
+        *Building Structure* settled that **the player starts at the exit,
+        because that is where they came in**, and on the day that lands, a door
+        that could end the run before you had been anywhere would end every run
+        instantly. That start position is **deliberately not moved here**: it
+        changes where every phase-2 baseline was measured from, and this issue
+        is one mechanic. One bit, set the first time you are anywhere else, and
+        the door means "back out the way I came" rather than "here I am".
         """
         if self.lives <= 0:
             return NO_LIVES
-        if self.at_exit and self._gone_in:
-            return ALL_OUT if self.rescued == self.total else NOBODY_LEFT
-        return None
+        if self.leaving < LEAVE_FRAMES or not self._gone_in:
+            return None
+        if self.inside:
+            return ABANDONED
+        return ALL_OUT if self.rescued == self.total else NOBODY_LEFT
 
     def _record(self, kind: str, who: int | None = None, count: int = 0,
                 room: str = "") -> Event:
