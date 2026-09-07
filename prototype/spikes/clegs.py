@@ -211,27 +211,31 @@ HUNGER_STEP = 250
 #: The most it can add. Past this a fly is as keen as it is going to get, and
 #: without a cap a long quiet spell would make the whole room omniscient.
 #:
-#: **Six, cut from twelve by issue #25.** At twelve, a starving fly noticed the
-#: glow from fourteen cells in a room thirty-two by twenty-two, so standing
-#: still in the dark in the middle of the room cost 33.2 blood every thirty
-#: seconds -- half a life a minute for doing nothing wrong. Lighting the torch
-#: on top of that cost 49.6, a difference of one bite for every fifteen seconds
-#: of light, which is not a decision anybody would take seriously. The
-#: difference was small because the **baseline** was large, and hunger was what
-#: closed the last stretch on a motionless player.
+#: **Twelve, and a cut to six was tried and reverted (issue #25).** The cut was
+#: made on an argument that hunger is what closes the last stretch on a
+#: motionless player: at twelve a starving fly notices the glow from fourteen
+#: cells, and standing still in the dark cost 33.2 blood every thirty seconds
+#: against 49.6 with the torch lit. Cutting the cap was predicted to take the
+#: dark figure to 18-20 and leave the lit one alone.
 #:
-#: Note what this is *not*. `KEEN_MAX` was named as the tuning dial once before,
-#: on the strength of a measured 1.0x over two minutes, and that diagnosis was
-#: an artefact of the window: the torch outlives no more than a fifth of it,
-#: feeding resets hunger so light front-loads its cost, and blood saturates
-#: against three lives. It was held at twelve for exactly that reason. This is a
-#: different diagnosis -- an absolute baseline rather than a ratio -- and it
-#: arrived with the seeded searchlight, without which no number about the first
-#: minute meant anything.
+#: **It changed nothing, at any setting.** Measured over five seeds: the dark
+#: thirty-second cost is 33.2 at every cap from 2 to 12, 25.6 at 1, and 20.8
+#: with hunger abolished entirely. Two reasons, both arithmetic:
 #:
-#: Sets how quickly the dark stops being a refuge, which is the single dial that
-#: decides whether hiding is a breather or a strategy.
-KEEN_MAX = 6
+#: * Six cells of keenness takes 6 * 250 = 1500 frames, which *is* the thirty
+#:   second window. Inside it, caps of six and twelve are the same number.
+#: * The beam wins the nearest-lure comparison first. Over three minutes the cap
+#:   changes which lure a fly picks on 0-35 cleg-frames, and never on a frame
+#:   where the fly steps.
+#:
+#: So **hunger's first two cells do all its work and the cap is inert**: the beam
+#: delivers a fly to within about four cells and the base glow does the rest.
+#: Past four there is nothing left for keenness to find. The claim that this is
+#: "the single most important number in the game" was withdrawn with the sweep.
+#:
+#: Do not reach for this dial. The cost of light lives in what recruits the
+#: swarm, not in what sharpens it -- see `FAR`.
+KEEN_MAX = 12
 
 #: How far a Cleg can notice a light, and how much that varies between them.
 #:

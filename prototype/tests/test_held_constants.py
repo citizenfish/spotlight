@@ -16,7 +16,8 @@ from spikes import clegs, rescue, scene, session, sources, spray
 
 def test_cleg_hunger_was_cut_in_half_and_it_bought_nothing():
     """`KEEN_MAX` is the one constant this file has released. Issue #25 cut it
-    from twelve to six, and **the prediction it was cut on was falsified.**
+    from twelve to six, **the prediction it was cut on was falsified, and the
+    cut was reverted.**
 
     It was held here once, because it had been named as *the* tuning dial on
     the strength of a measured 1.0x that turned out to be a window artefact.
@@ -30,16 +31,20 @@ def test_cleg_hunger_was_cut_in_half_and_it_bought_nothing():
     arithmetic that made the first two impossible, and `test_spike_clegs.py`
     for the run that pins it.
 
-    The value stays at six because six is what the vault decided and because it
-    is the more defensible reach -- a starving fly that notices you from eight
-    cells rather than fourteen -- but it is worth nothing in difficulty and
-    nobody should later read the change as having bought some. **Hunger is not
-    the dial**, and the reason is in the attribution hook from #22: a dark,
-    motionless player's blood is billed almost entirely to the searchlight,
-    which is lit, mobile and noticeable from anywhere, and therefore wins the
-    nearest-lure comparison long before the glow's extra cells matter.
+    **The value goes back to twelve**, because a change is a claim and a
+    falsified claim does not get to leave its change behind. Six was defensible
+    as a reach and indefensible as a difficulty decision, and a later reader
+    finding a six would reasonably assume somebody had tuned it. Twelve is
+    where the person who built and judged hunger put it, with their reason
+    beside it.
+
+    **Hunger is not the dial**, and the reason is in the attribution hook from
+    #22: a dark, motionless player's blood is billed almost entirely to the
+    searchlight, which is lit, mobile and noticeable from anywhere, and
+    therefore wins the nearest-lure comparison long before the glow's extra
+    cells matter.
     """
-    assert clegs.KEEN_MAX == 6
+    assert clegs.KEEN_MAX == 12
 
 
 def test_the_cap_cannot_move_a_thirty_second_number_at_all():
@@ -52,11 +57,15 @@ def test_the_cap_cannot_move_a_thirty_second_number_at_all():
     twelve are the same number**, because neither is ever reached. The two
     predicted figures could not have moved whatever the swarm did.
 
+    The assertion is written against six rather than the current twelve on
+    purpose: it is the *cut* that had to clear this bar, and it did not.
+
     This is the check that was not done before the constant was proposed, and
     it costs nothing to keep. If the cap is ever cut again to move a
     thirty-second baseline, this fails and says why.
     """
     window = 30 * 50
+    assert 6 * clegs.HUNGER_STEP >= window
     assert clegs.KEEN_MAX * clegs.HUNGER_STEP >= window
 
 
