@@ -416,3 +416,20 @@ def test_the_searchlight_can_be_told_from_the_torch():
     lit = report.metrics(driver.drive(bots.make("statue", seed=7, light=True),
                                       seed=7, frames=7500))
     assert lit["blood_by_torch"] > 0, "a burning torch recruits, and is billed"
+
+
+@pytest.mark.parametrize("seed", (1, 2, 3))
+def test_the_bite_count_agrees_with_the_buckets_on_every_frame(seed):
+    """`attachments` was a headcount taken before and after the swarm ticked,
+    so a frame that both gained and lost a fly under-reported the gain.
+
+    Found by the per-lure buckets, which are billed where the bite happens
+    (issue #22): a Wanderer reported seven attachments against eight billed.
+    Every phase-2 baseline is stated in this number, so it is now the swarm's
+    own count, taken where the fly lands.
+    """
+    bot = bots.make("wanderer", seed=seed, light=True)
+    run = session.Session(seed=seed)
+    while run.over is None and run.frame < 4000:
+        run.step(bot.intent(run))
+        assert sum(run.swarm.bites_by_source) == run.tally.attachments, run.frame

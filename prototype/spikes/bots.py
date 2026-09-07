@@ -35,7 +35,7 @@ Z80 would use, so a seed names a run.
 
 from spotlight.core.constants import CELL, COLS
 
-from . import building, rescue as rescue_mod, scene, sources
+from . import building, lighting, rescue as rescue_mod, scene, sources
 from .layout import PLAY_ROWS
 from .player import HEIGHT
 from .session import Intent
@@ -78,28 +78,33 @@ def stand_cells(room: int, cx: int, cy: int) -> list[tuple[int, int, int]]:
             if standable(room, x, y)]
 
 
-def neighbours(place):
+def neighbours(place, passable=standable):
     """The cells a person can step to from here, doorways included.
 
     **Bots may path; the game may not.** This is harness. Clegs must never gain
     a route-finder -- a Z80 has nothing to spend on one and the whole design of
     the swarm is that it steers for light and cannot think. What a bot is
     allowed to do is know that a doorway exists, and this is where it does.
+
+    `passable` is what counts as open ground. It defaults to the room's real
+    geometry, which is what a bot that has been told the building looks like
+    routes over. The Scout passes its own map instead, so that it can only walk
+    where it has been able to see (issue #24).
     """
     room, cx, cy = place
     out = []
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         nx, ny = cx + dx, cy + dy
-        if standable(room, nx, ny):
+        if passable(room, nx, ny):
             out.append((room, nx, ny))
             continue
         step = scene.BUILDING.step_across(room, nx, ny)
-        if step is not None and standable(*step):
+        if step is not None and passable(*step):
             out.append(step)
     return out
 
 
-def route(start, goals) -> list:
+def route(start, goals, passable=standable) -> list:
     """Breadth-first from `start` to the nearest goal. Cells, not pixels.
 
     Plain BFS over `(room, cx, cy)`, four-connected, crossing doorways. A room
@@ -114,7 +119,7 @@ def route(start, goals) -> list:
     while queue:
         nxt = []
         for cell in queue:
-            for nb in neighbours(cell):
+            for nb in neighbours(cell, passable):
                 if nb in seen:
                     continue
                 seen[nb] = cell
@@ -189,27 +194,51 @@ class Wanderer(Bot):
     #: it explores rather than jittering on the spot.
     TURN_EVERY = 40
 
+    #: ...and it turns early if it has not moved for this long (issue #24).
+    #:
+    #: Measured before the fix: 29-42% of its pressing frames blocked, in
+    #: stretches of up to fourteen seconds, visiting 146-241 of the room's 475
+    #: standable cells in 144 seconds. **No first-timer holds a direction into
+    #: a wall for fourteen seconds**, so targets T4 and T5 were a floor beneath
+    #: the floor -- measured against a bot handicapped in a way no person is.
+    #:
+    #: Half a second is the same number `STUCK_FRAMES` uses for the routing
+    #: bots, and for the same reason: it is long enough that a real obstacle is
+    #: what stopped you, and short enough that nobody would stand there.
+    WEDGED_FRAMES = 25
+
     def __init__(self, seed: int = 1, light: bool = True) -> None:
         super().__init__(seed)
         self.light = light
         self._dx = self._dy = 0
         self._left = 0
+        self._was = None
+        self._wedged = 0
 
     def intent(self, run) -> Intent:
-        if self._left <= 0:
+        at = (run.here, run.player.x, run.player.y)
+        self._wedged = self._wedged + 1 if at == self._was else 0
+        self._was = at
+        if self._left <= 0 or self._wedged >= self.WEDGED_FRAMES:
             r = self._random()
             self._dx = (r & 0b11) - 1
             self._dy = ((r >> 2) & 0b11) - 1
             self._dx = max(-1, min(1, self._dx))
             self._dy = max(-1, min(1, self._dy))
             self._left = self.TURN_EVERY
+            self._wedged = 0
         self._left -= 1
         return Intent(dx=self._dx, dy=self._dy,
                       torch=self.light and not run.cone.enabled)
 
 
 class Walker(Bot):
-    """Shared machinery for the two bots that go somewhere on purpose."""
+    """Shared machinery for the bots that go somewhere on purpose."""
+
+    #: What this bot treats as open ground. The room's real geometry for a bot
+    #: that has been told what the building looks like; the Scout's own map for
+    #: one that has to see it first.
+    _passable = staticmethod(standable)
 
     def __init__(self, seed: int = 1, light: bool = False) -> None:
         super().__init__(seed)
@@ -224,7 +253,7 @@ class Walker(Bot):
         goals = tuple(sorted(goals))
         here = (run.here, run.player.cx, run.player.cy)
         if goals != self._goals:
-            self._goals, self._path = goals, route(here, goals)
+            self._goals, self._path = goals, route(here, goals, self._passable)
         if not goals:
             return Intent()
 
@@ -234,7 +263,7 @@ class Walker(Bot):
         if self._stuck > STUCK_FRAMES:
             # Wedged. Re-route from where we actually are, and if that is the
             # same answer, take a random step to shake loose.
-            self._path = route(here, goals)
+            self._path = route(here, goals, self._passable)
             self._stuck = 0
             if not self._path:
                 r = self._random()
@@ -251,7 +280,7 @@ class Walker(Bot):
             # action, here or anywhere else.
             door = scene.BUILDING[run.here].doorway_to(self._path[0][0])
             if door is None:
-                self._path = route(here, goals)
+                self._path = route(here, goals, self._passable)
             else:
                 want = self._path[0][2]
                 dy = (want > run.player.cy) - (want < run.player.cy)
@@ -259,7 +288,7 @@ class Walker(Bot):
                               dy=dy,
                               torch=self.light and not run.cone.enabled)
         if not self._path:
-            self._path = route(here, goals)
+            self._path = route(here, goals, self._passable)
         if not self._path or self._path[0][0] != run.here:
             return Intent(torch=self.light and not run.cone.enabled)
 
@@ -291,7 +320,7 @@ class Walker(Bot):
 
 
 class Listener(Walker):
-    """Walks to the last shout it heard, and leaves in batches of three.
+    """Walks to the last shout it heard, and only leaves when nobody is left.
 
     A shout is the one piece of information the room gives away for free, and
     the design claims it is a bearing rather than a map. This bot is that claim
@@ -301,25 +330,33 @@ class Listener(Walker):
 
     It hears what a player hears. It does not know where anybody is until they
     shout, and it forgets nothing, which is the one place it is kinder to itself
-    than a person would be.
+    than a person would be. The other place is `_nobody_left`: knowing that the
+    building is empty of living people is not something a shout can tell you,
+    and it is allowed here because the alternative is a bot that stands in the
+    dark until the frame limit.
+
+    **It had a batch of three and it does not any more** (issue #24). The batch
+    assumed the game issue #20 had removed -- deliver and the run is over -- so
+    it gathered three, walked out, and every measurement of it was of a bot that
+    stopped at three of seven. Now that the exit hands people over on touch and
+    the run carries on (issue #28), collecting until there is nothing left to
+    hear *is* the behaviour, and going back in for the next one is free.
     """
 
     name = "listener"
 
-    #: How many it gathers before walking them out. The design's central choice
-    #: -- one at a time is safe and slow, everybody at once is the gamble -- and
-    #: three is the middle of it.
-    BATCH = 3
-
-    def __init__(self, seed: int = 1, light: bool = False,
-                 batch: int = BATCH) -> None:
+    def __init__(self, seed: int = 1, light: bool = False) -> None:
         super().__init__(seed, light)
-        self.batch = batch
         self._heard: tuple[int, int, int] | None = None
         self._target = None
         #: A doorway with somebody shouting the other side of it, if the bot
         #: has heard one and has nothing nearer to go to.
         self._doorway: tuple[int, int, int] | None = None
+
+    @staticmethod
+    def _nobody_left(run) -> bool:
+        """Is there anybody living still in the building to go back for?"""
+        return not run.rescue.alive_waiting()
 
     def intent(self, run) -> Intent:
         for worker in run.shouting:
@@ -336,37 +373,181 @@ class Listener(Walker):
                     self._doorway = (door.to, door.landing, door.middle)
                     break
 
-        if len(run.rescue.tail) >= self.batch:
-            # **Delivering is not leaving any more** (issue #28), so this walks
-            # to the door, hands them over on touch, and then goes on pushing
-            # until the run ends -- which is what this bot did before the door
-            # became two acts, and keeps T1 measuring the same thing. What it
-            # is *not* is the multi-trip play the new rule makes possible: that
-            # wants the batch gone, and the batch is issue #24's.
-            return self._leave(run)
-
         if self._target is not None and self._target.state != rescue_mod.WAITING:
             self._target, self._heard = None, None
-        if self._heard is None:
-            # **The doorway comes before the way out**, and the order is the
-            # whole of what this bot measures. A call over a doorway is the only
-            # bearing a room you are not in ever gives you, so a bot that
-            # preferred the exit would walk out of the building the moment it
-            # ran out of voices in this room -- and would never test the rule at
-            # all. Put the door first and it goes and looks, which is what a
-            # first-timer who has understood the game does.
-            if self._doorway is not None:
-                if self._doorway[0] == run.here:
-                    self._doorway = None
-                else:
-                    return self._walk(run, stand_cells(*self._doorway))
-            if run.rescue.tail:
-                return self._leave(run)
-            # Nobody has called yet, or the last caller is accounted for. Stand
-            # still rather than wander: this bot's whole point is that it acts
-            # only on what the room told it.
-            return Intent(torch=self.light and not run.cone.enabled)
-        return self._walk(run, stand_cells(*self._heard))
+        if self._heard is not None:
+            return self._walk(run, stand_cells(*self._heard))
+
+        # **The doorway comes before the way out**, and the order is the whole
+        # of what this bot measures. A call over a doorway is the only bearing a
+        # room you are not in ever gives you, so a bot that preferred the exit
+        # would walk out of the building the moment it ran out of voices in this
+        # room -- and would never test the rule at all. Put the door first and it
+        # goes and looks, which is what a first-timer who has understood the
+        # game does.
+        if self._doorway is not None:
+            if self._doorway[0] == run.here:
+                self._doorway = None
+            else:
+                return self._walk(run, stand_cells(*self._doorway))
+
+        if self._nobody_left(run):
+            # Nobody living is still in there. Walk out -- which hands over
+            # anybody behind you on the way through.
+            return self._leave(run)
+        if run.rescue.tail:
+            # Nothing left to hear from here, so take who you have to the door.
+            # Touching it banks them and the run carries on, so this is a trip
+            # rather than an ending, and the next shout brings it back in.
+            return self._walk(run, self._exit_cells())
+        # Nobody has called yet, or the last caller is accounted for. Stand
+        # still rather than wander: this bot's whole point is that it acts only
+        # on what the room told it.
+        return Intent(torch=self.light and not run.cone.enabled)
+
+
+class Scout(Listener):
+    """Routes only through ground it has seen, and lights the way to see more.
+
+    The bot target T2 exists for: *light must buy something*. That target was
+    **unfalsifiable rather than unmet**, because none of the other four bots
+    consults the light field at all -- the Listener routes by breadth-first
+    search over the true room geometry, so it walks through walls it has never
+    seen to reach a shout it has just heard, and a torch can only ever cost it.
+
+    So this one knows nothing about the building it has not observed:
+
+    * **A cell becomes known the first time it is seen lit or dim.** Nothing
+      else is known, **including where the walls are**.
+    * **It routes through known ground only.** With no route to its target
+      through known cells it goes to the nearest **frontier** -- a known cell
+      with unknown ground next to it -- and carries on from there.
+    * **Its torch use follows from its route.** On while it is heading for a
+      frontier, off while it is walking ground it already knows. That is the
+      whole point: the light policy is a consequence of where it is going, not
+      a flag set from outside.
+
+    Everything else is the Listener's: it goes to the last shout it heard, it
+    delivers when its route reaches the door, and it leaves when nobody living
+    is left inside. That makes the T2 pair honest -- the same bot with and
+    without a torch, differing in what it can see rather than in what it wants.
+
+    **A Scout with `light=False` is the control.** It still explores, because
+    the player's own glow marks the cells around them dim, and dim is known. It
+    simply learns the building an arm's length at a time.
+    """
+
+    name = "scout"
+
+    def __init__(self, seed: int = 1, light: bool = True) -> None:
+        super().__init__(seed, light)
+        #: Every cell it has ever seen, as (room, cx, cy). Not what is in them.
+        self.seen: set[tuple[int, int, int]] = set()
+        #: Whether the route it is following is an exploration rather than a
+        #: journey to somewhere it knows. This is what holds the torch on.
+        self.exploring = False
+        #: The direction it stepped off the edge of its map in, and the room it
+        #: was in when it did. See `_walk`: a doorway is two frames wide and a
+        #: bot that reconsidered in the middle of one would walk back out of it.
+        self._push: tuple[int, int] | None = None
+        self._push_room = 0
+
+    # --- what it knows -----------------------------------------------------
+
+    def observe(self, run) -> None:
+        """Everything the light is on, in the room the bot is standing in.
+
+        Lit or dim, present or remembered -- `level_at` is what the *screen*
+        shows, so this is exactly the ground a player could have drawn a map of.
+        """
+        field = run.place.field
+        here = run.here
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                if field.level_at(cx, cy) > lighting.DARK:
+                    self.seen.add((here, cx, cy))
+
+    def _passable(self, room: int, cx: int, cy: int) -> bool:
+        """Known ground it could stand in. A cell it has never seen is not a
+        wall and is not floor either -- it is simply not somewhere it can plan
+        a route through."""
+        return ((room, cx, cy) in self.seen
+                and (room, cx, cy - 1) in self.seen
+                and standable(room, cx, cy))
+
+    def _unknown_from(self, place) -> tuple[int, int] | None:
+        """Which way the map runs out from here, if it does.
+
+        **Doorways count**, and they are the case that matters: the cell past a
+        doorway is in the next room's coordinates, so a check that only looked
+        at this room's grid would decide the building ended at the wall and the
+        bot would never have a reason to go through. That is not hypothetical
+        -- it is what the first version of this did, and it stood in room A for
+        three minutes with four people calling next door.
+        """
+        room, cx, cy = place
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nb = (room, cx + dx, cy + dy)
+            if not standable(*nb):
+                step = scene.BUILDING.step_across(room, cx + dx, cy + dy)
+                if step is None or not standable(*step):
+                    continue
+                nb = step
+            if nb not in self.seen:
+                return dx, dy
+        return None
+
+    def frontiers(self, run) -> list[tuple[int, int, int]]:
+        """Known ground with unknown ground next to it: where the map runs out."""
+        return [place for place in self.seen
+                if self._passable(*place) and self._unknown_from(place)]
+
+    # --- where it goes -----------------------------------------------------
+
+    def intent(self, run) -> Intent:
+        self.observe(run)
+        return super().intent(run)
+
+    def _walk(self, run, goals) -> Intent:
+        """Head for the goal if the map reaches it, and for the edge of the map
+        if it does not."""
+        here = (run.here, run.player.cx, run.player.cy)
+        reachable = bool(goals) and bool(route(here, goals, self._passable))
+        self.exploring = not reachable
+        if reachable:
+            return super()._walk(run, goals)
+        edges = self.frontiers(run)
+        if not edges:
+            # Nowhere left to look from here: everything it can see is fully
+            # mapped. Stand still rather than blunder about -- this bot's whole
+            # claim is that it acts on what it can see.
+            return Intent(torch=self._torch(run))
+        if self._push is not None and run.here != self._push_room:
+            self._push = None                # through, and somewhere new
+        step = self._unknown_from(here) if here in edges else None
+        if step is None and self._push is not None and not self._passable(*here):
+            # **Halfway through a doorway.** The column past a wall belongs to
+            # the room next door, so the bot is standing somewhere its own map
+            # has no cell for, and every rule below would send it back to the
+            # last cell it knew. Crossing takes two or three frames of walking
+            # at the wall, so the push is held until the room actually changes.
+            step = self._push
+        if step is not None:
+            # Standing on the edge of the map. Walk off it, which is also how
+            # you go through a doorway: there is no "go through the door"
+            # action here or anywhere else, only more of the same direction.
+            self._push, self._push_room = step, run.here
+            return Intent(dx=step[0], dy=step[1], torch=self._torch(run))
+        walking = super()._walk(run, edges)
+        return Intent(dx=walking.dx, dy=walking.dy, torch=self._torch(run))
+
+    def _torch(self, run) -> bool:
+        """Press the key if the light is not in the state the route wants."""
+        return self.light and self.exploring != run.cone.enabled
+
+    def _leave(self, run) -> Intent:
+        self.exploring = False
+        return super()._leave(run)
 
 
 class Oracle(Walker):
@@ -456,6 +637,7 @@ BOTS = {
     "statue": Statue,
     "wanderer": Wanderer,
     "listener": Listener,
+    "scout": Scout,
     "oracle": Oracle,
 }
 

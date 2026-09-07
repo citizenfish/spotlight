@@ -623,7 +623,16 @@ class Session:
         # The glow is dim and so pulls nothing, which is what makes walking in
         # the dark safe and the toggle a decision.
         own = [self._own_lures(place) for place in self.places]
-        was_attached = len(self.swarm.on_player())
+        # **Bites are counted where they happen, not inferred from a headcount.**
+        # This used to be `len(swarm.on_player())` before and after, and a net
+        # difference loses any frame on which one fly lands and another lets go
+        # -- which is how a run came to report seven attachments while the
+        # per-lure buckets, billed at the moment of the bite (issue #22), added
+        # up to eight. Every phase-2 baseline is stated in this number, so it
+        # has to be the one the buckets agree with. `Swarm.attachments` is the
+        # swarm's own count, kept where the fly lands and **not** through the
+        # attribution hook, which has to stay something the run does not read.
+        was_bites = self.swarm.attachments
         for place in self.places:
             here = place.index == self.here
             blood = place.swarm.tick(
@@ -696,9 +705,8 @@ class Session:
             self.tally.found = self.rescue.saved
             self.panel.set("rescued", self.rescue.saved)
 
-        now_attached = len(self.swarm.on_player())
-        if now_attached > was_attached:
-            bites = now_attached - was_attached
+        bites = self.swarm.attachments - was_bites
+        if bites:
             self.tally.attachments += bites
             self._record(BITTEN, count=bites, room=room)
         if self.swarm.drained:
