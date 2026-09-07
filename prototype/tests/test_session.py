@@ -1073,3 +1073,23 @@ def test_letting_go_of_the_door_starts_the_push_again():
     assert run.over is None
     run.step(out)
     assert run.over == session.ABANDONED
+
+
+def test_dying_in_the_doorway_does_not_walk_you_out_of_the_building():
+    """You are back at the entrance with a try gone, not outside with a tally.
+
+    The push is half a second long, so a death can land inside one -- and the
+    ending is judged after the respawn in the same frame.
+    """
+    run = Session(lives=2)
+    run.step()
+    at_the_door(run)
+    out = Intent(*run.exit_facing)
+    for _ in range(session.LEAVE_FRAMES - 1):
+        run.step(out)
+    run.blood = 0
+    run.step(out)
+    assert run.over is None, "it ended the run on the frame they died"
+    assert run.lives == 1
+    assert run.leaving == 0
+    assert (run.player.x, run.player.y) == scene.PLAYER_START

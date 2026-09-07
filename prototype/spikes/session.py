@@ -110,7 +110,7 @@ ENDING_TEXT = {
     # Telling that player the rest of them bled to death is not a wrong screen,
     # it is a lie -- so this ending says what they actually did.
     ABANDONED: ("YOU LEFT THE BUILDING",
-                "THERE ARE PEOPLE STILL ALIVE IN THERE"),
+                "SOME OF THEM ARE STILL ALIVE"),
 }
 
 # --- what happened, as events ----------------------------------------------
@@ -873,6 +873,11 @@ class Session:
         the exit is in and not necessarily the one you died in.
         """
         self.blood = self.blood_full
+        # Whatever you were doing, you are not doing it now. Without this, a
+        # player who died on the frame they finished pushing through the door
+        # would be carried out of a building they had just been dragged back
+        # into the middle of.
+        self.leaving = 0
         room = self.places[self.start_room]
         self.here = self.start_room
         self.player.x, self.player.y = self.building.rooms[self.here].player_start

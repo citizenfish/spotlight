@@ -13,6 +13,7 @@ were missing rather than the layout, which is free to move:
 
 import pytest
 
+from spotlight.core.constants import COLS
 from spotlight.core.screen import Screen
 
 from spikes import screens, session
@@ -142,3 +143,14 @@ def test_screens_use_one_ink_per_cell():
     for attr in screen.attrs:
         _ink, paper, _bright, _flash = unpack_attr(attr)
         assert paper == 0        # black paper everywhere; ink carries the text
+
+
+def test_every_ending_fits_on_the_screen():
+    """Thirty-two cells and no wrapping: `write` clips, so a line one word too
+    long loses the word silently and the player is told half a sentence.
+
+    Found by writing a truer line for `ABANDONED` and counting afterwards.
+    """
+    for name, lines in session.ENDING_TEXT.items():
+        for line in lines:
+            assert len(line) <= COLS, f"{name}: {line!r} is {len(line)} cells"
