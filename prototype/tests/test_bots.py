@@ -324,6 +324,24 @@ def test_the_scouts_torch_follows_its_route_and_can_be_turned_off():
     assert control.tally.lit_frames == 0, "the control lit up"
 
 
+def test_the_scout_puts_the_torch_out_on_ground_it_already_knows():
+    """The bug this policy had: every branch but one built its intent with the
+    Walker's default -- *press the torch and leave it on* -- so the bot burned
+    all twenty seconds of a spotlight walking a room it had already mapped, and
+    T2 would have measured a torch nothing was routing by.
+    """
+    bot = bots.Scout(seed=1, light=True)
+    run = Session(seed=1)
+    known = 0
+    for _ in range(2500):
+        run.step(bot.intent(run))
+        if not bot.exploring and run.frame > 200:
+            known += 1
+            assert not run.cone.lit, \
+                "the torch is burning on ground it does not need to see"
+    assert known > 500, "it never walked anywhere it already knew"
+
+
 def test_the_dark_scout_is_the_same_bot_with_no_torch():
     """A fair control: same routing, same targets, same rules about what it
     knows. The only difference is that it cannot extend its map with light."""

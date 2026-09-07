@@ -150,8 +150,25 @@ class Bot:
 
     name = "bot"
 
+    #: Whether this bot uses the torch at all. Every bot that does takes it as
+    #: a constructor argument, because two of the difficulty targets are the
+    #: same bot run twice, lit and dark.
+    light = False
+
     def __init__(self, seed: int = 1) -> None:
         self._seed = seed or 1
+
+    def _torch(self, run) -> bool:
+        """Whether to press the torch key this frame.
+
+        **Every intent any bot builds goes through here**, so that a bot with
+        an opinion about light has one opinion rather than one per branch. The
+        Scout's route decides its light, and it was getting the default in the
+        branch it spends most of its time in -- which held the torch on through
+        ground it already knew and burned all twenty seconds of it in the first
+        half-minute.
+        """
+        return self.light and not run.cone.enabled
 
     def _random(self) -> int:
         self._seed = sources.xorshift16(self._seed)
@@ -177,7 +194,7 @@ class Statue(Bot):
     def intent(self, run) -> Intent:
         # Pressed once, on the first frame it is needed. Holding a key does not
         # toggle a torch twice.
-        return Intent(torch=self.light and not run.cone.enabled)
+        return Intent(torch=self._torch(run))
 
 
 class Wanderer(Bot):
@@ -229,7 +246,7 @@ class Wanderer(Bot):
             self._wedged = 0
         self._left -= 1
         return Intent(dx=self._dx, dy=self._dy,
-                      torch=self.light and not run.cone.enabled)
+                      torch=self._torch(run))
 
 
 class Walker(Bot):
@@ -286,16 +303,16 @@ class Walker(Bot):
                 dy = (want > run.player.cy) - (want < run.player.cy)
                 return Intent(dx=1 if door.side == building.EAST else -1,
                               dy=dy,
-                              torch=self.light and not run.cone.enabled)
+                              torch=self._torch(run))
         if not self._path:
             self._path = route(here, goals, self._passable)
         if not self._path or self._path[0][0] != run.here:
-            return Intent(torch=self.light and not run.cone.enabled)
+            return Intent(torch=self._torch(run))
 
         tx, ty = stand_pixel(*self._path[0][1:])
         dx = (tx > run.player.x) - (tx < run.player.x)
         dy = (ty > run.player.y) - (ty < run.player.y)
-        return Intent(dx=dx, dy=dy, torch=self.light and not run.cone.enabled)
+        return Intent(dx=dx, dy=dy, torch=self._torch(run))
 
     def _exit_cells(self) -> list[tuple[int, int, int]]:
         room, cell = scene.BUILDING.exit
@@ -315,7 +332,7 @@ class Walker(Bot):
         if run.rescue.at_exit(run.here, run.player.occupied_cells()):
             dx, dy = run.exit_facing
             return Intent(dx=dx, dy=dy,
-                          torch=self.light and not run.cone.enabled)
+                          torch=self._torch(run))
         return self._walk(run, self._exit_cells())
 
 
@@ -403,7 +420,7 @@ class Listener(Walker):
         # Nobody has called yet, or the last caller is accounted for. Stand
         # still rather than wander: this bot's whole point is that it acts only
         # on what the room told it.
-        return Intent(torch=self.light and not run.cone.enabled)
+        return Intent(torch=self._torch(run))
 
 
 class Scout(Listener):
@@ -538,11 +555,15 @@ class Scout(Listener):
             # action here or anywhere else, only more of the same direction.
             self._push, self._push_room = step, run.here
             return Intent(dx=step[0], dy=step[1], torch=self._torch(run))
-        walking = super()._walk(run, edges)
-        return Intent(dx=walking.dx, dy=walking.dy, torch=self._torch(run))
+        return super()._walk(run, edges)
 
     def _torch(self, run) -> bool:
-        """Press the key if the light is not in the state the route wants."""
+        """Press the key if the light is not in the state the route wants.
+
+        On while it is heading for the edge of its map, off on ground it knows.
+        That is the whole point of this bot: the light policy is a consequence
+        of where it is going, and a policy set from outside measures nothing.
+        """
         return self.light and self.exploring != run.cone.enabled
 
     def _leave(self, run) -> Intent:
