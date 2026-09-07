@@ -21,13 +21,25 @@ SPEED = 1
 WIDTH, HEIGHT = 8, 16
 
 #: How far the player is nudged sideways to fit through a gap they are almost
-#: lined up with. Half a cell, so any approach can be corrected.
+#: lined up with. **A whole cell.**
 #:
 #: Without this, an 8-wide sprite only fits a one-cell doorway when its x is an
 #: exact multiple of 8 -- one position in eight. Everything else stops dead
 #: against the door frame, which reads as the controls being broken rather than
 #: as the player being misaligned.
-NUDGE = CELL // 2
+#:
+#: Half a cell to a whole one with issue #23, because **the failing case is not
+#: the one the assist was written for.** Lining up with a gap is never more
+#: than four pixels away, so half a cell covers it -- but *clearing a wall your
+#: head is already inside* can need seven, and that is what leaves a walker
+#: grinding against geometry. Measured: a random walker spent 29-42% of its
+#: pressing frames blocked, in stretches of up to fourteen seconds, which no
+#: first-timer does.
+#:
+#: The loop below tries the smallest offset first and stops at the first one
+#: that works, so seven pixels only ever happens when nothing smaller does. The
+#: cost of raising the ceiling is therefore the rare case, not the common one.
+NUDGE = CELL
 
 #: facing -> (dx, dy), and its inverse.
 STEP = {UP: (0, -1), DOWN: (0, 1), LEFT: (-1, 0), RIGHT: (1, 0)}

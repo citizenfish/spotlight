@@ -183,3 +183,49 @@ def test_walking_in_the_open_is_never_nudged():
     for _ in range(50):
         p.move(1, 0, open_world)
     assert p.y == 100, "drifted while walking in a straight line"
+
+
+# --- the assist's real failing case (issue #23) ----------------------------
+
+def test_a_head_inside_a_wall_can_be_freed():
+    """**The case the assist was written for is not the case that fails.**
+
+    Lining up with a gap is never more than four pixels away, so half a cell
+    covered it. But a person is two cells tall and stands at any y, so their
+    *head* can be inside the row of wall above them while their feet are on
+    clear floor -- and getting out of that needs up to seven pixels. Measured,
+    a random walker spent 29-42% of its pressing frames blocked, in stretches
+    of up to fourteen seconds, which no first-timer does.
+
+    The player here has one pixel of headroom left and seven of head in the
+    wall. At half a cell they grind; at a whole one they get out.
+    """
+    def solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return cy == 5 and cx != 20        # a wall with a doorway well away
+
+    for overlap in range(1, CELL):
+        p = Player(4 * CELL, 6 * CELL - overlap)   # head `overlap` px inside
+        assert p.move(1, 0, solid), \
+            f"blocked with {overlap} pixels of head in the wall"
+
+
+def test_the_assist_still_tries_the_smallest_offset_first():
+    """Raising the ceiling must not raise the usual cost. Seven pixels should
+    only ever happen when nothing smaller works, or the assist becomes a
+    teleport the player did not ask for."""
+    def solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return cy == 9 and cx != 5
+
+    p = Player(5 * CELL + 1, 7 * CELL)
+    p.move(0, 1, solid)
+    assert abs(p.x - (5 * CELL + 1)) == 1, "moved further than it had to"
+
+
+def test_the_assist_reaches_a_whole_cell_and_no_further():
+    """It clears a wall your head is inside; it does not walk you round a
+    corner you never approached."""
+    assert NUDGE == CELL

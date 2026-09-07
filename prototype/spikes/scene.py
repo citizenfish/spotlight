@@ -244,6 +244,29 @@ def exit_cell() -> tuple[int, int]:
     return doors[0]
 
 
+#: The building's searchlight, as this room authors it.
+#:
+#: **`repeat`, not `vary`, and that is an authoring choice per light rather
+#: than a rule change** (issue #23). *Light and Darkness* calls repeating "the
+#: easier setting, and it makes the searchlight a puzzle -- you can watch it,
+#: time it, and cross behind it", where varying is weather. The beam turned out
+#: to deliver about three quarters of the swarm, and the dominant threat in the
+#: game should be something a first-timer can learn rather than something that
+#: happens to them.
+#:
+#: It costs nothing anybody could perceive, because the tour was already
+#: identical in every seed for the first fifty-eight seconds. What replaces
+#: that variety is the **entry station**, which now comes from the session seed
+#: (see `sources.Roaming.entry`): one circuit, learnable within a run, entered
+#: somewhere different next time.
+#:
+#: The radius is **not** an authoring choice being made here. Three was settled
+#: by a person at a keyboard -- at twice that the beam was over you before you
+#: could do anything about it -- and it is held. It lives here only so that the
+#: room's light is described in one place.
+SEARCHLIGHT_RADIUS = 3
+SEARCHLIGHT_VARY = False
+
 #: Where the swarm starts, in cells. Clegs live on the cell grid -- they have
 #: no need of pixel placement, and putting them there would cost the Z80 a
 #: shift-and-mask per fly per frame for no gain.

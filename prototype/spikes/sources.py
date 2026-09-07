@@ -177,7 +177,21 @@ class Cone(Source):
     Widens by one cell every two of reach, which is roughly 45 degrees.
     """
 
-    def __init__(self, reach: int = 7, power: int = 600,
+    #: Frames of light in a full torch: twenty seconds at 50Hz.
+    #:
+    #: 600 -> 1000 with issue #23, **on comprehension grounds and with low
+    #: confidence**. A first-timer switches it on to see, leaves it on, and is
+    #: dark twelve seconds later with no event and no explanation -- the light
+    #: simply stops, and nothing told them it was going to. Twenty seconds is
+    #: four room-crossings' worth: enough to learn what light costs before
+    #: losing it, and nowhere near enough to play lit.
+    #:
+    #: **This is not the tuning question.** What a torch *buys* cannot be
+    #: measured until there is a bot whose route depends on what it can see,
+    #: and when there is, this is not the first number to reach for.
+    FULL = 1000
+
+    def __init__(self, reach: int = 7, power: int = FULL,
                  level: int = LIT, memory: int = CHARGE_LIT) -> None:
         super().__init__(level, memory, enabled=False)
         self.reach = reach
@@ -590,6 +604,22 @@ class Roaming(Source):
         self.inset = inset
         self.path = path or []
         self._seed = seed or 1
+        #: Which station the tour is entered at.
+        #:
+        #: **The closed tour exists precisely so that the start can be free**,
+        #: and until issue #23 it was not: `_new_sweep(first=True)` laid the
+        #: first circuit out with no seed at all, so every run in every session
+        #: began at the same station and walked the same route. That is why the
+        #: tester measured **the searchlight's tour as identical in every seed
+        #: for the first 58 seconds** -- the session seed only ever reached the
+        #: *second* circuit. Anything scoped to the first minute was therefore
+        #: five samples of one beam.
+        #:
+        #: Seeded across runs, fixed within one: a player can learn this
+        #: circuit, and a tester gets a different one next time. Only the entry
+        #: point comes from the seed here -- the reversal and the mirrorings
+        #: are what `vary` adds, and a repeating light should not have them.
+        self.entry = (self._seed >> 2) % len(KNIGHT_TOUR)
         self._leg = 0
         self._tick = 0
         self.step_every = step_every
@@ -631,7 +661,7 @@ class Roaming(Source):
         """One circuit's route, in whichever shape this light sweeps."""
         if self.mode == self.ARC:
             if seed is None:
-                route, self._dwells = tour_route(self.radius)
+                route, self._dwells = tour_route(self.radius, start=self.entry)
                 return route
             # A closed tour can be entered anywhere, so the start is free to be
             # random; the flips and the reversal are the rest of the variety.
@@ -664,6 +694,11 @@ class Roaming(Source):
         self._leg = 0
         if first:
             self._snap_to_route_start()
+            # The snap puts the beam *on* its first waypoint, so that leg is
+            # nought cells long too -- which is why the first circuit used to
+            # be one step interval longer than every one after it, and why
+            # "the same route every time" was not quite true of the first pass.
+            self._skip_the_leg_it_is_already_on()
 
     def reshape(self, radius: int | None = None,
                 inset: int | None = None) -> None:
@@ -745,6 +780,32 @@ class Roaming(Source):
                 self._leg = 0
                 if on_wrap:
                     on_wrap()
+                self._skip_the_leg_it_is_already_on()
+
+    def _skip_the_leg_it_is_already_on(self) -> None:
+        """Do not pay a step interval for a leg that is nought cells long.
+
+        Every route here is **closed** -- it ends on the waypoint it began on --
+        so after a wrap the next waypoint is the one the beam is standing on.
+        Taking it as an ordinary step costs a whole step interval in which the
+        beam does not move: a hitch of six frames, once a circuit, and it is
+        exactly what `test_the_beam_travels_at_a_steady_speed` exists to catch.
+        It was invisible until issue #23 seeded the entry station, because with
+        the tour always entered at station zero the hitch happened to land on a
+        waypoint the beam pauses at anyway.
+
+        The dwell is kept, because an operator who stops to look at something
+        stops whether or not they had to travel to it. `vary` lays out a fresh
+        route on the wrap, whose first waypoint is usually somewhere else
+        entirely, and this correctly does nothing in that case.
+        """
+        route = (self._sweep if self.mode in (self.SWEEP, self.ARC)
+                 else self.path if self.mode == self.PATH else None)
+        if not route or (self.x, self.y) != route[0]:
+            return
+        if self._dwells:
+            self._hold = self._dwells[0]
+        self._leg = 1
 
     def _delta_towards(self, tx: int, ty: int) -> tuple[int, int]:
         """One cell along the straight line from where this leg began.

@@ -79,8 +79,16 @@ def test_different_seeds_give_different_runs():
 
 
 def test_standing_still_ends_with_nobody_left_to_save():
-    """The Statue's ending: everybody bleeds out and the run says so."""
-    run = Session()
+    """The Statue's ending: everybody bleeds out and the run says so.
+
+    Given lives it will not need, because the ending is what is under test and
+    not the bot's survival. Worth knowing why that became necessary: with the
+    clock ladder the room takes 180 seconds to empty rather than 144, and a
+    motionless player is now **within one life** of not living to see the end
+    of it -- two of six seeds run out first. That is the game and not a bug,
+    but it is not this test's subject.
+    """
+    run = Session(lives=99)
     assert run_until_over(run) == session.NOBODY_LEFT
     assert run.rescued == 0
     assert run.lost == run.total
@@ -232,7 +240,7 @@ def test_the_deaths_in_a_real_run_are_spread_out_not_simultaneous():
     Driven through the real loop, not through `Rescue` on its own, because the
     bug was only visible in a whole run.
     """
-    run = Session(seed=1)
+    run = Session(seed=1, lives=99)
     deaths = []
     while run.frame < 12000:
         for event in run.step():
@@ -256,7 +264,7 @@ def test_a_death_is_announced_from_where_they_fell():
     """
     from spikes import lighting, rescue as rescue_mod
 
-    run = Session(seed=1)
+    run = Session(seed=1, lives=99)
     dying = min(run.rescue.workers, key=lambda w: w.blood)
     while True:
         events = run.step()
@@ -281,7 +289,7 @@ def test_every_death_is_announced_exactly_once():
     """
     from spikes import rescue as rescue_mod
 
-    run = Session(seed=1)
+    run = Session(seed=1, lives=99)
     said = {}
     while run.frame < 12000 and run.over is None:
         run.step()

@@ -310,3 +310,48 @@ def test_a_person_reaches_less_than_a_single_cell_would():
     loose = _reachable_from((player.cx, player.cy))
     body = _reachable_by_a_person((player.cx, player.cy))
     assert body < loose, "the two checks happen to agree; they need not"
+
+
+# --- what this building authors about its light (issue #23) ----------------
+
+def test_the_playtest_building_repeats_its_searchlight():
+    """Repeating makes the beam a puzzle you can watch, time and cross behind;
+    varying is weather. The beam delivers about three quarters of the swarm, so
+    the dominant threat should be the one a first-timer can learn."""
+    assert scene.SEARCHLIGHT_VARY is False
+
+
+def test_the_beam_radius_is_untouched():
+    """Held, and holding it is a decision: settled by a person at a keyboard --
+    at twice this it was over you before you could do anything about it -- and
+    nothing measured implicates it."""
+    assert scene.SEARCHLIGHT_RADIUS == 3
+
+
+def test_the_room_uses_what_it_authors():
+    """A constant in the level data that the session ignores is a lie."""
+    from spikes.session import Session
+    run = Session(seed=1)
+    assert run.roaming.vary is scene.SEARCHLIGHT_VARY
+    assert run.roaming.radius == scene.SEARCHLIGHT_RADIUS
+
+
+def test_the_swarm_is_the_building_total_and_not_yet_split_per_room():
+    """Six, which is what the entity budget allows for two concurrent nests, a
+    tail and the player. The vault asks for three per room; there is one room
+    until #21, so the split is deferred rather than half-made -- cutting to
+    three now would halve the swarm in the only room there is."""
+    assert len(scene.CLEGS) == 6
+
+
+def test_two_runs_of_the_same_seed_start_the_beam_in_the_same_place():
+    """Learnable within a run is half of the deal; the other half is that a
+    seed still names a run."""
+    from spikes.session import Session
+    assert Session(seed=9).roaming.origin() == Session(seed=9).roaming.origin()
+
+
+def test_different_seeds_start_the_beam_in_different_places():
+    from spikes.session import Session
+    starts = {Session(seed=s).roaming.origin() for s in range(1, 40)}
+    assert len(starts) > 4, f"the beam starts in only {len(starts)} places"

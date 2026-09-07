@@ -849,3 +849,129 @@ def test_the_pauses_are_a_small_part_of_a_circuit():
         roam.update()
         frames += 1
     assert sum(dwells) * 5 < frames, "spends most of its time standing still"
+
+
+# --- the station grid and the entry point (issue #23) ----------------------
+
+def test_every_floor_cell_falls_inside_some_station_disc():
+    """*Light and Darkness* claims total coverage and that **nowhere is
+    permanently safe**. This is that claim, asserted rather than eyeballed.
+
+    It is the weaker of the two coverage properties and it is the one that
+    matters for the corner: `test_one_circuit_lights_the_entire_room` allows a
+    cell to be reached only by the *tracks between* stations, and a cell that
+    is only ever crossed in transit is lit for a fraction of the time a cell
+    the beam stops on is. Standing where no station's disc reaches is standing
+    somewhere the machine can only glance at.
+
+    Written when the vault called for the station inset to move from 3 to 2 to
+    restore this property. The constant was **already 2** and the property
+    already held; the test is here so it cannot quietly stop holding, and so
+    that the next person to reach for the inset can see it is not the dial.
+    """
+    from spikes import scene
+
+    stations = [S.station(col, row)
+                for col in range(S.STATION_COLS)
+                for row in range(S.STATION_ROWS)]
+    r2 = scene.SEARCHLIGHT_RADIUS * scene.SEARCHLIGHT_RADIUS
+    missed = []
+    for cy in range(PLAY_ROWS):
+        for cx in range(COLS):
+            if scene.is_solid(cx, cy):
+                continue
+            if not any((cx - sx) ** 2 + (cy - sy) ** 2 <= r2
+                       for sx, sy in stations):
+                missed.append((cx, cy))
+    assert not missed, f"{len(missed)} floor cells no station reaches: {missed[:6]}"
+
+
+def test_the_station_grid_still_meets_its_own_spacing_rule():
+    """The worst-lit point of a grid is the middle of a station rectangle, half
+    a diagonal from the four around it, so `sx^2 + sy^2 <= 4r^2`. 3.86 and 3.4
+    give 26.5 against 36."""
+    xs = [S.station(c, 0)[0] for c in range(S.STATION_COLS)]
+    ys = [S.station(0, r)[1] for r in range(S.STATION_ROWS)]
+    sx = max(b - a for a, b in zip(xs, xs[1:]))
+    sy = max(b - a for a, b in zip(ys, ys[1:]))
+    assert sx * sx + sy * sy <= 4 * 3 * 3
+
+
+def test_no_station_sits_against_a_wall():
+    """The beam never touches a wall, which three previous attempts could not
+    manage, and the inset is what buys it."""
+    for col in range(S.STATION_COLS):
+        for row in range(S.STATION_ROWS):
+            cx, cy = S.station(col, row)
+            assert 0 < cx < COLS - 1 and 0 < cy < PLAY_ROWS - 1
+
+
+def test_the_entry_station_comes_from_the_seed():
+    """**The first circuit was never seeded.** `_new_sweep(first=True)` laid it
+    out with no seed at all, so every run began at the same station and walked
+    the same route -- which is why the tester found the tour identical in every
+    seed for the first fifty-eight seconds, and why five seeds were one sample
+    of the term that dominates the first minute.
+    """
+    starts = {S.Roaming(0, 0, radius=3, seed=seed).origin()
+              for seed in range(1, 200)}
+    assert len(starts) > 8, f"the beam starts in only {len(starts)} places"
+
+
+def test_the_first_circuit_of_a_repeating_beam_varies_with_the_seed():
+    """Seeded across runs, identical within one. Both halves matter: a tester
+    wants a sample, a player wants something learnable."""
+    def first_circuit(seed):
+        roam = S.Roaming(0, 0, radius=3, step_every=1, vary=False, seed=seed)
+        path = []
+        while roam.cycles < 1:
+            roam.update()
+            path.append((roam.x, roam.y))
+        return path
+
+    a, b = first_circuit(0x1234), first_circuit(0x5678)
+    assert a != b, "two seeds walked the same first circuit"
+    assert first_circuit(0x1234) == a, "a seed does not name a route"
+
+
+def test_a_repeating_beam_covers_the_room_from_any_entry():
+    """Entering the tour anywhere is only safe because the tour is closed. If
+    some entry point left a gap, seeding the entry would be trading a coverage
+    bug for a variety that nobody asked for."""
+    for seed in (1, 7, 0x1234, 0xACE1, 0xBEEF):
+        roam = S.Roaming(0, 0, radius=3, step_every=1, vary=False, seed=seed)
+        covered, _ = _covered_by(roam)
+        assert covered == _whole_room(), f"seed {seed} left gaps"
+
+
+def test_the_beam_never_pays_for_a_step_it_does_not_take():
+    """Every route here is closed, so its last waypoint is its first. Taking
+    that leg as an ordinary step costs a whole interval in which the beam does
+    not move -- a hitch at the start of the run and one at every wrap.
+
+    It hid behind the unseeded entry: with the tour always entered at station
+    zero the hitch landed on a waypoint the beam pauses at anyway.
+    """
+    for seed in (1, 7, 0x1234, 0xACE1):
+        roam = S.Roaming(0, 0, radius=3, vary=False, seed=seed)
+        steps = [(t, far) for t, far in _step_intervals(roam) if t <= 12]
+        stalled = [t for t, far in steps if far == 1 and t > roam.step_every]
+        assert not stalled, f"seed {seed} stalled for {stalled}"
+
+
+def test_the_carried_torch_lasts_twenty_seconds():
+    """On comprehension grounds, and low confidence: a first-timer switches it
+    on to see, leaves it on, and at twelve seconds is dark again with no event
+    and no explanation. Twenty seconds is four room-crossings -- enough to
+    learn what light costs, nowhere near enough to play lit.
+
+    Twenty and not more: this is not the tuning question, and what a torch buys
+    cannot be measured until a bot's route depends on what it can see.
+    """
+    cone = S.Cone(reach=7)
+    assert cone.power == 1000 == S.Cone.FULL
+    cone.enabled = True
+    for _ in range(20 * 50):
+        assert cone.lit
+        cone.drain()
+    assert not cone.lit, "the torch outlasted its twenty seconds"

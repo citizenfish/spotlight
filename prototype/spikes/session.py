@@ -199,10 +199,14 @@ class Session:
         # player keeps is what they held in their head.
         self.opening = sources.Flash()
         self.opening.fire()
-        # A prison searchlight quartering the room, varying its route so it
-        # cannot be planned around, and running to the wall rather than turning
-        # short of it. Both settled by playing.
-        self.roaming = sources.Roaming(0, 0, radius=3, vary=True, seed=beam_seed)
+        # A prison searchlight quartering the room. How it behaves is the
+        # room's to author, not the session's: see `scene.SEARCHLIGHT_VARY` for
+        # why this building repeats its tour rather than varying it, and
+        # `sources.Roaming.entry` for the entry station, which is what the
+        # session seed now moves.
+        self.roaming = sources.Roaming(0, 0, radius=scene.SEARCHLIGHT_RADIUS,
+                                       vary=scene.SEARCHLIGHT_VARY,
+                                       seed=beam_seed)
         self.all_sources = (self.glow, self.cone, self.roaming, self.opening,
                             *self.room_lights)
 
