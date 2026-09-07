@@ -11,3 +11,7 @@ venv/
 # Spectrum build output (keep the directory, drop its contents)
 spectrum/build/*
 !spectrum/build/.gitkeep
+
+# Headless run reports (spikes/spike_driver.py). Measurements, not source --
+# the ones that mean something get written up in the vault.
+prototype/runs/

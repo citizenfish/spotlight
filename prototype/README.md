@@ -38,6 +38,29 @@ key is ignored. That is the point: a playtester who presses a key to see what it
 does would otherwise be able to solve the game by accident and never know they
 had.
 
+## Headless runs
+
+A scripted or bot-driven session, from a seed, with no window and no host:
+
+```sh
+python -m spikes.spike_driver --bot listener --seeds 5
+python -m spikes.spike_driver --bot statue --light --frames 3000
+python -m spikes.spike_driver --script "300R 100D T 600."   # exact replay
+python -m spikes.spike_driver --bot oracle --repeat          # check a seed reproduces
+```
+
+It runs the **real** loop with the real constants — `session.Session.step`, the
+same method the window drives — and writes two files per run into `runs/`:
+
+| File | Reader | Contains |
+| --- | --- | --- |
+| `*.json` | the tester agent | metrics that tabulate across seeds, one record per person, and the whole event log |
+| `*.txt` | a human | five or six lines in words: who got out, who did not and roughly when, how it ended, how long it took |
+
+The four reference bots are `statue`, `wanderer`, `listener` and `oracle`, named
+after the ones the phase-0 difficulty targets are stated against. They walk;
+they cannot reach into the run.
+
 ## Test
 
 ```sh

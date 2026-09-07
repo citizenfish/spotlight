@@ -94,6 +94,11 @@ WORKER_DIED = "worker_died"
 BITTEN = "bitten"
 LIFE_LOST = "life_lost"
 SPRAY_KILL = "spray_kill"
+#: Blood taken this frame. Recorded because difficulty target T8 asks what the
+#: second minute in the dark costs against the first, and a running total
+#: cannot answer that. Only logged on frames where something was taken, which
+#: is a few hundred events in the worst run.
+DRAINED = "drained"
 SWAPPED = "swapped"
 GAME_OVER = "game_over"
 
@@ -340,6 +345,8 @@ class Session:
             bites = now_attached - was_attached
             self.tally.attachments += bites
             self._record(BITTEN, count=bites, room=room)
+        if self.swarm.drained:
+            self._record(DRAINED, count=self.swarm.drained, room=room)
         self.tally.frame(self.cone.lit, self.swarm.drained)
 
         # Death costs a try and puts you back at the entrance. The building
