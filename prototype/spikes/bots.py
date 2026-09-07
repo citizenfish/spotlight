@@ -574,6 +574,146 @@ class Oracle(Walker):
         return self._leave(run)
 
 
+class Crosser(Walker):
+    """Walks a stated route, over and over, lit or dark. Difficulty target T3e.
+
+    **The instrument the light bargain has been waiting for.** Three rounds of
+    tuning produced one survivor and two reverts, and the pattern was not luck:
+    the survivor was about sequencing, which the other bots can see, and both
+    failures were about what light costs, which they cannot. Measured, over a
+    whole run nothing distinguishes a lit player from a dark one -- blood
+    saturates (a lit Statue is at 191.8 of 192 by 150s on every seed) and
+    survival time gives a seven-second difference inside a forty-four-second
+    spread.
+
+    The reason is that **the swarm has a conserved feeding throughput**: six
+    flies on a drink-and-sate cycle eat as fast as they can cycle, so what the
+    player switches on changes *which light a fly walked to, not how many meals
+    it gets*. Light does not change how much blood you lose, it changes when --
+    and the design never claimed otherwise. The spine says light *draws the
+    swarm onto you*, which is a claim about arrival, and arrival measures at
+    3.3x on every seed.
+
+    **The bargain is a race, and every bot measured so far is standing still.**
+    So this one runs one: a crossing is about five seconds, it is bounded so it
+    cannot saturate, and it is the shape of the decision a player actually
+    takes -- *do I light this crossing or feel my way?* The two figures it
+    reports are the ones T3e is stated in:
+
+    * **extra bites per crossing**, lit against dark; and
+    * **the share of crossings in which a fly attaches before the far end**.
+
+    Both are per crossing rather than per run, which is what stops them being a
+    quotient of two long totals.
+    """
+
+    name = "crosser"
+
+    #: The route, stated here because a result nobody can reproduce is not a
+    #: measurement. Row 14 of the near room is its longest clear run -- thirty
+    #: cells with no wall in them -- and the ends are set two cells inside it so
+    #: that arriving is not the same thing as being stopped by a wall. Twenty-
+    #: seven cells is 216 pixels, which at one pixel a frame is 4.3 seconds:
+    #: about the five the target asks for, and well short of anything that
+    #: could saturate.
+    ROUTE = ((scene.NEAR, 2, 14), (scene.NEAR, 29, 14))
+
+    def __init__(self, seed: int = 1, light: bool = False, route=None) -> None:
+        super().__init__(seed, light)
+        self.route = tuple(route or self.ROUTE)
+        self.at = 0
+        #: One record per completed crossing. See `summary`.
+        self.crossings: list[dict] = []
+        self._started = 0
+        self._at_start = 0
+        self._bites = 0
+        self._attached = False
+        self._lit = 0
+
+    def _target(self) -> tuple[int, int, int]:
+        return self.route[self.at]
+
+    def intent(self, run):
+        here = (run.here, run.player.cx, run.player.cy)
+        bites = run.swarm.attachments
+        if self._started:
+            self._lit += run.cone.lit
+        if self._bites != bites:
+            # A fly landed on this leg. Whether it landed *before the far end*
+            # is the whole of the second figure, and it is true by construction
+            # here: the crossing is not finished until the target is reached.
+            self._attached = True
+            self._bites = bites
+        if here == self._target():
+            if self._started:
+                frames = run.frame - self._started
+                self.crossings.append({
+                    "from": list(self.route[self.at - 1]),
+                    "to": list(self._target()),
+                    "frames": frames,
+                    "lit_frames": self._lit,
+                    # **Lit if the torch burned for most of it.** A carried
+                    # spotlight is twenty seconds and a crossing is four, so a
+                    # long run has both kinds in it whatever the bot was asked
+                    # for -- and a crossing half spent in the dark is neither
+                    # thing and must not be counted as either.
+                    "lit": self._lit * 2 >= frames,
+                    "bites": bites - self._at_start,
+                    "bitten_before_arrival": self._attached,
+                })
+            self.at = (self.at + 1) % len(self.route)
+            self._start(run.frame, bites)
+        elif not self._started:
+            # The first leg does not count: it starts wherever the player
+            # happens to begin rather than at an end of the route.
+            self._start(run.frame, bites)
+        return self._walk(run, stand_cells(*self._target()))
+
+    def _start(self, frame: int, bites: int) -> None:
+        self._started, self._at_start = max(1, frame), bites
+        self._attached, self._lit = False, 0
+
+    @staticmethod
+    def _figures(crossings: list[dict]) -> dict:
+        """T3e's two figures over a set of crossings.
+
+        Bites are in **tenths of a bite per crossing**, because the target is
+        stated as "one extra bite every two crossings" and integers are the
+        house rule. The share is a percentage of the crossings counted.
+        """
+        n = max(1, len(crossings))
+        bites = sum(c["bites"] for c in crossings)
+        bitten = sum(1 for c in crossings if c["bitten_before_arrival"])
+        return {
+            "crossings": len(crossings),
+            "crossing_frames": sum(c["frames"] for c in crossings) // n,
+            "bites": bites,
+            "bites_per_crossing_tenths": 10 * bites // n,
+            "bitten_before_arrival": bitten,
+            "bitten_before_arrival_percent": 100 * bitten // n,
+        }
+
+    def summary(self) -> dict:
+        """The route, and T3e's figures split by whether the torch was burning.
+
+        **Split within the run as well as between runs.** A torch is twenty
+        seconds and a crossing is four, so a bot asked to hold the light on
+        spends the first five crossings lit and the rest of a two-minute run
+        dark -- and a run report that averaged those together would be reporting
+        neither. The lit and dark buckets here are the same room, the same seed
+        and the same swarm, which is a tighter comparison than two runs; the
+        across-seeds pair the target asks for is still what settles it.
+        """
+        lit = [c for c in self.crossings if c["lit"]]
+        dark = [c for c in self.crossings if not c["lit"]]
+        return {
+            "route": [list(cell) for cell in self.route],
+            "all": self._figures(self.crossings),
+            "lit": self._figures(lit),
+            "dark": self._figures(dark),
+        }
+
+
 #: What each letter means in a script. Directions are held; the two buttons are
 #: pressed once, which is what the keyboard does.
 SCRIPT_CODES = {
@@ -638,6 +778,7 @@ BOTS = {
     "wanderer": Wanderer,
     "listener": Listener,
     "scout": Scout,
+    "crosser": Crosser,
     "oracle": Oracle,
 }
 

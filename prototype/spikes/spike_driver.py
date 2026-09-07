@@ -81,15 +81,28 @@ def stamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
-def write(run, name: str, out_dir: str, when: str = "") -> tuple[str, str]:
+def measured(bot) -> dict | None:
+    """Whatever the bot measured for itself, if it measured anything.
+
+    The crossing walker's T3e figures are the first and may be the only ones
+    (issue #29): a crossing is not something the session has a concept of, so
+    the bot that walks one is the only thing that can count them.
+    """
+    summary = getattr(bot, "summary", None)
+    return summary() if callable(summary) else None
+
+
+def write(run, name: str, out_dir: str, when: str = "",
+          extra: dict | None = None) -> tuple[str, str]:
     """Write both reports. Returns the two paths."""
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.join(out_dir, f"{when or stamp()}_{name}_seed{run.seed}")
     with open(f"{base}.json", "w") as handle:
-        json.dump(report.results(run, bot=name), handle, indent=1)
+        json.dump(report.results(run, bot=name, extra=extra), handle, indent=1)
         handle.write("\n")
     with open(f"{base}.txt", "w") as handle:
-        handle.write("\n".join(report.human(run, bot=name)) + "\n")
+        handle.write("\n".join(report.human(run, bot=name, measured=extra))
+                     + "\n")
     return f"{base}.json", f"{base}.txt"
 
 
@@ -175,22 +188,23 @@ def main(argv: list[str] | None = None) -> int:
     rows = []
     for i in range(args.seeds):
         seed = args.seed + i
-        run = drive(_bot(args, seed), seed=seed, frames=args.frames,
-                    draw=args.draw)
+        bot = _bot(args, seed)
+        run = drive(bot, seed=seed, frames=args.frames, draw=args.draw)
+        extra = measured(bot)
         if args.repeat:
             again = drive(_bot(args, seed), seed=seed, frames=args.frames)
             if report.results(again, name)["metrics"] != \
                     report.results(run, name)["metrics"]:
                 print(f"seed {seed} did not reproduce", file=sys.stderr)
                 return 1
-        results = report.results(run, bot=name)
+        results = report.results(run, bot=name, extra=extra)
         rows.append(results)
 
         print()
-        for line in report.human(run, bot=name):
+        for line in report.human(run, bot=name, measured=extra):
             print(line)
         if not args.no_files:
-            paths = write(run, name, args.out, when)
+            paths = write(run, name, args.out, when, extra)
             print(f"\n  -> {paths[0]}\n  -> {paths[1]}")
 
     if len(rows) > 1:

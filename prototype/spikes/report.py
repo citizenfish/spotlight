@@ -271,13 +271,19 @@ def metrics(run) -> dict:
     }
 
 
-def results(run, bot: str = "", label: str = "") -> dict:
+def results(run, bot: str = "", label: str = "", extra: dict | None = None) -> dict:
     """The machine-readable run: metadata, metrics, people, and the whole log.
 
     The log is included in full because it is small and because the question
     phase 2 wants to ask has not been thought of yet. Deriving a new number
     from a saved run beats re-running it and hoping the constants have not
     moved underneath.
+
+    `extra` is whatever the bot itself measured, if it measured anything --
+    the crossing walker's T3e figures are the first (issue #29). It is the
+    bot's because a crossing is not a thing the session has any concept of, and
+    it is kept in its own key rather than folded into `metrics` so that nothing
+    tabulating metrics across seeds has to know which bot ran.
     """
     return {
         "seed": run.seed,
@@ -287,6 +293,7 @@ def results(run, bot: str = "", label: str = "") -> dict:
         "ending": run.over,
         "tally_adds_up": run.tally_adds_up(),
         "metrics": metrics(run),
+        "bot_measured": extra,
         "people": people(run),
         "events": [
             {"frame": e.frame, "seconds": e.seconds, "kind": e.kind,
@@ -422,7 +429,36 @@ def _sentence(prefix: str, records, rooms: int, key: str,
     return f"{prefix}: {_join(named)}{tail}."
 
 
-def human(run, bot: str = "", label: str = "") -> list[str]:
+def crossing_lines(measured: dict | None) -> list[str]:
+    """The crossing walker's run, in English. Issue #29, difficulty target T3e.
+
+    **The route is stated**, because a figure nobody can reproduce is not a
+    measurement -- and because the whole point of a stated route is that the
+    same walk can be run again after a constant moves.
+    """
+    if not measured or "route" not in measured:
+        return []
+    (a, b) = measured["route"][0], measured["route"][-1]
+    lines = [f"The route was {place(a[1], a[2])} to {place(b[1], b[2])}, "
+             f"cells {a[1]},{a[2]} to {b[1]},{b[2]}, walked "
+             f"{measured['all']['crossings']} times."]
+    for name in ("lit", "dark"):
+        part = measured[name]
+        if not part["crossings"]:
+            continue
+        per = part["bites_per_crossing_tenths"]
+        lines.append(
+            f"  {name:<4} {part['crossings']:>3} crossings, "
+            f"{part['crossing_frames'] // FRAME_RATE}."
+            f"{(10 * part['crossing_frames'] // FRAME_RATE) % 10}s each, "
+            f"{per // 10}.{per % 10} bites each, "
+            f"bitten before the far end on "
+            f"{part['bitten_before_arrival_percent']}% of them.")
+    return lines
+
+
+def human(run, bot: str = "", label: str = "",
+          measured: dict | None = None) -> list[str]:
     """The run in five or six lines of English, in the order it happened.
 
     A memory aid for a conversation, not a data file. Everything in it is
@@ -493,4 +529,4 @@ def human(run, bot: str = "", label: str = "") -> list[str]:
         lines += _wrap(f"Still in the building at the end: {who_left}{tail}.")
 
     lines.append(ENDING_WORDS.get(run.over, f"It ended: {run.over}."))
-    return lines
+    return lines + crossing_lines(measured)

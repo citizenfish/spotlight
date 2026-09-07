@@ -15,7 +15,7 @@ again from this driver before any target is judged met or missed.
 
 import pytest
 
-from spikes import bots, rescue as rescue_mod, scene, session
+from spikes import bots, report, rescue as rescue_mod, scene, session
 from spikes.session import Intent, Session
 
 LIMIT = 12000
@@ -346,3 +346,79 @@ def test_the_scout_gets_people_out():
 def test_both_new_bots_are_selectable_from_the_driver():
     assert {"scout", "wanderer"} <= set(bots.BOTS)
     assert isinstance(bots.make("scout", light=False), bots.Scout)
+
+
+# --- the crossing walker (issue #29, target T3e) ---------------------------
+
+def _cross(seed=1, light=False, frames=4000):
+    bot = bots.Crosser(seed=seed, light=light)
+    run = Session(seed=seed)
+    while run.over is None and run.frame < frames:
+        run.step(bot.intent(run))
+    return bot, run
+
+
+def test_the_crossing_walker_walks_its_route_over_and_over():
+    """The bargain is a race, and every other bot is standing still."""
+    bot, run = _cross()
+    assert len(bot.crossings) > 5, "it never got there and back"
+    ends = {tuple(c["to"]) for c in bot.crossings}
+    assert ends == set(bots.Crosser.ROUTE), "it wandered off its route"
+    for crossing in bot.crossings:
+        assert crossing["from"] != crossing["to"]
+
+
+def test_a_crossing_is_about_five_seconds_and_cannot_saturate():
+    """Bounded on purpose: blood over a whole run saturates at 191.8 of 192,
+    which is why no whole-run measure can see the bargain."""
+    bot, _ = _cross()
+    seconds = bot.summary()["all"]["crossing_frames"] / 50
+    assert 3 <= seconds <= 7, seconds
+
+
+def test_the_route_is_stated_in_the_run_report():
+    """A figure nobody can reproduce is not a measurement."""
+    bot, run = _cross()
+    lines = report.human(run, bot="crosser", measured=bot.summary())
+    stated = [l for l in lines if "route was" in l]
+    assert stated, "the report does not say where it walked"
+    for _room, cx, cy in bots.Crosser.ROUTE:
+        assert f"{cx},{cy}" in stated[0]
+
+
+def test_both_of_t3es_figures_are_reported():
+    """Extra bites per crossing, and the share of crossings with a fly on you
+    before the far end. Per crossing rather than per run, which is what stops
+    them being a quotient of two long totals."""
+    bot, _ = _cross(light=True)
+    summary = bot.summary()
+    for part in ("all", "lit", "dark"):
+        assert {"crossings", "bites_per_crossing_tenths",
+                "bitten_before_arrival_percent"} <= set(summary[part])
+    assert summary["all"]["crossings"] == \
+        summary["lit"]["crossings"] + summary["dark"]["crossings"]
+
+
+def test_lit_and_dark_crossings_are_split_within_one_run():
+    """A torch is twenty seconds and a crossing is four, so a bot asked to hold
+    the light on spends the first few crossings lit and the rest of the run
+    dark. Averaging those together reports neither."""
+    bot, run = _cross(light=True)
+    assert bot.summary()["lit"]["crossings"], "no crossing was lit at all"
+    assert bot.summary()["dark"]["crossings"], "the torch outlived the run"
+    dark, _ = _cross(light=False)
+    assert dark.summary()["lit"]["crossings"] == 0
+
+
+def test_the_same_route_is_comparable_lit_and_dark():
+    """Same seed, same room, same swarm, same walk. Only the light differs."""
+    lit, _ = _cross(seed=3, light=True)
+    dark, _ = _cross(seed=3, light=False)
+    assert lit.summary()["route"] == dark.summary()["route"]
+    assert abs(lit.summary()["all"]["crossings"]
+               - dark.summary()["all"]["crossings"]) <= 2
+
+
+def test_the_crossing_walker_is_selectable_from_the_driver():
+    assert "crosser" in bots.BOTS
+    assert isinstance(bots.make("crosser", light=True), bots.Crosser)
