@@ -256,6 +256,49 @@ class LightField:
             return False
         return self._reveal[cy * COLS + cx] >= LIT
 
+    def catch_up(self, frames: int) -> None:
+        """Age the whole field by `frames`, in one pass.
+
+        **The fade keeps running while you are out of a room** -- time passes
+        everywhere, so ducking out and back leaves your memory warm and coming
+        back two minutes later leaves it black. Done naively that means keeping
+        and decaying a 704-byte field for every room in the building, which a
+        48K machine will not spend on remembered light and a 50Hz frame will not
+        spend the cycles on either.
+
+        It dissolves rather than needing solving, and the reason is that the
+        fade is short: about three seconds, against roughly five to cross a
+        room. **You cannot get two rooms away inside the life of the fade.** So
+        the port keeps a field for the room you are in and the one you just
+        left, stamps it with the frame you left, and applies the elapsed decay
+        in one pass on re-entry. The fade is a monotone countdown, so this is
+        exactly equivalent to having decayed it every frame, and it costs
+        nothing at all while you are away.
+
+        This building has two rooms, so both fields are resident and this is
+        never called with a gap by the game itself -- it is called with zero
+        every time the player crosses. It is built and tested now because the
+        equivalence is the whole of the argument, and a rule that is only true
+        in a comment is a rule nobody can check. It stops being free if the
+        player ever moves faster than a walk, or if rooms ever get smaller.
+        """
+        if frames <= 0:
+            return
+        if frames >= CHARGE_LIT:
+            self.charge[:] = bytes(len(self.charge))
+        else:
+            table = bytes(max(0, c - frames) for c in range(256))
+            self.charge[:] = self.charge.translate(table)
+        self.display[:] = self.charge.translate(_LEVEL_OF)
+        # Nothing is shining on the room you were not in, so nothing reveals
+        # anybody in it either. Clearing this is what stops a worker who was
+        # standing in your cone as you walked out being prey for ever.
+        for idx in self._touched:
+            self._illum[idx] = 0
+            self._memory[idx] = 0
+            self._reveal[idx] = 0
+        self._touched.clear()
+
     def remembered_at(self, cx: int, cy: int) -> int:
         """What the cell would show with every source switched off."""
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):

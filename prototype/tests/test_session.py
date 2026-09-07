@@ -42,7 +42,13 @@ def touch(run: Session, worker) -> None:
     somewhere; freeing, following and delivering all go through the game's own
     code. Issue #17's Oracle bot walks the same route for real, and
     `test_driver.py` uses it to reach this ending the honest way.
+
+    **It has to move the player's room as well as their pixels** (issue #21).
+    A cell reference means nothing without a room, and four of the seven are in
+    the far one: leaving `here` behind would put the player on top of somebody
+    through a wall and reach nobody.
     """
+    run.here = worker.room
     run.player.x, run.player.y = worker.x, worker.y
 
 
@@ -121,7 +127,7 @@ def test_walking_out_of_the_exit_ends_the_run():
     """
     run = Session()
     run.step()                           # one frame in the room they came into
-    ex, ey = scene.exit_cell()
+    run.here, (ex, ey) = scene.BUILDING.exit
     run.player.x, run.player.y = ex * 8, ey * 8
     run.step()
     assert run.over == session.NOBODY_LEFT
@@ -139,7 +145,7 @@ def test_the_door_is_not_an_ending_until_you_have_gone_in():
     it is cheap, rather than found by a tester whose run lasted 0:00.
     """
     run = Session()
-    ex, ey = scene.exit_cell()
+    run.here, (ex, ey) = scene.BUILDING.exit
     run.player.x, run.player.y = ex * 8, ey * 8
     run._gone_in = False                 # as if they had started here
     run.step()
@@ -180,7 +186,7 @@ def test_getting_everybody_out_is_its_own_ending():
         touch(run, worker)
         run.step()
     assert len(run.rescue.tail) == run.total
-    ex, ey = scene.exit_cell()
+    run.here, (ex, ey) = scene.BUILDING.exit
     run.player.x, run.player.y = ex * 8, ey * 8
     run.step()
     assert run.over == session.ALL_OUT
@@ -235,7 +241,10 @@ def test_the_log_says_who_and_when():
     assert len(freed) == 1
     assert freed[0].who == 3
     assert freed[0].frame == run.frame
-    assert freed[0].room == scene.ROOM_NAME
+    # Worker 3 is the first of the four in the far room, and the event says so.
+    # The vault asks for this in as many words: the run report must say which
+    # room somebody was lost in, and it is the question the user opens with.
+    assert freed[0].room == scene.FAR_NAME
 
 
 def test_the_log_says_which_room():
@@ -331,7 +340,7 @@ def test_the_deaths_in_a_real_run_are_spread_out_not_simultaneous():
 def test_the_authored_clock_ladder_still_puts_twenty_seconds_between_deaths():
     """T7's target, measured on the thing that is supposed to deliver it.
 
-    The ladder in `scene.WORKERS` is 30/40/50/60/70/80/90 against one bleed
+    The ladder in `scene.WORKERS_A` is 30/40/50/60/70/80/90 against one bleed
     tick for everybody, which is twenty seconds between consecutive deaths --
     one body window each. Nothing but the clock is running here, so this is the
     room's authored intent with the swarm taken out of it, and it is what the
@@ -339,14 +348,14 @@ def test_the_authored_clock_ladder_still_puts_twenty_seconds_between_deaths():
     """
     from spikes import rescue as rescue_mod
 
-    room = rescue_mod.Rescue(scene.WORKERS, scene.exit_cell())
+    room = rescue_mod.Rescue(scene.WORKERS_A, scene.BUILDING.exit)
     deaths = []
     for frame in range(20000):
         for _ in room.tick():
             deaths.append(frame)
         if room.settled:
             break
-    assert len(deaths) == len(scene.WORKERS)
+    assert len(deaths) == len(scene.WORKERS_A)
     gaps = [b - a for a, b in zip(deaths, deaths[1:])]
     assert min(gaps) == 20 * 50, f"the ladder gives {[g // 50 for g in gaps]}s"
 
@@ -390,7 +399,13 @@ def test_every_death_is_announced_exactly_once():
     said = {}
     while run.frame < 12000 and run.over is None:
         run.step()
-        for worker in run.shouting:
+        # Asked of **everybody**, not of `run.shouting`, which since issue #21
+        # is only the room the player is standing in. A death is announced from
+        # the cell they fell in, in the room they fell in; a player next door
+        # hears it as a word over the doorway instead, and that is a different
+        # claim tested where the doorway is. Four of the seven are in the far
+        # room, so reading `run.shouting` here would quietly test three.
+        for worker in run.rescue.calling(run.frame):
             if worker.state == rescue_mod.DEAD:
                 said[id(worker)] = said.get(id(worker), 0) + 1
     assert len(said) == run.lost > 0, "not every death was announced"
@@ -418,9 +433,19 @@ def test_every_death_is_announced_exactly_once():
 BUG_SEED = 3
 
 
-def _lit_statue_run(seed: int = BUG_SEED, frames: int = 9000):
+def _lit_statue_run(seed: int = BUG_SEED, frames: int = 12000):
     """The reported run, driven for real. Returns the session and the frame of
-    every try lost."""
+    every try lost.
+
+    **The frame budget went from 9000 to 12000 with issue #21, and the claims
+    below did not move.** Splitting the six flies three and three between the
+    two rooms halves what a player standing still in the near room is up
+    against, so the same seed takes about twice as long to spend two tries:
+    the deaths on this seed were at 51s and 105s and are now at 103s and 189s.
+    Neither test is about how fast a Statue dies; both are about what happens
+    to the swarm **when** it does, and they still need two deaths to compare
+    across.
+    """
     from spikes import bots
     bot = bots.Statue(seed=seed, light=True)
     run = Session(seed=seed)
@@ -449,7 +474,12 @@ def test_the_swarm_is_the_same_size_across_a_run_with_deaths():
     run, sizes, deaths = _lit_statue_run()
     assert len(deaths) >= 2, f"wanted a run with deaths in it, got {deaths}"
     assert run.tally.swatted == 0, "a Statue never sprays"
-    assert sizes == {len(scene.CLEGS)}, f"the swarm changed size: {sizes}"
+    # **The building's total, not a room's** (issue #21). `run.swarm` adds the
+    # rooms up, so this now also catches a fly being dropped on the floor
+    # between two swarms while it walks through a doorway -- which is the same
+    # bug in a new place, and the one thing a per-room count would miss.
+    assert sizes == {len(scene.CLEGS_A) + len(scene.CLEGS_B)}, \
+        f"the swarm changed size: {sizes}"
 
 
 def test_the_player_does_not_instantly_re_die_at_the_entrance():
@@ -478,16 +508,16 @@ def test_dying_detaches_rather_than_deletes():
     from spikes import clegs as clegs_mod
     run = Session(lives=3)
     run.step()
-    for cleg in run.swarm.clegs[:3]:
+    for cleg in run.place.swarm.clegs[:3]:
         cleg.cx, cleg.cy = run.player.cx, run.player.cy
-        run.swarm._attach(cleg)
+        run.place.swarm._attach(cleg)
     before = len(run.swarm.clegs)
     run.blood = 0
     run.step()
     assert run.lives == 2
     assert len(run.swarm.clegs) == before
     assert run.swarm.attached() == []
-    assert all(c.state == clegs_mod.SATED for c in run.swarm.clegs[:3])
+    assert all(c.state == clegs_mod.SATED for c in run.place.swarm.clegs[:3])
     here = (run.player.cx, run.player.cy)
     assert here not in [(c.cx, c.cy) for c in run.swarm.clegs[:3]]
 
@@ -512,6 +542,24 @@ def _free(run, index, torch=True):
     return worker
 
 
+def _flies_on(run, person, count=2):
+    """Put `count` flies in the cell somebody is standing in.
+
+    **The flies come from that person's own room's swarm** (issue #21). A room
+    has its own swarm, because a swarm ticks against one room's lures, one
+    room's walls and one room's lit people -- so a fly from the room next door
+    standing on cell (17, 4) is standing somewhere else entirely and can no more
+    bite you than a fly on the other side of a wall. Taking them off the
+    building-wide `run.swarm` used to work when there was one room and quietly
+    stopped meaning anything when there were two.
+    """
+    flies = run.places[person.room].swarm.clegs[:count]
+    assert flies, "that room has no swarm to bite with"
+    for cleg in flies:
+        cleg.cx, cleg.cy = person.cell()
+    return flies
+
+
 def _walk_away(run, worker, frames=30):
     """Walk east with the tail strung out behind, which is the safe way round.
 
@@ -520,7 +568,8 @@ def _walk_away(run, worker, frames=30):
     """
     for _ in range(frames):
         run.step(Intent(dx=1))
-    assert worker not in run._lit_people(), "the tail was lit walking away"
+    assert worker not in run._lit_people(run.place), \
+        "the tail was lit walking away"
     return worker
 
 
@@ -528,7 +577,8 @@ def _turn_round(run, worker, frames=2):
     """Look back down your own line, which is the thing that gets them eaten."""
     for _ in range(frames):
         run.step(Intent(dx=-1))
-    assert worker in run._lit_people(), "turning round did not light the tail"
+    assert worker in run._lit_people(run.place), \
+        "turning round did not light the tail"
     return worker
 
 
@@ -543,9 +593,9 @@ def test_a_follower_is_dark_behind_you_and_lit_when_you_turn_round():
     run = Session(seed=1)
     worker = _free(run, 5)
     _walk_away(run, worker)
-    assert run._lit_people() == [], "walking away, the tail is in the dark"
+    assert run._lit_people(run.place) == [], "walking away, the tail is in the dark"
     _turn_round(run, worker)
-    assert run._lit_people() == [worker], "turning round lit them up"
+    assert run._lit_people(run.place) == [worker], "turning round lit them up"
 
 
 def test_prey_is_exactly_who_is_drawn_so_the_rule_can_be_seen():
@@ -559,7 +609,7 @@ def test_prey_is_exactly_who_is_drawn_so_the_rule_can_be_seen():
     """
     run = Session(seed=1)
     _turn_round(run, _walk_away(run, _free(run, 5)))
-    for person in run._lit_people():
+    for person in run._lit_people(run.place):
         assert any(run.field.reveals_at(*c) for c in person.cells()), \
             "something was prey that was never drawn"
 
@@ -573,15 +623,13 @@ def test_a_lit_follower_is_bitten_and_a_dark_one_is_not():
     """
     dark = Session(seed=1)
     worker = _walk_away(dark, _free(dark, 5))
-    for cleg in dark.swarm.clegs[:2]:
-        cleg.cx, cleg.cy = worker.cell()
+    _flies_on(dark, worker)
     dark.step(Intent(dx=1))
     assert dark.swarm.victim_attachments == 0, "a dark follower was bitten"
 
     lit = Session(seed=1)
     worker = _turn_round(lit, _walk_away(lit, _free(lit, 5)))
-    for cleg in lit.swarm.clegs[:2]:
-        cleg.cx, cleg.cy = worker.cell()
+    _flies_on(lit, worker)
     lit.step(Intent(dx=-1))
     assert lit.swarm.victim_attachments > 0, "a lit follower was ignored"
     assert [e.who for e in lit.frame_events
@@ -598,13 +646,16 @@ def test_a_waiting_worker_standing_in_light_is_bitten_where_they_stand():
     run = Session(seed=1)
     worker = run.rescue.workers[3]
     cx, cy = worker.cell()
-    lamp = FloorLight(cx, cy, power=9000, lit=True)
+    # The lamp lies in **the worker's room**, which is the far one: a light
+    # belongs to the room it is in, and the same cell in the other room is a
+    # different place (issue #21).
+    lamp = FloorLight(cx, cy, power=9000, lit=True, room=worker.room)
     run.kit.floor.append(lamp)
     run.step()
-    assert worker in run._lit_people(), "a burning lamp did not light them"
+    where = run.places[worker.room]
+    assert worker in run._lit_people(where), "a burning lamp did not light them"
 
-    for cleg in run.swarm.clegs[:2]:
-        cleg.cx, cleg.cy = cx, cy
+    _flies_on(run, worker)
     run.step()
     assert run.swarm.victim_attachments > 0
     assert worker.state == rescue_mod.WAITING, "still waiting, and bleeding"
@@ -617,8 +668,7 @@ def test_a_follower_can_die_en_route_and_the_tally_still_adds_up():
     worker = _free(run, 5)
     worker.blood = 2
     _turn_round(run, _walk_away(run, worker))
-    for cleg in run.swarm.clegs[:3]:
-        cleg.cx, cleg.cy = worker.cell()
+    _flies_on(run, worker, 3)
     for _ in range(clegs_mod.DRAIN_EVERY * 3):
         run.step(Intent(dx=-1))
         assert run.tally_adds_up(), run.frame
@@ -762,7 +812,7 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     for worker in list(sweep.rescue.workers):
         touch(sweep, worker)
         sweep.step()
-    ex, ey = scene.exit_cell()
+    sweep.here, (ex, ey) = scene.BUILDING.exit
     sweep.player.x, sweep.player.y = ex * 8, ey * 8
     sweep.step()
     endings[sweep.over] = sweep
@@ -772,6 +822,7 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     for worker in list(part.rescue.workers)[:3]:
         touch(part, worker)
         part.step()
+    part.here = scene.BUILDING.exit[0]
     part.player.x, part.player.y = ex * 8, ey * 8
     part.step()
     endings[part.over] = part
@@ -803,7 +854,7 @@ def test_arriving_with_a_tail_banks_them_before_the_run_is_judged():
     for worker in list(run.rescue.workers)[:2]:
         touch(run, worker)
         run.step()
-    ex, ey = scene.exit_cell()
+    run.here, (ex, ey) = scene.BUILDING.exit
     run.player.x, run.player.y = ex * 8, ey * 8
     run.step()
     assert run.over == session.NOBODY_LEFT

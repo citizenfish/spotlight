@@ -878,7 +878,7 @@ def test_every_floor_cell_falls_inside_some_station_disc():
     missed = []
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
-            if scene.is_solid(cx, cy):
+            if scene.ROOM_NEAR.is_solid(cx, cy):
                 continue
             if not any((cx - sx) ** 2 + (cy - sy) ** 2 <= r2
                        for sx, sy in stations):

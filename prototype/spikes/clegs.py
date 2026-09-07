@@ -48,9 +48,6 @@ subtractions per Cleg per step -- and slides along a wall it cannot pass. A fly
 that solved mazes would be a different animal and a much more expensive one.
 """
 
-from spotlight.core.constants import COLS
-
-from .layout import PLAY_ROWS
 from .sources import LURE_KINDS, LURE_NONE, xorshift16
 
 # --- states ----------------------------------------------------------------
@@ -383,8 +380,23 @@ class Cleg:
         return self._seed
 
     def _try(self, dx: int, dy: int, is_solid, avoid=None) -> bool:
+        """One step, if the room will have it.
+
+        **`is_solid` is the only authority on where a fly may stand**, edges
+        included. It used to be checked *after* a bounds test against the room's
+        own width and height, which meant a Cleg could never leave the room it
+        started in however the level was drawn -- and that had to go with issue
+        #21, because the column just past a doorway is the room next door's
+        first column and `Room.is_solid` says so. Nothing here knows a doorway
+        exists; a fly crosses one by walking into a cell that turns out not to
+        be a wall.
+
+        The room still stops it everywhere else: `Room.is_solid` answers True
+        for anything outside its grid that is not a doorway, so the walls are
+        as solid as they ever were.
+        """
         nx, ny = self.cx + dx, self.cy + dy
-        if not (0 <= nx < COLS and 0 <= ny < PLAY_ROWS) or is_solid(nx, ny):
+        if is_solid(nx, ny):
             return False
         if avoid is not None and avoid(nx, ny):
             return False
@@ -562,12 +574,36 @@ class Swarm:
         return cells
 
     def tick(self, lures, player_cell, is_solid, blood: int,
-             is_sprayed=None, prey=()) -> int:
+             is_sprayed=None, prey=(), doors=()) -> int:
         """Advance every Cleg. Returns the **player's** blood remaining.
 
         `lures` is the cells of every light currently attracting -- see
         `sources.Source.lure`. An empty list means nothing is lit above a glow,
         and the swarm loses interest and blunders.
+
+        `doors` is light in the room next door, offered as a lure standing on
+        the threshold (issue #21). **A fly looks round its own room first and
+        only then at the doorways**, and that ordering is the whole rule rather
+        than a refinement of it:
+
+        * Light in the next room is the faintest thing a fly can be offered,
+          because it is not really light at all -- it is a glow at the edge of a
+          hole in a wall. Anything lit on this side of the wall beats it.
+        * Without the ordering the building converges on whichever room has the
+          steadiest light, and it does so **away from the player**. Measured:
+          the far room authors a permanent room light one cell from its side of
+          the doorway, so a fly anywhere near the near room's east wall found
+          the doorway nearer than the player's torch across the room, crossed,
+          and was then held by the room light for ever. Over five minutes the
+          near room went from three flies to one with a lit player standing in
+          it, and a still, lit player's blood loss fell by roughly four times.
+          A permanent lure is meant to hold its **own** room's swarm at the
+          door the player has to use; it is not meant to empty the room next
+          door.
+
+        On the Z80 it is the same routine called twice with a different list,
+        and the second call is skipped whenever the first finds anything --
+        which is most frames, in a room with a searchlight in it.
 
         `prey` is every *lit* person who is not the player (issue #19). They
         are bitten on the same terms the player is -- `DRAIN_TOTAL` points at
@@ -610,6 +646,14 @@ class Swarm:
                 # the spot where it landed. A follower who runs is carrying it
                 # too.
                 if cleg.victim is None:
+                    # `player_cell` of None means the player is not in this
+                    # room, so a fly on them should not be in this swarm
+                    # either. It can be, for the part of a frame between the
+                    # player walking through a doorway and the session handing
+                    # the fly over -- so it waits rather than draining somebody
+                    # who is not here (issue #21).
+                    if player_cell is None:
+                        continue
                     cleg.cx, cleg.cy = player_cell
                     blood = self._drain(cleg, blood)
                 else:
@@ -636,6 +680,9 @@ class Swarm:
             cleg.hunger += 1
             seen = self.notice(cleg.cx, cleg.cy, lures, cleg.notice,
                                cleg.keenness)
+            if seen is None and doors:
+                seen = self.notice(cleg.cx, cleg.cy, doors, cleg.notice,
+                                   cleg.keenness)
             if seen is not None:
                 cleg.commit((seen[0], seen[1]), seen[3])
             target = cleg.goal
@@ -814,8 +861,6 @@ class Swarm:
         for cleg in freed:
             for dx, dy in SCATTER:
                 nx, ny = cleg.cx + dx, cleg.cy + dy
-                if not (0 <= nx < COLS and 0 <= ny < PLAY_ROWS):
-                    continue
                 if (nx, ny) in taken or is_solid(nx, ny):
                     continue
                 cleg.cx, cleg.cy = nx, ny
@@ -867,3 +912,98 @@ class Swarm:
             if best is None or d < best:
                 best = d
         return best
+
+
+class Swarms:
+    """Every swarm in the building, read as one.
+
+    **A room has its own swarm** (issue #21), because a swarm ticks against one
+    room's lures, one room's walls and one room's lit people, and a distance
+    across a room boundary means nothing. That is the per-room entity list
+    *Building Structure* says has to be learned, and learning it on two rooms is
+    the cheapest it will ever be.
+
+    But **a fly that walked through a doorway is the same fly**, so everything
+    the rest of the game counts is the building's: how much blood the swarm took
+    off you, which lure it was billed to, how many are left alive. This adds
+    them up on read, which costs nothing and means no counter has to be moved
+    when a Cleg crosses.
+
+    Two things are deliberately *not* here. `nearest_distance` is not, because
+    the sonar reports the nearest Cleg **in the room you are in** and the caller
+    has to say which room that is. And `tick` is not, because a swarm ticks
+    against its own room and there is no such thing as ticking the building.
+    """
+
+    __slots__ = ("swarms",)
+
+    def __init__(self, swarms) -> None:
+        self.swarms = list(swarms)
+
+    def __iter__(self):
+        return iter(self.swarms)
+
+    def __getitem__(self, index: int) -> "Swarm":
+        return self.swarms[index]
+
+    def __len__(self) -> int:
+        return len(self.swarms)
+
+    @property
+    def clegs(self) -> list[Cleg]:
+        return [c for s in self.swarms for c in s.clegs]
+
+    @property
+    def drained(self) -> int:
+        return sum(s.drained for s in self.swarms)
+
+    @property
+    def attachments(self) -> int:
+        return sum(s.attachments for s in self.swarms)
+
+    @property
+    def bitten(self) -> list:
+        return [v for s in self.swarms for v in s.bitten]
+
+    @property
+    def victim_attachments(self) -> int:
+        return sum(s.victim_attachments for s in self.swarms)
+
+    @property
+    def victim_drained(self) -> int:
+        return sum(s.victim_drained for s in self.swarms)
+
+    @property
+    def victim_blood(self) -> int:
+        return sum(s.victim_blood for s in self.swarms)
+
+    @property
+    def bites_by_source(self) -> list[int]:
+        return [sum(s.bites_by_source[k] for s in self.swarms)
+                for k in range(LURE_KINDS)]
+
+    @property
+    def blood_by_source(self) -> list[int]:
+        return [sum(s.blood_by_source[k] for s in self.swarms)
+                for k in range(LURE_KINDS)]
+
+    def attached(self) -> list[Cleg]:
+        return [c for s in self.swarms for c in s.attached()]
+
+    def on_player(self) -> list[Cleg]:
+        return [c for s in self.swarms for c in s.on_player()]
+
+    def sprayable(self) -> list[Cleg]:
+        return [c for s in self.swarms for c in s.sprayable()]
+
+    def kill(self, dead) -> int:
+        return sum(s.kill(dead) for s in self.swarms)
+
+    def detach(self, is_solid) -> int:
+        """Take every attached fly off the player, wherever its swarm is.
+
+        The player is in one room, so at most one swarm has anything to do here
+        -- but which one is not this object's business, and asking them all is
+        one comparison each.
+        """
+        return sum(s.detach(is_solid) for s in self.swarms)

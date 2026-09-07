@@ -35,7 +35,7 @@ Z80 would use, so a seed names a run.
 
 from spotlight.core.constants import CELL, COLS
 
-from . import rescue as rescue_mod, scene, sources
+from . import building, rescue as rescue_mod, scene, sources
 from .layout import PLAY_ROWS
 from .player import HEIGHT
 from .session import Intent
@@ -47,34 +47,64 @@ from .session import Intent
 STUCK_FRAMES = 25
 
 
-def standable(cx: int, cy: int) -> bool:
-    """Can a person stand with their feet in this cell?
+def standable(room: int, cx: int, cy: int) -> bool:
+    """Can a person stand with their feet in this cell of this room?
 
     A person is 8x16, so they occupy this cell **and the one above it**, and a
     route that ignores the head walks the bot into a lintel. `cy` is the feet
     row, matching `Player.cy`.
+
+    The room is not optional: cell (17, 4) exists in every room in the building
+    and means somewhere different in each of them. Cells beyond a room's own
+    edges are answered by `Room.is_solid`, so the column just past a doorway is
+    the room next door's -- but a *route* must not stand there, because that
+    cell belongs to the other room's grid and the bot would think it was still
+    here. `neighbours` handles the crossing instead.
     """
     if not (0 <= cx < COLS and 1 <= cy < PLAY_ROWS):
         return False
-    return not scene.is_solid(cx, cy) and not scene.is_solid(cx, cy - 1)
+    solid = scene.BUILDING[room].is_solid
+    return not solid(cx, cy) and not solid(cx, cy - 1)
 
 
-def stand_cells(cx: int, cy: int) -> list[tuple[int, int]]:
-    """Where to stand so that the sprite overlaps the cell (cx, cy).
+def stand_cells(room: int, cx: int, cy: int) -> list[tuple[int, int, int]]:
+    """Where to stand so that the sprite overlaps the cell (room, cx, cy).
 
-    The exit is a door in the top wall and the workers are 8x16 like the
-    player, so "go to that cell" nearly always means "go to the cell below it".
-    Both are offered and the router takes whichever is nearer.
+    The exit is a door in a wall and the workers are 8x16 like the player, so
+    "go to that cell" often means "go to the cell below it". Both are offered
+    and the router takes whichever is nearer.
     """
-    return [c for c in ((cx, cy), (cx, cy + 1)) if standable(*c)]
+    return [(room, x, y) for x, y in ((cx, cy), (cx, cy + 1))
+            if standable(room, x, y)]
 
 
-def route(start: tuple[int, int], goals) -> list[tuple[int, int]]:
+def neighbours(place):
+    """The cells a person can step to from here, doorways included.
+
+    **Bots may path; the game may not.** This is harness. Clegs must never gain
+    a route-finder -- a Z80 has nothing to spend on one and the whole design of
+    the swarm is that it steers for light and cannot think. What a bot is
+    allowed to do is know that a doorway exists, and this is where it does.
+    """
+    room, cx, cy = place
+    out = []
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = cx + dx, cy + dy
+        if standable(room, nx, ny):
+            out.append((room, nx, ny))
+            continue
+        step = scene.BUILDING.step_across(room, nx, ny)
+        if step is not None and standable(*step):
+            out.append(step)
+    return out
+
+
+def route(start, goals) -> list:
     """Breadth-first from `start` to the nearest goal. Cells, not pixels.
 
-    Plain BFS on the cell grid, four-connected. The room is 32x22, so this is
-    seven hundred cells and costs nothing; it is recomputed only when the goal
-    changes or the bot gets stuck.
+    Plain BFS over `(room, cx, cy)`, four-connected, crossing doorways. A room
+    is 32x22, so a two-room building is fourteen hundred cells and costs
+    nothing; it is recomputed only when the goal changes or the bot gets stuck.
     """
     targets = set(goals)
     if not targets or start in targets:
@@ -84,10 +114,8 @@ def route(start: tuple[int, int], goals) -> list[tuple[int, int]]:
     while queue:
         nxt = []
         for cell in queue:
-            cx, cy = cell
-            for step in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nb = (cx + step[0], cy + step[1])
-                if nb in seen or not standable(*nb):
+            for nb in neighbours(cell):
+                if nb in seen:
                     continue
                 seen[nb] = cell
                 if nb in targets:
@@ -106,9 +134,10 @@ def stand_pixel(cx: int, cy: int) -> tuple[int, int]:
     return cx * CELL, cy * CELL - (HEIGHT - CELL)
 
 
-def worker_cell(worker) -> tuple[int, int]:
-    """The cell a worker's feet are in, which is where you go to touch them."""
-    return worker.x // CELL, (worker.y + rescue_mod.HEIGHT - 1) // CELL
+def worker_cell(worker) -> tuple[int, int, int]:
+    """Where a worker's feet are, which is where you go to touch them."""
+    return (worker.room, worker.x // CELL,
+            (worker.y + rescue_mod.HEIGHT - 1) // CELL)
 
 
 class Bot:
@@ -193,13 +222,13 @@ class Walker(Bot):
     def _walk(self, run, goals) -> Intent:
         """Head for the nearest of `goals`, as cells. Returns keys, not moves."""
         goals = tuple(sorted(goals))
-        here = (run.player.cx, run.player.cy)
+        here = (run.here, run.player.cx, run.player.cy)
         if goals != self._goals:
             self._goals, self._path = goals, route(here, goals)
         if not goals:
             return Intent()
 
-        at = (run.player.x, run.player.y)
+        at = (run.here, run.player.x, run.player.y)
         self._stuck = self._stuck + 1 if at == self._was else 0
         self._was = at
         if self._stuck > STUCK_FRAMES:
@@ -213,18 +242,35 @@ class Walker(Bot):
 
         while self._path and self._path[0] == here:
             self._path.pop(0)
+        if self._path and self._path[0][0] != run.here:
+            # The next step is in the room next door. **Keep walking at the
+            # wall**: the doorway is at the same rows on both sides, so the
+            # crossing is more of the same direction plus whatever it takes to
+            # line up with the gap, and the room changes underneath you once
+            # you have cleared the threshold. There is no "go through the door"
+            # action, here or anywhere else.
+            door = scene.BUILDING[run.here].doorway_to(self._path[0][0])
+            if door is None:
+                self._path = route(here, goals)
+            else:
+                want = self._path[0][2]
+                dy = (want > run.player.cy) - (want < run.player.cy)
+                return Intent(dx=1 if door.side == building.EAST else -1,
+                              dy=dy,
+                              torch=self.light and not run.cone.enabled)
         if not self._path:
             self._path = route(here, goals)
-        if not self._path:
+        if not self._path or self._path[0][0] != run.here:
             return Intent(torch=self.light and not run.cone.enabled)
 
-        tx, ty = stand_pixel(*self._path[0])
+        tx, ty = stand_pixel(*self._path[0][1:])
         dx = (tx > run.player.x) - (tx < run.player.x)
         dy = (ty > run.player.y) - (ty < run.player.y)
         return Intent(dx=dx, dy=dy, torch=self.light and not run.cone.enabled)
 
-    def _exit_cells(self) -> list[tuple[int, int]]:
-        return stand_cells(*scene.exit_cell())
+    def _exit_cells(self) -> list[tuple[int, int, int]]:
+        room, cell = scene.BUILDING.exit
+        return stand_cells(room, *cell)
 
 
 class Listener(Walker):
@@ -252,13 +298,26 @@ class Listener(Walker):
                  batch: int = BATCH) -> None:
         super().__init__(seed, light)
         self.batch = batch
-        self._heard: tuple[int, int] | None = None
+        self._heard: tuple[int, int, int] | None = None
         self._target = None
+        #: A doorway with somebody shouting the other side of it, if the bot
+        #: has heard one and has nothing nearer to go to.
+        self._doorway: tuple[int, int, int] | None = None
 
     def intent(self, run) -> Intent:
         for worker in run.shouting:
             self._heard = worker_cell(worker)
             self._target = worker
+        # **A call over the doorway is a bearing too**, and it is the only one
+        # a room you are not in ever gives you (issue #21). It says the door and
+        # not the person, so this is all the bot can act on: go and look. It is
+        # what makes this bot the measure of whether the door is findable at
+        # all -- take the rule away and it never leaves the near room.
+        if not run.shouting and run.door_calls and self._heard is None:
+            for door in scene.BUILDING[run.here].doorways:
+                if run.rescue.calling(run.frame, door.to):
+                    self._doorway = (door.to, door.landing, door.middle)
+                    break
 
         if len(run.rescue.tail) >= self.batch:
             return self._walk(run, self._exit_cells())
@@ -266,11 +325,23 @@ class Listener(Walker):
         if self._target is not None and self._target.state != rescue_mod.WAITING:
             self._target, self._heard = None, None
         if self._heard is None:
+            # **The doorway comes before the way out**, and the order is the
+            # whole of what this bot measures. A call over a doorway is the only
+            # bearing a room you are not in ever gives you, so a bot that
+            # preferred the exit would walk out of the building the moment it
+            # ran out of voices in this room -- and would never test the rule at
+            # all. Put the door first and it goes and looks, which is what a
+            # first-timer who has understood the game does.
+            if self._doorway is not None:
+                if self._doorway[0] == run.here:
+                    self._doorway = None
+                else:
+                    return self._walk(run, stand_cells(*self._doorway))
+            if run.rescue.tail:
+                return self._walk(run, self._exit_cells())
             # Nobody has called yet, or the last caller is accounted for. Stand
             # still rather than wander: this bot's whole point is that it acts
             # only on what the room told it.
-            if run.rescue.tail:
-                return self._walk(run, self._exit_cells())
             return Intent(torch=self.light and not run.cone.enabled)
         return self._walk(run, stand_cells(*self._heard))
 

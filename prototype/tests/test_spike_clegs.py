@@ -5,7 +5,16 @@ from spikes.layout import PLAY_ROWS
 from spikes.spotlights import FloorLight, Spotlights
 from spotlight.core.constants import COLS
 
-OPEN = lambda cx, cy: False          # noqa: E731 - a room with no walls
+def OPEN(cx, cy):
+    """A room with no walls **inside** it. It is still a room.
+
+    Since issue #21 `is_solid` is the only authority on where a fly may stand,
+    edges included, because the column just past a doorway is the next room's
+    first column and `Room.is_solid` is what says so. A test fixture that
+    answers False everywhere is a plane rather than a room, and a Cleg walks off
+    it -- which is what these tests used to be asserting could not happen.
+    """
+    return not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS)
 
 
 def _lures(*cells):
@@ -208,7 +217,7 @@ def test_killing_removes_only_the_clegs_given():
 # --- movement, and the absence of pathfinding -------------------------------
 
 def test_a_cleg_slides_along_a_wall_rather_than_pressing_into_it():
-    wall = lambda cx, cy: cx == 10 and cy != 5      # noqa: E731 - a gap at y=5
+    wall = lambda cx, cy: OPEN(cx, cy) or (cx == 10 and cy != 5)   # noqa: E731
     cleg = C.Cleg(8, 8)
     cleg.notice = 30            # this is about walls, not about eyesight
     swarm = C.Swarm([cleg])
@@ -399,7 +408,7 @@ def test_dodging_is_not_immunity():
     cleg = _of_kind(C.WARY, 20, 10)
     swarm = C.Swarm([cleg])
     spray = sp.Spray(charges=1)
-    spray.patches[(20, 10)] = 100
+    spray.patches[(0, (20, 10))] = 100
     assert spray.kills(swarm.sprayable()) == [cleg]
 
 
@@ -541,7 +550,7 @@ def test_a_wandering_cleg_actually_goes_somewhere():
 def test_wandering_still_respects_walls():
     cleg = C.Cleg(16, 11, seed=0xBEEF)
     swarm = C.Swarm([cleg])
-    wall = lambda cx, cy: cx > 18       # noqa: E731
+    wall = lambda cx, cy: OPEN(cx, cy) or cx > 18       # noqa: E731
     for _ in range(C.DRIFT_EVERY * 60):
         swarm.tick([], (0, 0), wall, 64)
         assert not wall(cleg.cx, cleg.cy)

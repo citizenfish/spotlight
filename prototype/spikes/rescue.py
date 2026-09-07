@@ -30,6 +30,15 @@ collected, walking the path you walked rather than homing on you -- so the line
 strings out behind you and through doorways one at a time. A long tail is not a
 score, it is a problem you are carrying.
 
+**And with issue #21 the doorway is real.** The trail carries the room each step
+was taken in, so crossing is not a case anything here handles: the player walks
+out of one room and into the next, the trail records it, and followers reach that
+step in their own time and cross where the player crossed. What the player sees
+is what the vault asks for -- the room behind you is *gone* rather than dark, and
+people come out of the doorway one at a time into your glow. What it costs is
+that turning back for a straggler is a walk against your own line, in the dark,
+with the clock running.
+
 **They keep bleeding while they follow.** Escorting is against the same clock as
 finding, so gathering everybody before heading out is a real gamble rather than
 the obvious play.
@@ -136,18 +145,40 @@ WAITING, FOLLOWING, SAVED, DEAD = 0, 1, 2, 3
 #: Pixels of the player's trail between one follower and the next. A person is
 #: sixteen tall and eight wide; this is a little more than a body length, so the
 #: line reads as a line rather than as a stack.
+#:
+#: **Held at twelve by issue #21, deliberately.** A tail of four spans six cells
+#: at this spacing and clears a doorway in under a second, which is a queue
+#: rather than a line -- the vault wants about half a room and two to three
+#: seconds. That is a **tuning number, not a design change**: it is tracked in
+#: *Resource budgets* with the rest of phase 2, and the second room is what
+#: finally makes it measurable. Hard-coding a wider spacing here would be a
+#: number chosen by the person who built the doorway rather than by the person
+#: measuring it, and phase 2 would then have to fight it.
 TAIL_SPACING = 12
 
 
 class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
-    __slots__ = ("x", "y", "state", "blood", "start_blood", "reference",
-                 "phase", "recorded", "_tick", "_since_death")
+    __slots__ = ("x", "y", "room", "start", "state", "blood", "start_blood",
+                 "reference", "phase", "recorded", "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
-                 blood: int = WORKER_BLOOD, reference: int = 0) -> None:
+                 blood: int = WORKER_BLOOD, reference: int = 0,
+                 room: int = 0) -> None:
         self.x, self.y = x, y
+        #: **Which room they are in.** A waiting worker never changes it; a
+        #: follower's is set by `follow`, because the trail they walk is a path
+        #: through the building rather than a path across a room. A body keeps
+        #: whichever it had: the vault settled on 2026-09-07 that a follower who
+        #: dies mid-tail leaves the line to close up and **the body stays where
+        #: it fell, in the room it fell in** -- which is the interesting part,
+        #: because going back for it is a second journey against the same clock.
+        self.room = room
+        #: Where they were trapped, kept so a report can say where the player
+        #: found them rather than where they ended up. It is what somebody
+        #: remembers ninety seconds later.
+        self.start = (room, x, y)
         self.state = WAITING
         self.blood = blood
         #: What they started on. Kept so a report can say who was given which
@@ -185,6 +216,10 @@ class Worker:
             for cx in range(self.x // CELL, (self.x + WIDTH - 1) // CELL + 1)
             for cy in range(self.y // CELL, (self.y + HEIGHT - 1) // CELL + 1)
         }
+
+    def at(self, room: int) -> bool:
+        """Are they in this room? Everything about a person is room-local."""
+        return self.room == room
 
     def cell(self) -> tuple[int, int]:
         """The one cell they are standing on: feet, as `Player.cy` uses.
@@ -317,28 +352,37 @@ class Worker:
 class Rescue:
     """Everybody in the room, and the state of the rescue."""
 
-    def __init__(self, positions, exit_cell: tuple[int, int] | None = None,
+    def __init__(self, positions, exit_at=None,
                  blood: int = WORKER_BLOOD) -> None:
-        """`positions` is (x, y) or (x, y, blood) per worker.
+        """`positions` is (x, y), (x, y, blood) or (room, x, y, blood).
 
-        The three-element form is how a level authors the clock ladder, and it
-        is three-element rather than a table alongside `WORKERS` so that a
-        position and its clock cannot be renumbered apart from one another.
-        The two-element form takes `blood` for everybody and exists for tests
-        and for a room that has not been given a ladder yet.
+        Everything is authored on one line so that a position, its clock and
+        the room it is in cannot be renumbered apart from one another. The
+        shorter forms take `blood` and room zero, and exist for tests and for a
+        room that has not been given a ladder yet.
+
+        `exit_at` is `(room, (cx, cy))`, or `(cx, cy)` for a building of one
+        room. **There is one way out of a building**, not one per room, and it
+        is where every distance is measured from.
         """
         rows = [tuple(p) for p in positions]
         count = max(1, len(rows))
-        bloods = [row[2] if len(row) > 2 else blood for row in rows]
-        # The room's longest clock. Every worker's call rate is read against
-        # it, so the shouting is a comparison between people rather than seven
-        # separate percentages.
+        placed = [row if len(row) == 4 else (0,) + row for row in rows]
+        bloods = [row[3] if len(row) > 3 else blood for row in placed]
+        # The **building's** longest clock. Every worker's call rate is read
+        # against it, so the shouting is a comparison between people rather than
+        # seven separate percentages -- and with two rooms it has to be the
+        # building's, or the same blood would sound differently urgent
+        # depending on which side of a wall somebody was standing.
         reference = max(bloods) if bloods else blood
-        self.workers = [Worker(row[0], row[1],
+        self.workers = [Worker(row[1], row[2],
                                phase=i * CALL_PERIOD // count,
-                               blood=own, reference=reference)
-                        for i, (row, own) in enumerate(zip(rows, bloods))]
-        self.exit = exit_cell
+                               blood=own, reference=reference, room=row[0])
+                        for i, (row, own) in enumerate(zip(placed, bloods))]
+        if exit_at is not None and not isinstance(exit_at[1], (tuple, list)):
+            exit_at = (0, tuple(exit_at))
+        #: (room, (cx, cy)), or None for a building with no way out.
+        self.exit = None if exit_at is None else (exit_at[0], tuple(exit_at[1]))
         #: In the order collected. A tail, not a set.
         self.tail: list[Worker] = []
         self.died: list[Worker] = []
@@ -363,14 +407,24 @@ class Rescue:
         """Nobody left to save or lose."""
         return all(w.state in (SAVED, DEAD) for w in self.workers)
 
-    def alive_waiting(self) -> list[Worker]:
-        return [w for w in self.workers if w.state == WAITING]
+    def alive_waiting(self, room: int | None = None) -> list[Worker]:
+        return [w for w in self.workers if w.state == WAITING
+                and (room is None or w.room == room)]
 
-    def bodies(self) -> list[Worker]:
-        return [w for w in self.workers if w.state == DEAD]
+    def bodies(self, room: int | None = None) -> list[Worker]:
+        return [w for w in self.workers if w.state == DEAD
+                and (room is None or w.room == room)]
 
-    def calling(self, frame: int) -> list[Worker]:
-        return [w for w in self.workers if w.calling(frame)]
+    def calling(self, frame: int, room: int | None = None) -> list[Worker]:
+        """Whoever is shouting, optionally only in one room.
+
+        The room filter is what the doorway rule is built on (issue #21): the
+        player sees the calls in the room they are standing in over the people
+        making them, and the calls in the room next door over the **doorway**
+        that connects to it. Same query, asked twice.
+        """
+        return [w for w in self.workers if w.calling(frame)
+                and (room is None or w.room == room)]
 
     # --- the frame ---------------------------------------------------------
 
@@ -410,49 +464,65 @@ class Rescue:
                 gone.append(worker)
         return gone
 
-    def reach(self, cells) -> Worker | None:
+    def reach(self, room: int, cells) -> Worker | None:
         """Has the player got to somebody still waiting? Returns them the once.
 
         `cells` is every cell the *player* occupies, not the one cell they stand
         on. Two figures whose bodies overlap are touching, and requiring their
         feet to land in the same cell meant walking through somebody chest-first
         and not reaching them.
+
+        `room` is which room those cells are in, and it is not optional. Cell
+        (17, 4) exists in every room in the building and means somewhere
+        different in each of them; without the room a player could free somebody
+        through a wall from the room next door.
         """
         standing = set(cells)
         for worker in self.workers:
-            if worker.state == WAITING and standing & worker.cells():
+            if worker.state == WAITING and worker.room == room \
+                    and standing & worker.cells():
                 worker.state = FOLLOWING
                 self.tail.append(worker)
                 return worker
         return None
 
-    def follow(self, x: int, y: int) -> None:
+    def follow(self, room: int, x: int, y: int) -> None:
         """Walk the tail along the path the player walked.
 
         Followers step where the player stepped rather than heading for where
         the player *is*. That is what makes a line behave like a line -- it
         strings out around corners and through a doorway one at a time, instead
         of clumping into the player's back and cutting every corner.
+
+        **The trail is a path through the building, not across a room** (issue
+        #21). Each step carries the room it was taken in, so a follower arrives
+        at the doorway, crosses at the point the player crossed, and appears in
+        the new room one at a time as they get there. Nothing about the crossing
+        is special-cased: the room is simply another coordinate.
         """
-        if not self._trail or self._trail[0] != (x, y):
-            self._trail.insert(0, (x, y))
+        step = (room, x, y)
+        if not self._trail or self._trail[0] != step:
+            self._trail.insert(0, step)
         needed = TAIL_SPACING * (len(self.tail) + 1)
         del self._trail[needed:]
         for i, worker in enumerate(self.tail):
             at = TAIL_SPACING * (i + 1)
             if at < len(self._trail):
-                worker.x, worker.y = self._trail[at]
+                worker.room, worker.x, worker.y = self._trail[at]
 
-    def at_exit(self, cells) -> bool:
+    def at_exit(self, room: int, cells) -> bool:
         """Is the player touching the way out?
 
         Split out of `deliver` for issue #20: the exit now ends the run whether
         or not anybody is following, so "am I at the door" and "is there
-        anybody to hand over" are two questions and were one.
+        anybody to hand over" are two questions and were one. The room is asked
+        for the same reason `reach` asks: a cell reference means nothing without
+        one.
         """
-        return self.exit is not None and self.exit in set(cells)
+        return (self.exit is not None and self.exit[0] == room
+                and self.exit[1] in set(cells))
 
-    def deliver(self, cells) -> list[Worker]:
+    def deliver(self, room: int, cells) -> list[Worker]:
         """At the exit, everybody following is out. Returns who was saved.
 
         `cells` is the player's whole body, not the cell under their feet. The
@@ -461,7 +531,7 @@ class Rescue:
         masonry, and the feet-cell test made the way out unreachable. Touching
         the door is leaving by it.
         """
-        if self.exit is None or not self.tail or not self.at_exit(cells):
+        if self.exit is None or not self.tail or not self.at_exit(room, cells):
             return []
         out = list(self.tail)
         for worker in out:

@@ -84,6 +84,80 @@ LURE_KINDS = 6
 #: What each bucket is called in a report. Index by the constant.
 LURE_NAMES = ("none", "glow", "torch", "floor", "room", "beam")
 
+#: How far light spills round a doorway, in cells.
+#:
+#: **Clegs cross doorways in pursuit of light** (issue #21) and this is the
+#: whole of how. A light in the next room is offered to this room's flies as a
+#: lure standing on the threshold -- the cell just past the doorway, which
+#: belongs to the room beyond -- so a fly that takes it walks into the doorway
+#: and out the other side by the ordinary steering rule. It is the same idiom as
+#: the shout that carries through a door: **the door, not the thing behind it.**
+#:
+#: **Three cells, and it was measured rather than chosen.** A fly practically
+#: standing in the doorway sees the glow round it; one across the room does not.
+#:
+#: The far room authors a permanent room light one cell from its side of the
+#: threshold, and a permanent light is a permanent lure -- so the doorway pulls
+#: hard and only in one direction. With a lit Statue standing in the near room
+#: for five minutes, over five seeds:
+#:
+#:     reach 8   the near room ends with 0-1 of six flies; 16-144 blood lost
+#:     reach 6   0-1 flies; 56-176
+#:     reach 3   1-2 flies; 120-184
+#:     reach 2   1-2 flies; 120-184
+#:
+#: At eight cells the building converges on the room the player is **not** in,
+#: which inverts the level: the far room becomes lethal, which is intended, and
+#: the near room becomes free, which is not -- the near room is where the clock
+#: is supposed to bite. Three is where the curve flattens; two buys nothing more.
+#: It is a tuning number and belongs with the rest of them in phase 2.
+#:
+#: Two alternatives were tried and are recorded because they are obvious ideas
+#: that will be had again:
+#:
+#: * **Unlimited reach**, so any fly that can notice a lit source anywhere can
+#:   notice it through a door. That is the reach-8 row above, worse.
+#: * **Steering at the far light's real position in building coordinates**, so
+#:   the two rooms are one plane. It works beautifully for two rooms side by
+#:   side and not at all for a building whose rooms are not laid out on a grid,
+#:   and *Building Structure* says the general answer is owed to the
+#:   architecture plan. Door-relative is what a twenty-room building would do.
+#:
+#: The other half of the answer is in `clegs.Swarm.tick`: a fly looks round its
+#: own room first, and only then at the doorways.
+DOOR_REACH = 3
+
+
+def through_doorway(threshold, landing, lures):
+    """The lure this room gets from light in the room next door, or None.
+
+    `threshold` is the cell just past the doorway in **this** room's virtual
+    coordinates; `landing` is the same point in the neighbour's. `lures` are the
+    neighbour's own lures.
+
+    Two squared-distance tests and no square root: the far light has to be
+    within its own reach of the doorway, and the fly then has to notice the
+    doorway within its own. So a torch burning on the far side of the building
+    offers nothing, and one just inside the door offers plenty.
+    """
+    best, best_d2 = None, None
+    for lure in lures:
+        lx, ly, reach = lure[0], lure[1], lure[2]
+        dx, dy = lx - landing[0], ly - landing[1]
+        d2 = dx * dx + dy * dy
+        if d2 > reach * reach:
+            continue
+        if best_d2 is None or d2 < best_d2:
+            best, best_d2 = lure, d2
+    if best is None:
+        return None
+    # It keeps the far light's **kind**, so a fly that crossed a doorway for the
+    # searchlight is still billed to the searchlight when it lands on you
+    # (issue #22). The journey is what killed you, and the journey started with
+    # the beam.
+    return (threshold[0], threshold[1], DOOR_REACH, best[3])
+
+
 #: How close a Cleg has to be to notice your own glow.
 #:
 #: Small on purpose. It is what stops standing still in the dark being perfectly

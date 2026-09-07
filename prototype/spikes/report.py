@@ -26,7 +26,7 @@ counts rather than people, which is exactly why a run could report four workers
 
 from spotlight.core.constants import COLS
 
-from . import rescue as rescue_mod, scene, session as session_mod, sources
+from . import rescue as rescue_mod, session as session_mod, sources
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
 
@@ -64,7 +64,7 @@ ENDING_WORDS = {
 
 
 def place(cx: int, cy: int) -> str:
-    """Roughly where in the room a cell is, in the words a person would use.
+    """Roughly where in a room a cell is, in the words a person would use.
 
     Thirds, because "the one in the top left" is how somebody who played for
     ninety seconds remembers a position, and a cell reference is not. The room
@@ -76,7 +76,10 @@ def place(cx: int, cy: int) -> str:
     across = "left" if cx < COLS // 3 else \
         "right" if cx >= 2 * COLS // 3 else "centre"
     if down == "middle" and across == "centre":
-        return "the middle of the room"
+        # "the middle of the room" until issue #21, which made it ambiguous
+        # -- *which* room -- and made it compose badly with the room clause
+        # below. The phrase is room-free now and the room is said separately.
+        return "the middle"
     if down == "middle":
         return f"the {across}-hand side"
     if across == "centre":
@@ -127,8 +130,13 @@ def people(run) -> list[dict]:
     records = []
     for i in range(total):
         worker = run.rescue.workers[i]
-        start_cx = scene.WORKERS[i][0] // 8
-        start_cy = (scene.WORKERS[i][1] + WORKER_HEIGHT - 1) // 8
+        # Where they were **trapped**, taken off the worker rather than off the
+        # level data. It used to index `scene.WORKERS`, which stopped being one
+        # list the moment there were two rooms, and it is a better answer
+        # anyway: the person carries their own starting place.
+        start_room, start_x, start_y = worker.start
+        start_cx = start_x // 8
+        start_cy = (start_y + WORKER_HEIGHT - 1) // 8
         if i in delivered:
             outcome = OUT
         elif i in died:
@@ -142,7 +150,11 @@ def people(run) -> list[dict]:
             # Where they were trapped, not where they ended up. It is what the
             # player would remember and what the user wants to ask about.
             "found_in": place(start_cx, start_cy),
-            "room": died_room.get(i, run.room),
+            "room": run.building[start_room].name,
+            # ...and where they were **lost**, which is a different question
+            # and the one the vault asks for: a follower who died on the walk
+            # home died somewhere, and it is usually not where you found them.
+            "died_in": died_room.get(i),
             "outcome": outcome,
             "freed_at": _seconds(freed[i]) if i in freed else None,
             "out_at": _seconds(delivered[i]) if i in delivered else None,
@@ -225,6 +237,14 @@ def metrics(run) -> dict:
         "clegs_killed": run.tally.swatted,
         "clegs_left": len(run.swarm.clegs),
         "spotlight_swaps": run.kit.swaps,
+        # **Did they ever find the door.** Target T10 is stated in this and in
+        # nothing else, and a second room that nobody goes into bought walking
+        # and nothing more (issue #21).
+        "crossings": run.crossings,
+        "first_crossing_seconds": when(session_mod.CROSSED),
+        # Where each of the seven ended up, so a run can be asked how much of
+        # the building was ever used without replaying it.
+        "rooms_entered": sum(1 for p in run.places if p.seen),
         "first_rescue_seconds": _seconds(rescues[0]) if rescues else None,
         "last_rescue_seconds": _seconds(rescues[-1]) if rescues else None,
         "first_death_seconds": _seconds(deaths[0]) if deaths else None,
@@ -281,7 +301,21 @@ def _word(n: int) -> str:
     return _WORDS[n] if 0 <= n < len(_WORDS) else str(n)
 
 
-def _name_them(records, rooms: int) -> list[str]:
+def _shared_room(records, rooms: int) -> str | None:
+    """The one room they were all found in, if there is one worth saying.
+
+    Said once at the end of a clause rather than after every name. A person
+    talking to a playtester says *the bottom middle, the top middle and the
+    bottom right, all in the main room*; they do not say the room three times,
+    and the log is five or six **lines** rather than five or six sentences.
+    """
+    if rooms <= 1:
+        return None
+    names = {r["room"] for r in records}
+    return names.pop() if len(names) == 1 else None
+
+
+def _name_them(records, rooms: int, omit: str | None = None) -> list[str]:
     """"the one in the top left", and the room too once there is more than one.
 
     With one room, naming it every time is noise. With two -- issue #21 -- "you
@@ -297,8 +331,14 @@ def _name_them(records, rooms: int) -> list[str]:
     out, seen = [], set()
     for record in records:
         where = record["found_in"]
-        if rooms > 1:
-            where += f" in {record['room']}"
+        if rooms > 1 and record["room"] != omit:
+            # "the far room's bottom left" rather than "the bottom left in the
+            # far room". Both say the same thing; the first is ten characters
+            # shorter and reads like something a person would say out loud,
+            # and the log is five or six *lines* rather than five or six
+            # sentences -- adding a room clause to every name took the longest
+            # of them from eight lines to nine.
+            where = f"{record['room']}'s {where.removeprefix('the ')}"
         clause = ("another one in " if where in seen else "the one in ") + where
         seen.add(where)
         out.append(clause)
@@ -329,6 +369,19 @@ def _wrap(text: str, width: int = 76) -> list[str]:
 NAME_LIMIT = 3
 
 
+def _capped(clauses: list[str]) -> list[str]:
+    """The first few names, and a count for the rest.
+
+    Every line that names people is held to `NAME_LIMIT`. Two of them were not,
+    and it only showed once there were two rooms to name: a Wanderer that lost
+    five followers produced a four-line sentence with five people and two room
+    names in it, which nobody would read out and nobody could remember.
+    """
+    if len(clauses) <= NAME_LIMIT:
+        return clauses
+    return clauses[:NAME_LIMIT] + [f"{_word(len(clauses) - NAME_LIMIT)} more"]
+
+
 def _sentence(prefix: str, records, rooms: int, key: str,
               total: int) -> str:
     """One line about one group of people, kept short enough to say out loud.
@@ -342,13 +395,26 @@ def _sentence(prefix: str, records, rooms: int, key: str,
         span = (f"at {roughly(times[0])}" if times[0] == times[-1]
                 else f"between {roughly(times[0])} and {roughly(times[-1])}")
         return f"{prefix}: all {_word(total)} of them, {span}."
-    named = [f"{clause} at {roughly(r[key])}"
-             for clause, r in zip(_name_them(records, rooms), records)]
+    # Anything they have in common is said once at the end rather than after
+    # every name -- the room they were found in, and the time, when it is the
+    # same time for all of them. Both got repetitive the moment there were two
+    # rooms to name.
+    shared = _shared_room(records, rooms)
+    together = times[0] == times[-1]
+    named = _name_them(records, rooms, omit=shared)
+    if not together:
+        named = [f"{clause} at {roughly(r[key])}"
+                 for clause, r in zip(named, records)]
     if len(named) > NAME_LIMIT:
         rest = len(named) - NAME_LIMIT
         named = named[:NAME_LIMIT] + [
             f"{_word(rest)} more by {roughly(times[-1])}"]
-    return f"{prefix}: {_join(named)}."
+        together = False
+    tail = f", all in {shared}" if shared else ""
+    if together:
+        tail += f" at {roughly(times[0])}" if shared \
+            else f", all at {roughly(times[0])}"
+    return f"{prefix}: {_join(named)}{tail}."
 
 
 def human(run, bot: str = "", label: str = "") -> list[str]:
@@ -384,7 +450,18 @@ def human(run, bot: str = "", label: str = "") -> list[str]:
             lines += _wrap(
                 f"{_word(len(following)).capitalize()} of them died while "
                 f"following you: "
-                f"{_join(_name_them(following, rooms))}.")
+                f"{_join(_capped(_name_them(following, rooms)))}.")
+        # A person is named by where you found them, so somebody lost in the
+        # room next door needs it said in its own clause. It is the question
+        # the user opens with: *you lost the one in the far room at about a
+        # minute -- did you know they were there?*
+        moved = [r for r in dead
+                 if r["died_in"] and r["died_in"] != r["room"]]
+        if moved and rooms > 1:
+            named = [f"{clause}, lost in {r['died_in']}"
+                     for clause, r in zip(_name_them(moved, rooms), moved)]
+            lines += _wrap("They did not all die where you found them: "
+                           + _join(_capped(named)) + ".")
     else:
         lines.append("Nobody died.")
 
@@ -396,14 +473,18 @@ def human(run, bot: str = "", label: str = "") -> list[str]:
                 if following else "")
         # Same rule as the other two lines: past three names it stops being a
         # sentence somebody would say and becomes a list.
+        shared = _shared_room(left, rooms)
         if len(left) == run.total:
             who_left = f"all {_word(run.total)} of them"
+            shared = None
         elif len(left) > NAME_LIMIT:
-            named = _name_them(left, rooms)
+            named = _name_them(left, rooms, omit=shared)
             who_left = _join(named[:NAME_LIMIT]
                              + [f"{_word(len(left) - NAME_LIMIT)} more"])
         else:
-            who_left = _join(_name_them(left, rooms))
+            who_left = _join(_name_them(left, rooms, omit=shared))
+        if shared:
+            who_left += f", all in {shared}"
         lines += _wrap(f"Still in the building at the end: {who_left}{tail}.")
 
     lines.append(ENDING_WORDS.get(run.over, f"It ended: {run.over}."))

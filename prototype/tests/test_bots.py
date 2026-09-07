@@ -108,10 +108,41 @@ def test_the_oracle_gets_everybody_out_by_walking():
 
 
 def test_the_oracle_is_the_ceiling():
-    """Faster than the bot that has to wait to be told where people are."""
+    """Faster than the bot that has to wait to be told where people are.
+
+    **Compared against a Listener that does not leave until it has everybody**,
+    and issue #21 is why. With one room the two bots did the same job and the
+    only difference was how long it took. With two, the batching Listener no
+    longer does: it gathers three, walks to the exit, and the run ends there,
+    because the exit is currently a finish line rather than a delivery hatch.
+    Ten seconds with three of seven is not a faster bot, it is a shorter job.
+
+    The designer has since ruled that the exit delivers on touch and that
+    leaving is pushing through it, which restores multi-trip play; it is not
+    built here. When it lands, the ordinary Listener will keep going and this
+    can go back to comparing the two as they come.
+
+    What the batch-of-seven Listener shows in the meantime is the thing worth
+    knowing: it finds the far room **by ear**, from a call drawn over a doorway,
+    and it still takes twice as long as a bot that was simply told.
+    """
     oracle = play(bots.make("oracle", seed=6))
-    listener = play(bots.make("listener", seed=6))
+    listener = play(bots.Listener(seed=6, batch=7))
+    assert oracle.rescued == oracle.total
+    assert oracle.rescued >= listener.rescued
     assert oracle.seconds < listener.seconds
+
+
+def test_the_listener_finds_the_far_room_by_ear():
+    """Target T10, and it is a test of the shouts-through-a-doorway rule as
+    much as of the geometry: this bot acts on nothing but what it is told, and
+    the only thing the far room ever tells it is a word over a gap in the east
+    wall. Take the rule away and it never leaves the near room."""
+    for seed in (1, 2, 3, 4, 5):
+        run = play(bots.Listener(seed=seed, batch=7), seed=seed)
+        assert run.crossings > 0, f"seed {seed}: never found the door"
+        first = next(e for e in run.log if e.kind == session.CROSSED)
+        assert first.seconds <= 60, f"seed {seed}: took {first.seconds}s"
 
 
 @pytest.mark.parametrize("name", sorted(bots.BOTS))
@@ -141,14 +172,16 @@ def test_routes_keep_the_head_out_of_the_ceiling():
     them into a lintel."""
     for cx in range(32):
         for cy in range(22):
-            if bots.standable(cx, cy):
-                assert not scene.is_solid(cx, cy)
-                assert not scene.is_solid(cx, cy - 1)
+            if bots.standable(0, cx, cy):
+                assert not scene.ROOM_NEAR.is_solid(cx, cy)
+                assert not scene.ROOM_NEAR.is_solid(cx, cy - 1)
 
 
 def test_the_exit_is_reachable_by_route():
-    start = (scene.PLAYER_START[0] // 8, (scene.PLAYER_START[1] + 15) // 8)
-    assert bots.route(start, bots.stand_cells(*scene.exit_cell()))
+    start = (scene.NEAR, scene.PLAYER_START[0] // 8,
+             (scene.PLAYER_START[1] + 15) // 8)
+    assert bots.route(start, bots.stand_cells(scene.NEAR,
+                                              *scene.ROOM_NEAR.exit_cell()))
 
 
 def test_a_script_is_one_intent_per_frame():

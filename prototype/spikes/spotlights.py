@@ -24,11 +24,17 @@ FLOOR_RADIUS = 2
 class FloorLight:
     """A spotlight lying on the ground."""
 
-    __slots__ = ("cx", "cy", "power", "lit", "radius", "_held_off")
+    __slots__ = ("cx", "cy", "power", "lit", "radius", "room", "_held_off")
 
     def __init__(self, cx: int, cy: int, power: int, lit: bool = False,
-                 radius: int = FLOOR_RADIUS) -> None:
+                 radius: int = FLOOR_RADIUS, room: int = 0) -> None:
         self.cx, self.cy = cx, cy
+        #: Which room it is lying in. A light burning on the floor lights that
+        #: room and lures the flies in it, and light does not cross a threshold
+        #: (issue #21) -- so a light left behind in the room you have just left
+        #: is exactly the bait the design wants and exactly the bait you can no
+        #: longer see.
+        self.room = room
         self.power = power
         self.lit = lit
         self.radius = radius
@@ -75,19 +81,22 @@ class Spotlights:
         """The second action button."""
         return self.cone.toggle()
 
-    def tick(self, player) -> FloorLight | None:
+    def tick(self, player, room: int = 0) -> FloorLight | None:
         """One frame: burn down, and swap if the player is standing on one.
 
-        Returns the light just picked up, or None.
+        Returns the light just picked up, or None. `room` is the room the player
+        is in: every spotlight in the building burns down wherever it lies, but
+        you can only pick up one you are standing on, and a cell reference in
+        another room is a different place with the same number.
         """
         self.cone.drain()
         for light in self.floor:
             light.tick()
-        return self._maybe_swap(player)
+        return self._maybe_swap(player, room)
 
     # --- swapping ----------------------------------------------------------
 
-    def _maybe_swap(self, player) -> FloorLight | None:
+    def _maybe_swap(self, player, room: int = 0) -> FloorLight | None:
         """Pickup is the cell under the player's feet, not any cell their
         sprite overlaps.
 
@@ -98,18 +107,18 @@ class Spotlights:
         """
         standing_on = (player.cx, player.cy)
         for light in self.floor:
-            on_it = (light.cx, light.cy) == standing_on
+            on_it = light.room == room and (light.cx, light.cy) == standing_on
             if not on_it:
                 # Stepping off clears the hold, so it can be collected again.
                 light._held_off = False
                 continue
             if light._held_off or light.spent:
                 continue
-            self._swap_with(light, player)
+            self._swap_with(light, player, room)
             return light
         return None
 
-    def _swap_with(self, light: FloorLight, player) -> None:
+    def _swap_with(self, light: FloorLight, player, room: int = 0) -> None:
         """Take the floor light; leave the carried one where the player stands."""
         carried_power, carried_lit = self.cone.power, self.cone.enabled
 
@@ -118,13 +127,14 @@ class Spotlights:
 
         light.power, light.lit = carried_power, carried_lit
         light.cx, light.cy = player.cx, player.cy
+        light.room = room
         # The player is standing on what they just put down.
         light._held_off = True
         self.swaps += 1
 
     # --- what Clegs steer for ----------------------------------------------
 
-    def floor_lures(self) -> list[tuple[int, int, int, int]]:
+    def floor_lures(self, room: int = 0) -> list[tuple[int, int, int, int]]:
         """Every spotlight burning on the ground, and how far it carries.
 
         A light on the floor pulls exactly as hard as one in your hand, which
@@ -138,10 +148,13 @@ class Spotlights:
         thing.
         """
         from .sources import FAR, LURE_FLOOR
-        return [(l.cx, l.cy, FAR, LURE_FLOOR) for l in self.floor if l.burning]
+        return [(l.cx, l.cy, FAR, LURE_FLOOR) for l in self.floor
+                if l.burning and l.room == room]
 
     # --- lighting ----------------------------------------------------------
 
-    def apply(self, field) -> None:
+    def apply(self, field, room: int = 0) -> None:
+        """Light one room's field. A light belongs to the room it lies in."""
         for light in self.floor:
-            light.emit(field)
+            if light.room == room:
+                light.emit(field)

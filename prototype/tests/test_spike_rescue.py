@@ -3,6 +3,13 @@
 from spikes import rescue as R, scene
 from spikes.tally import Tally
 
+#: Everybody in the building, in the shape a `Rescue` is authored from:
+#: `(room, x, y, blood)` on one line, so a position, a clock and the room it is
+#: in cannot be renumbered apart from one another.
+ALL_WORKERS = [(i, x, y, blood)
+               for i, room in enumerate(scene.BUILDING.rooms)
+               for x, y, blood in room.workers]
+
 
 def _one(x=80, y=48):
     return R.Rescue([(x, y)])
@@ -23,7 +30,7 @@ def test_walking_onto_any_cell_of_a_worker_reaches_them():
     """A person is a person wherever you touch them."""
     for cell in R.Worker(80, 48).cells():
         rescue = _one()
-        assert rescue.reach({cell}) is not None, f"missed them at {cell}"
+        assert rescue.reach(0, {cell}) is not None, f"missed them at {cell}"
 
 
 def test_bodies_that_overlap_are_touching():
@@ -33,7 +40,7 @@ def test_bodies_that_overlap_are_touching():
     rescue = R.Rescue([(80, 48)])
     player = Player(80, 48 + 8)               # standing through them
     assert player.occupied_cells() & worker.cells()
-    assert rescue.reach(player.occupied_cells()) is not None
+    assert rescue.reach(0, player.occupied_cells()) is not None
 
 
 def test_the_player_standing_clear_reaches_nobody():
@@ -41,42 +48,42 @@ def test_the_player_standing_clear_reaches_nobody():
     rescue = R.Rescue([(80, 48)])
     player = Player(80 + 24, 48)
     assert not player.occupied_cells() & R.Worker(80, 48).cells()
-    assert rescue.reach(player.occupied_cells()) is None
+    assert rescue.reach(0, player.occupied_cells()) is None
 
 
 def test_standing_beside_a_worker_does_not_reach_them():
     rescue = _one()
-    assert rescue.reach({(9, 6)}) is None
-    assert rescue.reach({(11, 6)}) is None
+    assert rescue.reach(0, {(9, 6)}) is None
+    assert rescue.reach(0, {(11, 6)}) is None
     assert rescue.waiting == 1
 
 
 def test_a_worker_is_only_found_once():
     rescue = _one()
-    assert rescue.reach({(10, 6)}) is not None
-    assert rescue.reach({(10, 6)}) is None, "found the same person twice"
+    assert rescue.reach(0, {(10, 6)}) is not None
+    assert rescue.reach(0, {(10, 6)}) is None, "found the same person twice"
     assert len(rescue.tail) == 1
 
 
 def test_the_room_is_cleared_when_everybody_is_found():
     rescue = R.Rescue([(80, 48), (160, 96)])
     assert rescue.waiting
-    rescue.reach({(10, 6)})
+    rescue.reach(0, {(10, 6)})
     assert rescue.waiting
-    rescue.reach({(20, 12)})
+    rescue.reach(0, {(20, 12)})
     assert rescue.waiting == 0
 
 
 def test_those_already_found_stop_being_waiting():
     rescue = R.Rescue([(80, 48), (160, 96)])
-    rescue.reach({(10, 6)})
+    rescue.reach(0, {(10, 6)})
     assert rescue.waiting == 1
 
 
 def test_the_scene_gives_the_player_something_to_look_for():
     """Spike 2 could not answer its own question with an empty room."""
-    rescue = R.Rescue(scene.WORKERS)
-    assert rescue.waiting == len(scene.WORKERS) >= 5
+    rescue = R.Rescue(ALL_WORKERS)
+    assert rescue.waiting == len(ALL_WORKERS) == 7
 
 
 # --- what a run cost -------------------------------------------------------
@@ -134,11 +141,18 @@ def test_somebody_already_found_stops_calling():
     assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
 
 
-def _whole_run(rescue, frames=9000):
-    """Every frame of a full room's clock, as (frame, who is shouting)."""
+def _whole_run(rescue, frames=9000, room=None):
+    """Every frame of a full clock, as (frame, who is shouting).
+
+    `room` narrows it to one room, which is what a **player** hears: the sonar
+    and the shouts both report the room you are standing in, and a room next
+    door reaches you as one word over one doorway and nothing more (issue #21).
+    So the chorus questions below are asked per room, because a chorus you
+    cannot hear is not a chorus.
+    """
     for f in range(frames):
         rescue.tick()
-        yield f, rescue.calling(f)
+        yield f, rescue.calling(f, room)
 
 
 def test_the_room_does_not_shout_in_chorus():
@@ -153,8 +167,10 @@ def test_the_room_does_not_shout_in_chorus():
     frames**. The staggered ladder never gets there, because the urgent ones
     have died before the slow ones become urgent.
     """
-    worst = max(len(who) for _, who in _whole_run(R.Rescue(scene.WORKERS)))
-    assert worst <= 3, f"up to {worst} of seven shouting together"
+    for room, name in enumerate(r.name for r in scene.BUILDING.rooms):
+        worst = max(len(who)
+                    for _, who in _whole_run(R.Rescue(ALL_WORKERS), room=room))
+        assert worst <= 3, f"up to {worst} shouting together in {name}"
 
 
 def test_the_room_is_quiet_most_of_the_time():
@@ -164,10 +180,12 @@ def test_the_room_is_quiet_most_of_the_time():
     41% and finished on a solid wall of shouting; the ladder is a third.
     """
     frames = 9000
-    noisy = sum(1 for _, who in _whole_run(R.Rescue(scene.WORKERS), frames)
-                if who)
-    assert noisy * 2 < frames, \
-        f"somebody is shouting {100 * noisy // frames}% of the time"
+    for room, name in enumerate(r.name for r in scene.BUILDING.rooms):
+        noisy = sum(1 for _, who in _whole_run(R.Rescue(ALL_WORKERS), frames,
+                                               room=room) if who)
+        assert noisy * 2 < frames, \
+            f"somebody is shouting {100 * noisy // frames}% of the time " \
+            f"in {name}"
 
 
 def test_two_people_shouting_at_once_do_not_garble_each_other():
@@ -178,12 +196,14 @@ def test_two_people_shouting_at_once_do_not_garble_each_other():
     the room as much as of the mechanism, and it is the reason the chorus test
     above can be relaxed at all.
     """
-    for f, who in _whole_run(R.Rescue(scene.WORKERS)):
-        taken = set()
-        for worker in who:
-            cells = set(worker.call_cells())
-            assert not (cells & taken), f"two calls share a cell on frame {f}"
-            taken |= cells
+    for room in range(len(scene.BUILDING)):
+        for f, who in _whole_run(R.Rescue(ALL_WORKERS), room=room):
+            taken = set()
+            for worker in who:
+                cells = set(worker.call_cells())
+                assert not (cells & taken), \
+                    f"two calls share a cell on frame {f}"
+                taken |= cells
 
 
 def test_the_word_sits_above_their_head():
@@ -208,7 +228,7 @@ def test_a_call_never_runs_off_the_side_of_the_room():
 def test_every_scene_worker_can_be_heard_inside_the_room():
     from spikes.layout import PLAY_ROWS
     from spotlight.core.constants import COLS
-    for w in R.Rescue(scene.WORKERS).workers:
+    for w in R.Rescue(ALL_WORKERS).workers:
         for cx, cy in w.call_cells():
             assert 0 <= cx < COLS and 0 <= cy < PLAY_ROWS
 
@@ -267,7 +287,7 @@ def test_a_dead_worker_calls_once_and_then_never_again():
         rescue.tick()
     assert shouted == R.CALL_FRAMES, "the last call is one call, no more"
     assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
-    assert rescue.reach(w.cells()) is None
+    assert rescue.reach(0, w.cells()) is None
 
 
 def test_the_death_call_comes_from_where_they_fell():
@@ -276,7 +296,7 @@ def test_the_death_call_comes_from_where_they_fell():
     they fell in, not the one they were trapped in."""
     rescue = R.Rescue([(80, 48)])
     w = rescue.workers[0]
-    rescue.reach(w.cells())
+    rescue.reach(0, w.cells())
     assert w.state == R.FOLLOWING
     w.x, w.y = 200, 96                       # dragged along behind the player
     assert w.bleed(R.WORKER_BLOOD)
@@ -287,7 +307,7 @@ def test_the_death_call_comes_from_where_they_fell():
 def test_a_worker_who_dies_is_out_of_the_tail_but_still_shouts():
     rescue = R.Rescue([(80, 48), (160, 96)])
     first, second = rescue.workers
-    rescue.reach(first.cells())
+    rescue.reach(0, first.cells())
     assert rescue.tail == [first]
     first.blood = 1
     for _ in range(R.BLEED_EVERY):
@@ -302,8 +322,8 @@ def test_a_worker_who_dies_is_out_of_the_tail_but_still_shouts():
 def test_freeing_somebody_puts_them_in_the_tail_in_order():
     rescue = R.Rescue([(80, 48), (160, 96), (40, 24)])
     first, second = rescue.workers[1], rescue.workers[0]
-    rescue.reach(first.cells())
-    rescue.reach(second.cells())
+    rescue.reach(0, first.cells())
+    rescue.reach(0, second.cells())
     assert rescue.tail == [first, second], "the tail is not in collection order"
     assert all(w.state == R.FOLLOWING for w in rescue.tail)
 
@@ -312,10 +332,10 @@ def test_the_tail_walks_the_path_the_player_walked():
     """Followers step where the player stepped, not toward where they are --
     which is what makes a line string out round a corner instead of clumping."""
     rescue = R.Rescue([(80, 48)])
-    rescue.reach(rescue.workers[0].cells())
+    rescue.reach(0, rescue.workers[0].cells())
     follower = rescue.tail[0]
     for x in range(200, 260):          # walk east
-        rescue.follow(x, 48)
+        rescue.follow(0, x, 48)
     assert follower.y == 48
     assert 0 < 259 - follower.x <= R.TAIL_SPACING + 1, \
         "the follower is not trailing at the right distance"
@@ -324,9 +344,9 @@ def test_the_tail_walks_the_path_the_player_walked():
 def test_a_longer_tail_strings_out_rather_than_stacking_up():
     rescue = R.Rescue([(80, 48), (81, 48), (82, 48)])
     for w in list(rescue.workers):
-        rescue.reach(w.cells())
+        rescue.reach(0, w.cells())
     for x in range(100, 300):
-        rescue.follow(x, 48)
+        rescue.follow(0, x, 48)
     xs = [w.x for w in rescue.tail]
     assert xs == sorted(xs, reverse=True), "the tail is out of order"
     assert len(set(xs)) == len(xs), "followers are standing on each other"
@@ -336,7 +356,7 @@ def test_followers_keep_bleeding():
     """Escorting is against the same clock as searching, so gathering everybody
     before heading out is a gamble rather than the obvious play."""
     rescue = R.Rescue([(80, 48)])
-    rescue.reach(rescue.workers[0].cells())
+    rescue.reach(0, rescue.workers[0].cells())
     follower = rescue.tail[0]
     before = follower.blood
     for _ in range(R.BLEED_EVERY * 2):
@@ -346,7 +366,7 @@ def test_followers_keep_bleeding():
 
 def test_a_follower_who_bleeds_out_leaves_the_tail():
     rescue = R.Rescue([(80, 48)])
-    rescue.reach(rescue.workers[0].cells())
+    rescue.reach(0, rescue.workers[0].cells())
     for _ in range(R.BLEED_EVERY * R.WORKER_BLOOD):
         rescue.tick()
     assert rescue.tail == []
@@ -356,10 +376,10 @@ def test_a_follower_who_bleeds_out_leaves_the_tail():
 # --- the way out -----------------------------------------------------------
 
 def test_the_exit_banks_everybody_following():
-    rescue = R.Rescue([(80, 48), (160, 96)], exit_cell=(10, 3))
+    rescue = R.Rescue([(80, 48), (160, 96)], exit_at=(10, 3))
     for w in list(rescue.workers):
-        rescue.reach(w.cells())
-    saved = rescue.deliver({(10, 3), (10, 4)})
+        rescue.reach(0, w.cells())
+    saved = rescue.deliver(0, {(10, 3), (10, 4)})
     assert len(saved) == 2
     assert rescue.saved == 2 and rescue.tail == []
     assert rescue.settled
@@ -368,25 +388,25 @@ def test_the_exit_banks_everybody_following():
 def test_the_exit_is_reached_by_touching_it_not_standing_on_it():
     """The way out is a door in a wall, and a person is two cells tall -- the
     feet-cell test made it unreachable."""
-    rescue = R.Rescue([(80, 48)], exit_cell=(10, 1))
-    rescue.reach(rescue.workers[0].cells())
-    assert rescue.deliver({(10, 2), (10, 3)}) == []
-    assert len(rescue.deliver({(10, 1), (10, 2)})) == 1
+    rescue = R.Rescue([(80, 48)], exit_at=(10, 1))
+    rescue.reach(0, rescue.workers[0].cells())
+    assert rescue.deliver(0, {(10, 2), (10, 3)}) == []
+    assert len(rescue.deliver(0, {(10, 1), (10, 2)})) == 1
 
 
 def test_arriving_at_the_exit_with_nobody_does_nothing():
-    rescue = R.Rescue([(80, 48)], exit_cell=(10, 3))
-    assert rescue.deliver({(10, 3)}) == []
+    rescue = R.Rescue([(80, 48)], exit_at=(10, 3))
+    assert rescue.deliver(0, {(10, 3)}) == []
     assert rescue.saved == 0
 
 
 def test_a_run_is_settled_when_everybody_is_out_or_dead():
-    rescue = R.Rescue([(80, 48), (160, 96)], exit_cell=(10, 3))
+    rescue = R.Rescue([(80, 48), (160, 96)], exit_at=(10, 3))
     assert not rescue.settled
     rescue.workers[0].bleed(R.WORKER_BLOOD)
     assert not rescue.settled
-    rescue.reach(rescue.workers[1].cells())
-    rescue.deliver({(10, 3)})
+    rescue.reach(0, rescue.workers[1].cells())
+    rescue.deliver(0, {(10, 3)})
     assert rescue.settled and rescue.saved == 1 and rescue.lost == 1
 
 
@@ -414,18 +434,18 @@ def test_the_most_frantic_call_is_still_a_call_not_a_siren():
 def test_no_worker_starts_within_reach_of_the_exit():
     """A worker beside the door is not a rescue: no journey, no decision about
     when to leave, and nothing for the clock to bite on."""
-    ex = scene.exit_cell()
-    for x, y, _blood in scene.WORKERS:
+    ex = scene.ROOM_NEAR.exit_cell()
+    for _room, x, y, _blood in ALL_WORKERS:
         cell = (x // 8, (y + 15) // 8)
         assert max(abs(cell[0] - ex[0]), abs(cell[1] - ex[1])) > 8, \
             f"the worker at {cell} is on the doorstep"
 
 
 def test_the_exit_carries_a_sign_beside_it():
-    ex = scene.exit_cell()
-    sign = scene.exit_sign_cells()
+    ex = scene.ROOM_NEAR.exit_cell()
+    sign = scene.ROOM_NEAR.exit_sign_cells(scene.EXIT_SIGN)
     assert len(sign) == len(scene.EXIT_SIGN)
-    assert all(not scene.is_solid(cx, cy) for cx, cy in sign)
+    assert all(not scene.ROOM_NEAR.is_solid(cx, cy) for cx, cy in sign)
     assert all(cy == ex[1] for _, cy in sign), "the sign is not beside the door"
     assert max(abs(cx - ex[0]) for cx, _ in sign) <= len(scene.EXIT_SIGN)
 
@@ -451,13 +471,14 @@ def test_the_room_authors_a_blood_ladder_and_does_not_compute_one():
     learn from, and no body was ever seen because the level ended on the frame
     the bodies appeared.
     """
-    bloods = sorted(blood for _x, _y, blood in scene.WORKERS)
+    bloods = sorted(blood for _r, _x, _y, blood in ALL_WORKERS)
     assert bloods == [30, 40, 50, 60, 70, 80, 90]
     assert len(set(bloods)) == len(bloods), "two workers share a clock"
 
 
 def test_the_ladder_is_the_lives_the_vault_agreed():
-    lives = sorted(blood * R.BLEED_EVERY // 50 for _x, _y, blood in scene.WORKERS)
+    lives = sorted(blood * R.BLEED_EVERY // 50
+                   for _r, _x, _y, blood in ALL_WORKERS)
     assert tuple(lives) == LADDER_SECONDS
 
 
@@ -469,14 +490,14 @@ def test_no_two_deaths_land_within_twenty_seconds_of_each_other():
     First-to-last is not the quantity: seven deaths spread over sixty seconds
     are ten seconds apart, which is half a window.
     """
-    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    rescue = R.Rescue(ALL_WORKERS, scene.BUILDING.exit)
     deaths = []
     for f in range(20000):
         for _ in rescue.tick():
             deaths.append(f)
         if rescue.settled:
             break
-    assert len(deaths) == len(scene.WORKERS), "not everybody bled out"
+    assert len(deaths) == len(ALL_WORKERS), "not everybody bled out"
     gaps = [b - a for a, b in zip(deaths, deaths[1:])]
     assert min(gaps) >= 20 * 50, f"two deaths {min(gaps) // 50}s apart"
 
@@ -487,7 +508,7 @@ def test_the_shortest_clock_is_already_urgent_on_the_first_frame():
     identical on frame one, which is exactly when the "who first" decision is
     taken, and turns the shout into a report of how much of themselves is left.
     """
-    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    rescue = R.Rescue(ALL_WORKERS, scene.BUILDING.exit)
     periods = {w.start_blood: w.call_period for w in rescue.workers}
     assert periods[90] == R.CALL_PERIOD, "the longest clock is not the slowest"
     assert periods[30] < R.CALL_PERIOD // 2, "the shortest clock is not urgent"
@@ -507,7 +528,7 @@ def test_two_workers_with_the_same_blood_left_shout_at_the_same_rate():
 def test_a_body_lies_on_screen_for_its_whole_window():
     """Nobody had ever seen one: the run ended on the frame the body appeared.
     A body has to exist, stay put, and be walked up to."""
-    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    rescue = R.Rescue(ALL_WORKERS, scene.BUILDING.exit)
     first = None
     for f in range(20000):
         gone = rescue.tick()
@@ -570,11 +591,11 @@ def test_a_bite_death_and_a_clock_death_have_the_same_frame_zero():
 def test_the_exit_is_a_place_you_can_be_whether_or_not_you_have_anybody():
     """Issue #20 split "am I at the door" from "is there anybody to hand over".
     They were one question, and the run now ends on the first of them."""
-    rescue = R.Rescue([(80, 48)], exit_cell=(4, 4))
-    assert rescue.at_exit({(4, 4), (4, 5)})
-    assert not rescue.at_exit({(9, 9)})
-    assert rescue.deliver({(4, 4)}) == [], "nobody to deliver, and no error"
+    rescue = R.Rescue([(80, 48)], exit_at=(4, 4))
+    assert rescue.at_exit(0, {(4, 4), (4, 5)})
+    assert not rescue.at_exit(0, {(9, 9)})
+    assert rescue.deliver(0, {(4, 4)}) == [], "nobody to deliver, and no error"
 
     worker = rescue.workers[0]
-    rescue.reach(worker.cells())
-    assert rescue.deliver({(4, 4)}) == [worker]
+    rescue.reach(0, worker.cells())
+    assert rescue.deliver(0, {(4, 4)}) == [worker]

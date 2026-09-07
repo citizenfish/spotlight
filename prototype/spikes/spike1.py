@@ -143,13 +143,23 @@ class Debug:
         self.beam_speed = BEAM_SPEEDS.index(run.roaming.step_every)
         self.wake = WAKES.index(run.roaming.memory)
 
+    #: The searchlight keys act on **the building's** searchlight, which is
+    #: room A's, whether or not the player is standing in room A. Room B
+    #: authors none (issue #21), and a key that did nothing in half the
+    #: building would read as broken. The lighting keys act on the room the
+    #: player is in, because that is the one they can see.
+
     def handle(self, key: int, screen: Screen) -> bool:
         """Act on a debug key. Returns True if the key was one of ours."""
         run = self.run
         if key == pygame.K_r:
             run.panel.draw(screen, force=True)
         elif key == pygame.K_c:
-            run.field.charge[:] = bytes(len(run.field.charge))
+            # Every room's, not only this one's: wiping the memory of a room
+            # you can see and leaving the one next door warm is a debug key
+            # that lies about what it did.
+            for place in run.places:
+                place.field.charge[:] = bytes(len(place.field.charge))
         elif key == pygame.K_g:
             run.glow.toggle()
         elif key == pygame.K_l:

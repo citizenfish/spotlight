@@ -50,16 +50,22 @@ def test_the_driver_uses_the_real_constants():
     """Not a smaller room or a shorter clock. The numbers have to be about the
     game a tester will be handed."""
     run = driver.drive(bots.make("statue"), seed=1, frames=10)
-    assert run.total == len(scene.WORKERS)
+    assert run.total == len(scene.WORKERS_A) + len(scene.WORKERS_B) == 7
     assert run.blood_full == session.BLOOD_FULL
     assert run.lives == session.LIVES
     # The authored ladder, not a fallback and not a computed one. A driver run
     # on `rescue.WORKER_BLOOD` for everybody would be measuring the game that
     # issue #18 removed.
     assert [w.start_blood for w in run.rescue.workers] == \
-        [blood for _x, _y, blood in scene.WORKERS]
+        [blood for _x, _y, blood in scene.WORKERS_A + scene.WORKERS_B]
+    # ...and the room each of them is in, which is the other half of the
+    # authored line. Clocks are assigned by **journey, not by room** (issue
+    # #21): the nearest is the least urgent, so the two shortest are in the
+    # near room and the four longest are in the far one.
+    assert [w.room for w in run.rescue.workers] == \
+        [scene.NEAR] * len(scene.WORKERS_A) + [scene.FAR] * len(scene.WORKERS_B)
     assert len(set(w.start_blood for w in run.rescue.workers)) == run.total
-    assert len(run.swarm.clegs) == len(scene.CLEGS)
+    assert len(run.swarm.clegs) == len(scene.CLEGS_A) + len(scene.CLEGS_B)
 
 
 def test_the_same_seed_gives_the_same_numbers():
@@ -153,11 +159,25 @@ def test_the_report_says_what_became_of_everybody():
 
 
 def test_a_death_records_which_room_it_happened_in():
-    """One room today. Issue #21 adds the second, and both reports already have
-    somewhere to put the answer to the question the user will ask."""
+    """The question the user opens a playtest conversation with: *you lost the
+    one in the far room at about a minute -- did you know they were there?*
+
+    Two things, and they are different questions: `room` is where the player
+    found them, which is how a person is identified, and `died_in` is where
+    they were lost, which is usually the same and is the interesting case when
+    it is not. A Statue never moves, so here everybody dies where they were
+    trapped and the two always agree.
+    """
     run = driver.drive(bots.make("statue"), seed=1)
+    names = {r.name for r in scene.BUILDING.rooms}
+    assert len(names) == 2
+    seen = set()
     for person in report.results(run)["people"]:
-        assert person["room"] == scene.ROOM_NAME
+        assert person["room"] in names
+        seen.add(person["room"])
+        if person["died_in"] is not None:
+            assert person["died_in"] == person["room"]
+    assert seen == names, "a report that never says which room is not saying it"
     for event in report.results(run)["events"]:
         assert event["room"]
 
@@ -241,7 +261,10 @@ def test_two_people_in_the_same_corner_are_told_apart():
 def test_places_are_the_words_a_person_would_use():
     assert report.place(1, 1) == "the top left"
     assert report.place(30, 20) == "the bottom right"
-    assert report.place(16, 11) == "the middle of the room"
+    # "the middle", not "the middle of the room": with two rooms the phrase
+    # was ambiguous, and the room is now a separate clause so that it can be
+    # said once for a group rather than after every name.
+    assert report.place(16, 11) == "the middle"
     assert report.place(16, 1) == "the top middle"
 
 
@@ -385,6 +408,11 @@ def test_the_searchlight_can_be_told_from_the_torch():
         "a torch that was never lit cannot have cost anything"
     assert dark["blood_by_beam"] > dark["blood_by_glow"]
 
-    lit = report.metrics(driver.drive(bots.make("statue", seed=2, light=True),
-                                      seed=2, frames=7500))
+    # Seed 7 rather than 2 since issue #21. The near room's swarm went from six
+    # flies to three when the building was split, so on a good many seeds every
+    # bite a still, lit player takes is the beam's and the torch's bucket is a
+    # legitimate zero -- which is a finding about the beam, not a broken hook.
+    # Across twelve seeds the beam takes 80-107 points and the torch 0-16.
+    lit = report.metrics(driver.drive(bots.make("statue", seed=7, light=True),
+                                      seed=7, frames=7500))
     assert lit["blood_by_torch"] > 0, "a burning torch recruits, and is billed"

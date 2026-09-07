@@ -55,14 +55,20 @@ class Spray:
 
     def __init__(self, charges: int = 5) -> None:
         self.charges = charges
-        #: cell -> frames remaining
-        self.patches: dict[tuple[int, int], int] = {}
+        #: (room, cell) -> frames remaining.
+        #:
+        #: The room is in the key because sprayed ground stays where it was
+        #: laid (issue #21): put a patch across a doorway your workers are
+        #: filing through, walk into the next room, and it is still poisoning
+        #: the doorway behind you. Cell (17, 4) exists in every room in the
+        #: building, so a patch without a room would poison all of them.
+        self.patches: dict[tuple[int, tuple[int, int]], int] = {}
 
     @property
     def empty(self) -> bool:
         return self.charges <= 0
 
-    def fire(self, cx: int, cy: int, facing: int) -> bool:
+    def fire(self, cx: int, cy: int, facing: int, room: int = 0) -> bool:
         """Lay a patch ahead. Returns False if there is nothing left to fire."""
         if self.empty:
             return False
@@ -70,24 +76,32 @@ class Spray:
         for cell in patch_cells(cx, cy, facing):
             # Re-spraying refreshes rather than stacking; there is no such
             # thing as doubly-poisoned ground.
-            self.patches[cell] = PATCH_FRAMES
+            self.patches[(room, cell)] = PATCH_FRAMES
         return True
 
     def tick(self) -> None:
         """Age every patch by a frame and clear the expired ones."""
         expired = []
-        for cell, left in self.patches.items():
+        for key, left in self.patches.items():
             left -= 1
             if left <= 0:
-                expired.append(cell)
+                expired.append(key)
             else:
-                self.patches[cell] = left
-        for cell in expired:
-            del self.patches[cell]
+                self.patches[key] = left
+        for key in expired:
+            del self.patches[key]
 
-    def covers(self, cx: int, cy: int) -> bool:
-        return (cx, cy) in self.patches
+    def covers(self, cx: int, cy: int, room: int = 0) -> bool:
+        return (room, (cx, cy)) in self.patches
 
-    def kills(self, entities) -> list:
+    def cells_in(self, room: int = 0) -> list[tuple[int, int]]:
+        """The patches lying in one room, for drawing it."""
+        return [cell for (at, cell) in self.patches if at == room]
+
+    def in_room(self, room: int = 0):
+        """`covers`, bound to one room -- what `Swarm.tick` wants handed to it."""
+        return lambda cx, cy: (room, (cx, cy)) in self.patches
+
+    def kills(self, entities, room: int = 0) -> list:
         """Whichever of `entities` are standing in spray. They die."""
-        return [e for e in entities if self.covers(e.cx, e.cy)]
+        return [e for e in entities if self.covers(e.cx, e.cy, room)]

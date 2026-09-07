@@ -55,9 +55,9 @@ def test_facing_changes_even_when_movement_is_blocked():
     """Turning to face a wall must work, or you cannot aim into a corner."""
     p = Player(*scene.PLAYER_START)
     for _ in range(400):
-        p.move(-1, 0, scene.is_solid)          # jam against the west wall
+        p.move(-1, 0, scene.ROOM_NEAR.is_solid)          # jam against the west wall
     x_before = p.x
-    assert p.move(-1, 0, scene.is_solid) is False
+    assert p.move(-1, 0, scene.ROOM_NEAR.is_solid) is False
     assert p.facing == S.LEFT and p.x == x_before
 
 
@@ -66,10 +66,10 @@ def test_facing_changes_even_when_movement_is_blocked():
 def test_the_player_cannot_walk_through_walls():
     p = Player(*scene.PLAYER_START)
     for _ in range(2000):
-        p.move(1, 0, scene.is_solid)
-        p.move(0, 1, scene.is_solid)
+        p.move(1, 0, scene.ROOM_NEAR.is_solid)
+        p.move(0, 1, scene.ROOM_NEAR.is_solid)
     for cx, cy in p.occupied_cells():
-        assert not scene.is_solid(cx, cy), f"ended up inside a wall at {cx},{cy}"
+        assert not scene.ROOM_NEAR.is_solid(cx, cy), f"ended up inside a wall at {cx},{cy}"
 
 
 def test_collision_uses_the_whole_sprite_box_not_one_cell():
@@ -92,7 +92,7 @@ def test_walking_diagonally_into_a_wall_slides_along_it():
 def test_the_room_edge_is_solid():
     p = Player(4, 4 * CELL)
     for _ in range(50):
-        p.move(-1, 0, scene.is_solid)
+        p.move(-1, 0, scene.ROOM_NEAR.is_solid)
     assert p.x >= 0
 
 
