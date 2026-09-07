@@ -758,3 +758,42 @@ def test_the_billing_is_never_read_back_by_the_swarm():
         return blood, where
 
     assert play(False) == play(True)
+
+
+# --- the hunger cap is not the dial it was thought to be (issue #25) --------
+
+def test_halving_the_hunger_cap_changes_no_measured_number():
+    """**The falsified prediction, pinned so it cannot be re-derived.**
+
+    Issue #25 cut `KEEN_MAX` from twelve to six, predicting the dark
+    thirty-second cost would fall from 33.2 to 18-20. Measured on five seeds it
+    did not move by a single point, and neither did anything else. This drives
+    the real loop at both caps on three seeds and asserts they are identical --
+    the blood, the bites, and the frame of every one of them.
+
+    Two reasons, and both are worth having in front of whoever reaches for this
+    constant next. **Arithmetically** the cap is out of reach inside the window:
+    six cells of keenness needs six times `HUNGER_STEP`, which is the whole
+    thirty seconds. **Mechanically** the extra cells almost never decide
+    anything even over three minutes, because the searchlight is lit, mobile and
+    noticeable from anywhere, so it wins the nearest-lure comparison before the
+    glow's extra reach is ever the deciding term. Measured: between a cap of six
+    and a cap of twelve, the lure a fly picks differs on 0 to 35 cleg-frames in
+    a three-minute run, and never on a frame it steps on.
+    """
+    from spikes import bots, session as session_mod
+
+    def play(cap, seed):
+        was, C.KEEN_MAX = C.KEEN_MAX, cap
+        try:
+            bot = bots.Statue(seed=seed, light=False)
+            run = session_mod.Session(seed=seed, lives=99)
+            while run.over is None and run.frame < 30 * 50:
+                run.step(bot.intent(run))
+            return (run.tally.blood_lost, run.tally.attachments,
+                    [(e.frame, e.kind, e.count) for e in run.log])
+        finally:
+            C.KEEN_MAX = was
+
+    for seed in (1, 2, 3):
+        assert play(6, seed) == play(12, seed), f"seed {seed}"

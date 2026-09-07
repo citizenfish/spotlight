@@ -211,11 +211,27 @@ HUNGER_STEP = 250
 #: The most it can add. Past this a fly is as keen as it is going to get, and
 #: without a cap a long quiet spell would make the whole room omniscient.
 #:
-#: Twelve, so a starving Cleg notices the glow from fourteen cells and not from
-#: across the room. Both numbers want playing with rather than arguing about --
-#: they set how quickly the dark stops being a refuge, which is the single
-#: dial that decides whether hiding is a breather or a strategy.
-KEEN_MAX = 12
+#: **Six, cut from twelve by issue #25.** At twelve, a starving fly noticed the
+#: glow from fourteen cells in a room thirty-two by twenty-two, so standing
+#: still in the dark in the middle of the room cost 33.2 blood every thirty
+#: seconds -- half a life a minute for doing nothing wrong. Lighting the torch
+#: on top of that cost 49.6, a difference of one bite for every fifteen seconds
+#: of light, which is not a decision anybody would take seriously. The
+#: difference was small because the **baseline** was large, and hunger was what
+#: closed the last stretch on a motionless player.
+#:
+#: Note what this is *not*. `KEEN_MAX` was named as the tuning dial once before,
+#: on the strength of a measured 1.0x over two minutes, and that diagnosis was
+#: an artefact of the window: the torch outlives no more than a fifth of it,
+#: feeding resets hunger so light front-loads its cost, and blood saturates
+#: against three lives. It was held at twelve for exactly that reason. This is a
+#: different diagnosis -- an absolute baseline rather than a ratio -- and it
+#: arrived with the seeded searchlight, without which no number about the first
+#: minute meant anything.
+#:
+#: Sets how quickly the dark stops being a refuge, which is the single dial that
+#: decides whether hiding is a breather or a strategy.
+KEEN_MAX = 6
 
 #: How far a Cleg can notice a light, and how much that varies between them.
 #:

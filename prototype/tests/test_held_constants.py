@@ -14,23 +14,50 @@ vault, raise an issue, and edit this file in the same commit as the constant.
 from spikes import clegs, rescue, scene, session, sources, spray
 
 
-def test_cleg_hunger_is_not_the_dial_it_was_named_as():
-    """`KEEN_MAX` was named as *the* tuning dial on the strength of a measured
-    1.0x -- light costing no measurable blood over two minutes.
+def test_cleg_hunger_was_cut_in_half_and_it_bought_nothing():
+    """`KEEN_MAX` is the one constant this file has released. Issue #25 cut it
+    from twelve to six, and **the prediction it was cut on was falsified.**
 
-    **That diagnosis has been superseded.** The 1.0x is real and reproduces, but
-    it is explained by three timescales rather than by hunger: the torch holds
-    twenty seconds, feeding resets a fly's hunger so light front-loads its cost
-    and buys a lull, and blood saturates against three lives. Measured over a
-    window the size of a decision the bargain is emphatic -- 2.09x at thirty
-    seconds, and a factor of six on time to first bite.
+    It was held here once, because it had been named as *the* tuning dial on
+    the strength of a measured 1.0x that turned out to be a window artefact.
+    Issue #25 was a different diagnosis -- an absolute baseline rather than a
+    ratio -- and it predicted that halving the cap would take the dark
+    thirty-second cost from 33.2 to 18-20, leave the lit cost near 49.6, and
+    push a dark first bite past twenty seconds.
 
-    The swarm is delivered by the searchlight, not by hunger: three quarters of
-    attachments on a dark, motionless player land within five seconds of the
-    beam passing. Changing a constant on a diagnosis that has been superseded
-    is how tuning goes wrong. It may still move; it has not earned it.
+    Measured on five seeds with the driver: **33.2, 49.6 and 13.6 seconds.
+    Every one of them to the digit, unchanged.** See the test below for the
+    arithmetic that made the first two impossible, and `test_spike_clegs.py`
+    for the run that pins it.
+
+    The value stays at six because six is what the vault decided and because it
+    is the more defensible reach -- a starving fly that notices you from eight
+    cells rather than fourteen -- but it is worth nothing in difficulty and
+    nobody should later read the change as having bought some. **Hunger is not
+    the dial**, and the reason is in the attribution hook from #22: a dark,
+    motionless player's blood is billed almost entirely to the searchlight,
+    which is lit, mobile and noticeable from anywhere, and therefore wins the
+    nearest-lure comparison long before the glow's extra cells matter.
     """
-    assert clegs.KEEN_MAX == 12
+    assert clegs.KEEN_MAX == 6
+
+
+def test_the_cap_cannot_move_a_thirty_second_number_at_all():
+    """Why the cut measured as an exact no-op, in one line of arithmetic.
+
+    Keenness is `hunger // HUNGER_STEP`, so a fly needs
+    `KEEN_MAX * HUNGER_STEP` frames of not feeding to reach the cap -- and at
+    six cells that is 1500 frames, which is the entire thirty-second window the
+    prediction was stated over. **Inside that window a cap of six and a cap of
+    twelve are the same number**, because neither is ever reached. The two
+    predicted figures could not have moved whatever the swarm did.
+
+    This is the check that was not done before the constant was proposed, and
+    it costs nothing to keep. If the cap is ever cut again to move a
+    thirty-second baseline, this fails and says why.
+    """
+    window = 30 * 50
+    assert clegs.KEEN_MAX * clegs.HUNGER_STEP >= window
 
 
 def test_the_beam_keeps_its_speed_and_its_size():
