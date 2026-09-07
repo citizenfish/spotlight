@@ -220,3 +220,80 @@ def test_the_run_says_nothing_to_stdout(capsys):
     run.step()
     assert run.over is not None
     assert capsys.readouterr().out == ""
+
+
+# --- staggered clocks and the death beat (issue #18) -----------------------
+
+def test_the_deaths_in_a_real_run_are_spread_out_not_simultaneous():
+    """**The thing that was wrong.** Every run ended with seven deaths on the
+    same frame, so `death_spread_seconds` was zero on every seed, no loss could
+    be sequenced and the level ended the instant the first body appeared.
+
+    Driven through the real loop, not through `Rescue` on its own, because the
+    bug was only visible in a whole run.
+    """
+    run = Session(seed=1)
+    deaths = []
+    while run.frame < 12000:
+        for event in run.step():
+            if event.kind == session.WORKER_DIED:
+                deaths.append(event.frame)
+        if run.over is not None:
+            break
+    assert len(deaths) == run.total, "not everybody bled out"
+    assert len(set(deaths)) == len(deaths), "two people died on the same frame"
+    gaps = [b - a for a, b in zip(deaths, deaths[1:])]
+    assert min(gaps) >= 20 * 50, f"two deaths {min(gaps) // 50}s apart"
+
+
+def test_a_death_is_announced_from_where_they_fell():
+    """The death beat, through the whole pipeline: the shout lifts its own
+    cells out of the dark and the word is over the body, on the frame they die.
+
+    A death nobody notices is the same as no death, and an absence is not a
+    signal -- a first-timer with six other voices in the building will not
+    notice that one of them stopped.
+    """
+    from spikes import lighting, rescue as rescue_mod
+
+    run = Session(seed=1)
+    dying = min(run.rescue.workers, key=lambda w: w.blood)
+    while True:
+        events = run.step()
+        if any(e.kind == session.WORKER_DIED for e in events):
+            break
+        assert run.frame < 12000, "nobody died"
+
+    assert dying.state == rescue_mod.DEAD, \
+        "the shortest clock was not the first to run out"
+    assert dying in run.shouting, "the death was not announced"
+    for cell in dying.call_cells():
+        assert cell in run.call_cells
+        cx, cy = cell
+        assert run.field.level_at(cx, cy) == lighting.LIT
+        assert not run.field.reveals_at(cx, cy), "a shout revealed somebody"
+
+
+def test_every_death_is_announced_exactly_once():
+    """One shout each, not a body that goes on calling. A corpse with something
+    left to say would be a permanent bearing to a place there is no longer any
+    reason to go.
+    """
+    from spikes import rescue as rescue_mod
+
+    run = Session(seed=1)
+    said = {}
+    while run.frame < 12000 and run.over is None:
+        run.step()
+        for worker in run.shouting:
+            if worker.state == rescue_mod.DEAD:
+                said[id(worker)] = said.get(id(worker), 0) + 1
+    assert len(said) == run.lost > 0, "not every death was announced"
+    lengths = list(said.values())        # in the order they died
+    # The **last** death ends the run on the frame it happens -- "nobody left
+    # to save" -- so its call is cut off after one frame. That is issue #20's
+    # to fix (*do not end the level the instant the last worker dies*), not
+    # this one's, and when it lands this test should tighten to all of them.
+    assert lengths[:-1] == [rescue_mod.CALL_FRAMES] * (len(lengths) - 1), \
+        f"death calls lasted {lengths} frames"
+    assert run.over == session.NOBODY_LEFT

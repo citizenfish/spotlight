@@ -26,7 +26,7 @@ counts rather than people, which is exactly why a run could report four workers
 
 from spotlight.core.constants import COLS
 
-from . import scene, session as session_mod
+from . import rescue as rescue_mod, scene, session as session_mod
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
 
@@ -148,6 +148,14 @@ def people(run) -> list[dict]:
             "out_at": _seconds(delivered[i]) if i in delivered else None,
             "died_at": _seconds(died[i]) if i in died else None,
             "blood_left": worker.blood,
+            # Which rung of the authored ladder this person was given, and how
+            # long that bought them. Reported because a staggered clock is only
+            # readable if you can see who was on the short one -- "the one who
+            # died first" is a different claim from "the one with sixty
+            # seconds died first". Issue #18.
+            "blood_start": worker.start_blood,
+            "life_seconds": worker.start_blood * rescue_mod.BLEED_EVERY
+            // FRAME_RATE,
         })
     return records
 
@@ -204,6 +212,15 @@ def metrics(run) -> dict:
         # exists.
         "death_spread_seconds":
             _seconds(deaths[-1] - deaths[0]) if deaths else None,
+        # Target T7 as restated in *Difficulty targets*: **no two deaths within
+        # twenty seconds of each other**. First-to-last is not that quantity --
+        # seven deaths spread over sixty seconds are ten seconds apart, which
+        # is half a body window -- so the number the target is actually stated
+        # in is the shortest gap between consecutive deaths. `None` when fewer
+        # than two people died, because there was no gap to measure.
+        "closest_deaths_seconds":
+            _seconds(min(b - a for a, b in zip(deaths, deaths[1:])))
+            if len(deaths) > 1 else None,
     }
 
 

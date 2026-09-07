@@ -4,12 +4,26 @@ The objective, and after issue #13 the whole rescue loop. A worker is somebody
 you have to **find in the dark, reach before they bleed out, and walk to the
 exit** -- and each of those three is a different kind of pressure.
 
-**They are on a clock.** Each has their own blood and is losing it from the
-moment the level begins. That is what turns a search into a race, and it is the
-answer to the sharpest finding of the play evaluation: light does not compete
-with darkness, it competes with *time*. With nothing bleeding, the best play was
-to stay dark and be methodical, which is safe, correct and dull. With a clock
-running, being slow costs people.
+**They are on a clock, and it is a different clock each.** Each has their own
+authored blood and is losing it from the moment the level begins. That is what
+turns a search into a race, and it is the answer to the sharpest finding of the
+play evaluation: light does not compete with darkness, it competes with *time*.
+With nothing bleeding, the best play was to stay dark and be methodical, which
+is safe, correct and dull. With a clock running, being slow costs people.
+
+**The clocks are staggered, and that is issue #18.** They were one clock with
+one value for everybody, so all seven died in the same frame -- measured, every
+run, every seed. Three things were missing and all three were consequences of
+that one fact: there was no "who do I go to first", no death anybody could
+learn from because the first was also the last, and no body was ever visible
+because the level ended on the frame the bodies appeared. The values are
+authored per worker in the level data, never rolled, so a room is designed.
+
+**A death is announced.** A worker's last act is to call out, once, from where
+they fall. *Nests* says why, and it is not a nest feature: an absence is not a
+signal, and a first-timer with six other voices in the building will not notice
+that one of them has stopped. A death nobody hears did not happen as far as the
+player is concerned. It also hands over a bearing -- you now know which corner.
 
 **Freeing them starts the hard part.** They follow in a tail, in the order
 collected, walking the path you walked rather than homing on you -- so the line
@@ -54,21 +68,48 @@ CALL_FRAMES = 20
 #: **This is the clock, made audible.** There is no timer on screen and there
 #: should not be -- a number counting down is not what a person in a dark
 #: building would know. What they would know is that the shouting has got more
-#: urgent. A worker calls every twelve seconds when they are fresh and every two
-#: when they are nearly out, so the room tells you who to go to first without
-#: ever telling you a figure.
+#: urgent, so the room tells you who to go to first without ever telling you a
+#: figure.
+#:
+#: **Urgency is time left, not fraction left**, and that is what makes the calls
+#: comparable now that the clocks are staggered. The period is interpolated
+#: against the *room's* largest blood, so two workers with the same blood left
+#: shout at the same rate whatever they started on -- because with one bleed
+#: tick for everybody, the same blood is the same number of seconds. A worker
+#: on the room's longest clock calls every twelve seconds when fresh and every
+#: two when nearly out; one who starts on a third of that is already calling
+#: every five seconds from the first frame, which is the whole point. The
+#: comparison a player needs is available at the start, which is when the "who
+#: first" decision is actually taken.
+#:
+#: Scaling each worker against their *own* capacity was tried and rejected: it
+#: makes everybody sound identical on frame one and turns the shout into a
+#: report of how much of themselves is left, which is not information anybody
+#: can act on.
 CALL_PERIOD_URGENT = 100
 
 # --- the clock -------------------------------------------------------------
 
-#: Blood a worker starts with, and how often they lose a point of it.
+#: Blood a worker starts with when a room does not author a value, and how
+#: often they lose a point of it.
 #:
-#: Two and a half minutes from full to dead, so a room's worth of people can be
-#: found and walked out by somebody who does not dawdle, and cannot by somebody
-#: who clears the room methodically first. That is the whole point of the number
-#: and it is the one most worth playing with -- see the resource budgets note.
+#: **`WORKER_BLOOD` is a fallback, not the game's clock.** The playtest building
+#: authors one value per worker in `scene.WORKERS` -- 30 to 90 in tens -- and
+#: that ladder is the clock. This constant only covers a `Rescue` built from
+#: bare positions, which is tests and nothing else. It is deliberately not the
+#: ladder's top or bottom, so a room that forgets to author blood does not
+#: quietly look like a room that authored it.
 WORKER_BLOOD = 48
-BLEED_EVERY = 150
+
+#: Frames between bleed ticks. **One tick for everybody**, which is what lets a
+#: blood figure be read as seconds: blood x BLEED_EVERY frames of life, so 30
+#: is sixty seconds and 90 is three minutes.
+#:
+#: 150 -> 100 with issue #23. Three seconds a point put the ladder on 90, 120,
+#: 150... which are awkward numbers to reason about and to space deaths with;
+#: two seconds a point lands it on round twenty-second gaps. Nothing else in
+#: the game depends on the tick.
+BLEED_EVERY = 100
 
 #: A body lies there for a while before it turns into a nest. Nests are not
 #: built in this spike; the delay is kept so the window is visible.
@@ -87,13 +128,21 @@ TAIL_SPACING = 12
 class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
-    __slots__ = ("x", "y", "state", "blood", "phase", "_tick", "_since_death")
+    __slots__ = ("x", "y", "state", "blood", "start_blood", "reference",
+                 "phase", "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
-                 blood: int = WORKER_BLOOD) -> None:
+                 blood: int = WORKER_BLOOD, reference: int = 0) -> None:
         self.x, self.y = x, y
         self.state = WAITING
         self.blood = blood
+        #: What they started on. Kept so a report can say who was given which
+        #: rung of the ladder without having to consult the level data.
+        self.start_blood = blood
+        #: The blood the call rate is measured against -- the longest clock in
+        #: the room, so urgency reads as time left rather than as a fraction.
+        #: Defaults to their own, which is right for a room of one.
+        self.reference = reference or blood
         #: Offset into the call cycle, so the room does not shout in chorus.
         self.phase = phase
         self._tick = 0
@@ -170,15 +219,42 @@ class Worker:
         Only somebody still waiting calls. A follower is behind you and a body
         has nothing left to say.
         """
+        if self.state == DEAD:
+            # **The death beat.** One shout, on the frame they die and for as
+            # long as any other call, from the cell they fell in. It is the
+            # announcement of a loss and it is deliberately the same idiom as
+            # every other shout -- a voice, in green, lifting its own cells out
+            # of the dark, revealing nobody and drawing nothing.
+            #
+            # It is not gated on having been found or on being in the tail: a
+            # follower who bleeds out on the walk to the exit has died too, and
+            # that is the loss the player most needs to be told about. The
+            # session's `calls_on` debug switch silences it along with every
+            # other shout, because a switch labelled "workers call for help"
+            # that leaves one kind of shouting running is a liar.
+            #
+            # If a playtester misses it, the first thing to try is a longer
+            # hold rather than a different word; a sound for it is item 8 of
+            # the readiness list and is not built here.
+            return self._since_death < CALL_FRAMES
         if self.state != WAITING:
             return False
         return (frame + self.phase) % self.call_period < CALL_FRAMES
 
     @property
     def call_period(self) -> int:
-        """How often they shout: more often the less blood they have left."""
+        """How often they shout: more often the less blood they have left.
+
+        Measured against the room's longest clock, not against their own, so
+        that equal blood sounds equally urgent whoever is carrying it. See
+        `CALL_PERIOD_URGENT` for why that is the right way round.
+        """
         span = CALL_PERIOD - CALL_PERIOD_URGENT
-        return CALL_PERIOD_URGENT + span * self.blood // max(1, WORKER_BLOOD)
+        period = CALL_PERIOD_URGENT + span * self.blood // max(1, self.reference)
+        # A room may author blood above its own reference only by mistake, but
+        # a call period longer than CALL_PERIOD would be a worker who has gone
+        # quiet, which is the one thing a shout must never do.
+        return min(CALL_PERIOD, period)
 
     def call_cells(self) -> list[tuple[int, int]]:
         """Where the word sits: above their head, or below if there is no room."""
@@ -196,9 +272,25 @@ class Rescue:
 
     def __init__(self, positions, exit_cell: tuple[int, int] | None = None,
                  blood: int = WORKER_BLOOD) -> None:
-        count = max(1, len(positions))
-        self.workers = [Worker(x, y, phase=i * CALL_PERIOD // count, blood=blood)
-                        for i, (x, y) in enumerate(positions)]
+        """`positions` is (x, y) or (x, y, blood) per worker.
+
+        The three-element form is how a level authors the clock ladder, and it
+        is three-element rather than a table alongside `WORKERS` so that a
+        position and its clock cannot be renumbered apart from one another.
+        The two-element form takes `blood` for everybody and exists for tests
+        and for a room that has not been given a ladder yet.
+        """
+        rows = [tuple(p) for p in positions]
+        count = max(1, len(rows))
+        bloods = [row[2] if len(row) > 2 else blood for row in rows]
+        # The room's longest clock. Every worker's call rate is read against
+        # it, so the shouting is a comparison between people rather than seven
+        # separate percentages.
+        reference = max(bloods) if bloods else blood
+        self.workers = [Worker(row[0], row[1],
+                               phase=i * CALL_PERIOD // count,
+                               blood=own, reference=reference)
+                        for i, (row, own) in enumerate(zip(rows, bloods))]
         self.exit = exit_cell
         #: In the order collected. A tail, not a set.
         self.tail: list[Worker] = []

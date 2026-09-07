@@ -134,19 +134,56 @@ def test_somebody_already_found_stops_calling():
     assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
 
 
+def _whole_run(rescue, frames=9000):
+    """Every frame of a full room's clock, as (frame, who is shouting)."""
+    for f in range(frames):
+        rescue.tick()
+        yield f, rescue.calling(f)
+
+
 def test_the_room_does_not_shout_in_chorus():
-    """Each call should be a separate piece of news."""
-    rescue = R.Rescue(scene.WORKERS)
-    at_once = [len(rescue.calling(f)) for f in range(R.CALL_PERIOD)]
-    assert max(at_once) == 1, f"up to {max(at_once)} shouting together"
+    """Each call should be a separate piece of news.
+
+    Measured over a whole run rather than over one call period, which is what
+    the old version of this test did and why it never saw the problem: at full
+    blood everybody is at their slowest, and the room is at its quietest.
+
+    With the flat clock all seven workers converged on the same two-second
+    period and the last seconds of a run were **seven voices shouting on 95% of
+    frames**. The staggered ladder never gets there, because the urgent ones
+    have died before the slow ones become urgent.
+    """
+    worst = max(len(who) for _, who in _whole_run(R.Rescue(scene.WORKERS)))
+    assert worst <= 3, f"up to {worst} of seven shouting together"
 
 
 def test_the_room_is_quiet_most_of_the_time():
-    """A call is a bearing you have to be watching for, not a map."""
-    rescue = R.Rescue(scene.WORKERS)
-    noisy = sum(1 for f in range(R.CALL_PERIOD) if rescue.calling(f))
-    assert noisy * 3 < R.CALL_PERIOD, \
-        f"somebody is shouting {100 * noisy // R.CALL_PERIOD}% of the time"
+    """A call is a bearing you have to be watching for, not a map.
+
+    Over the whole run, not over the first call period. The flat clock managed
+    41% and finished on a solid wall of shouting; the ladder is a third.
+    """
+    frames = 9000
+    noisy = sum(1 for _, who in _whole_run(R.Rescue(scene.WORKERS), frames)
+                if who)
+    assert noisy * 2 < frames, \
+        f"somebody is shouting {100 * noisy // frames}% of the time"
+
+
+def test_two_people_shouting_at_once_do_not_garble_each_other():
+    """Staggered clocks mean the calls can overlap in time, so they must not
+    overlap in space -- two HELPs sharing a cell would draw as neither word.
+
+    This is a property of where this room puts its workers, so it is a test of
+    the room as much as of the mechanism, and it is the reason the chorus test
+    above can be relaxed at all.
+    """
+    for f, who in _whole_run(R.Rescue(scene.WORKERS)):
+        taken = set()
+        for worker in who:
+            cells = set(worker.call_cells())
+            assert not (cells & taken), f"two calls share a cell on frame {f}"
+            taken |= cells
 
 
 def test_the_word_sits_above_their_head():
@@ -211,13 +248,53 @@ def test_a_body_lies_there_before_it_would_turn():
     assert w.turning
 
 
-def test_a_dead_worker_stops_calling_and_cannot_be_freed():
+def test_a_dead_worker_calls_once_and_then_never_again():
+    """**The death beat.** A death has to be announced or, as far as the player
+    is concerned, it did not happen: an absence is not a signal, and a
+    first-timer with six other voices in the building will not notice that one
+    of them stopped. One shout, at the moment they die, from where they fell --
+    and then silence for good.
+    """
     rescue = R.Rescue([(80, 48)])
     w = rescue.workers[0]
     w.bleed(R.WORKER_BLOOD)
     assert w.state == R.DEAD
+
+    shouted = 0
+    for f in range(R.CALL_PERIOD * 3):
+        if w.calling(f):
+            shouted += 1
+        rescue.tick()
+    assert shouted == R.CALL_FRAMES, "the last call is one call, no more"
     assert not any(w.calling(f) for f in range(R.CALL_PERIOD))
     assert rescue.reach(w.cells()) is None
+
+
+def test_the_death_call_comes_from_where_they_fell():
+    """A follower who bleeds out on the walk to the exit has died too, and that
+    is the loss the player most needs to be told about. The bearing is the cell
+    they fell in, not the one they were trapped in."""
+    rescue = R.Rescue([(80, 48)])
+    w = rescue.workers[0]
+    rescue.reach(w.cells())
+    assert w.state == R.FOLLOWING
+    w.x, w.y = 200, 96                       # dragged along behind the player
+    assert w.bleed(R.WORKER_BLOOD)
+    assert w.calling(0), "a follower's death is not announced"
+    assert w.call_cells() == R.Worker(200, 96).call_cells()
+
+
+def test_a_worker_who_dies_is_out_of_the_tail_but_still_shouts():
+    rescue = R.Rescue([(80, 48), (160, 96)])
+    first, second = rescue.workers
+    rescue.reach(first.cells())
+    assert rescue.tail == [first]
+    first.blood = 1
+    for _ in range(R.BLEED_EVERY):
+        rescue.tick()
+    assert first.state == R.DEAD and rescue.tail == []
+    assert first in rescue.calling(0)
+    assert second.state == R.WAITING
 
 
 # --- the tail --------------------------------------------------------------
@@ -320,7 +397,7 @@ def test_a_worker_shouts_more_often_as_they_weaken():
     something a person in a dark building would know."""
     w = R.Worker(80, 48)
     fresh = w.call_period
-    w.blood = R.WORKER_BLOOD // 4
+    w.blood = w.reference // 4
     assert w.call_period < fresh
     w.blood = 1
     assert w.call_period < R.CALL_PERIOD // 4
@@ -338,7 +415,7 @@ def test_no_worker_starts_within_reach_of_the_exit():
     """A worker beside the door is not a rescue: no journey, no decision about
     when to leave, and nothing for the clock to bite on."""
     ex = scene.exit_cell()
-    for x, y in scene.WORKERS:
+    for x, y, _blood in scene.WORKERS:
         cell = (x // 8, (y + 15) // 8)
         assert max(abs(cell[0] - ex[0]), abs(cell[1] - ex[1])) > 8, \
             f"the worker at {cell} is on the doorstep"
@@ -357,3 +434,90 @@ def test_the_room_holds_nothing_that_cannot_be_touched():
     """Anything drawn is a claim that it matters; the player paid light to see
     it. A body and a nest sat here long after they meant anything."""
     assert scene.ENTITIES == ()
+
+
+# --- the staggered clocks (issue #18, values from issue #23) ---------------
+
+#: Lives in seconds, in the order the vault authors them. Not derived from the
+#: code: written out, so that a change to `BLEED_EVERY` or to the ladder has to
+#: be a change to an agreed number rather than an accident.
+LADDER_SECONDS = (60, 80, 100, 120, 140, 160, 180)
+
+
+def test_the_room_authors_a_blood_ladder_and_does_not_compute_one():
+    """**The thing that was wrong.** Every worker started on the same blood and
+    bled on the same tick, so all seven died in the same frame -- measured, on
+    every seed. There was no "who do I go to first", no death anybody could
+    learn from, and no body was ever seen because the level ended on the frame
+    the bodies appeared.
+    """
+    bloods = sorted(blood for _x, _y, blood in scene.WORKERS)
+    assert bloods == [30, 40, 50, 60, 70, 80, 90]
+    assert len(set(bloods)) == len(bloods), "two workers share a clock"
+
+
+def test_the_ladder_is_the_lives_the_vault_agreed():
+    lives = sorted(blood * R.BLEED_EVERY // 50 for _x, _y, blood in scene.WORKERS)
+    assert tuple(lives) == LADDER_SECONDS
+
+
+def test_no_two_deaths_land_within_twenty_seconds_of_each_other():
+    """Target T7, as restated in *Difficulty targets*. Twenty seconds is one
+    body window each, so the player attends to one loss at a time, and it holds
+    concurrent nests to the two the entity budget can carry.
+
+    First-to-last is not the quantity: seven deaths spread over sixty seconds
+    are ten seconds apart, which is half a window.
+    """
+    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    deaths = []
+    for f in range(20000):
+        for _ in rescue.tick():
+            deaths.append(f)
+        if rescue.settled:
+            break
+    assert len(deaths) == len(scene.WORKERS), "not everybody bled out"
+    gaps = [b - a for a, b in zip(deaths, deaths[1:])]
+    assert min(gaps) >= 20 * 50, f"two deaths {min(gaps) // 50}s apart"
+
+
+def test_the_shortest_clock_is_already_urgent_on_the_first_frame():
+    """Urgency is time left, not fraction left. Scaling each worker against
+    their own capacity was tried and rejected: it makes everybody sound
+    identical on frame one, which is exactly when the "who first" decision is
+    taken, and turns the shout into a report of how much of themselves is left.
+    """
+    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    periods = {w.start_blood: w.call_period for w in rescue.workers}
+    assert periods[90] == R.CALL_PERIOD, "the longest clock is not the slowest"
+    assert periods[30] < R.CALL_PERIOD // 2, "the shortest clock is not urgent"
+    ordered = [periods[b] for b in sorted(periods)]
+    assert ordered == sorted(ordered), "shouting does not follow the ladder"
+
+
+def test_two_workers_with_the_same_blood_left_shout_at_the_same_rate():
+    """One bleed tick for everybody means the same blood is the same number of
+    seconds, so it has to sound the same however much they started with."""
+    rescue = R.Rescue(((0, 0, 30), (8, 0, 90)))
+    short, long_ = rescue.workers
+    short.blood = long_.blood = 15
+    assert short.call_period == long_.call_period
+
+
+def test_a_body_lies_on_screen_for_its_whole_window():
+    """Nobody had ever seen one: the run ended on the frame the body appeared.
+    A body has to exist, stay put, and be walked up to."""
+    rescue = R.Rescue(scene.WORKERS, scene.exit_cell())
+    first = None
+    for f in range(20000):
+        gone = rescue.tick()
+        if gone and first is None:
+            first = (f, gone[0], (gone[0].x, gone[0].y))
+            break
+    assert first is not None
+    frame, body, where = first
+    for _ in range(R.BODY_FRAMES):
+        rescue.tick()
+        assert (body.x, body.y) == where, "the body moved"
+        assert body in rescue.bodies()
+    assert rescue.waiting > 0, "the room emptied before the window elapsed"

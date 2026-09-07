@@ -53,7 +53,12 @@ def test_the_driver_uses_the_real_constants():
     assert run.total == len(scene.WORKERS)
     assert run.blood_full == session.BLOOD_FULL
     assert run.lives == session.LIVES
-    assert all(w.blood == rescue_mod.WORKER_BLOOD for w in run.rescue.workers)
+    # The authored ladder, not a fallback and not a computed one. A driver run
+    # on `rescue.WORKER_BLOOD` for everybody would be measuring the game that
+    # issue #18 removed.
+    assert [w.start_blood for w in run.rescue.workers] == \
+        [blood for _x, _y, blood in scene.WORKERS]
+    assert len(set(w.start_blood for w in run.rescue.workers)) == run.total
     assert len(run.swarm.clegs) == len(scene.CLEGS)
 
 

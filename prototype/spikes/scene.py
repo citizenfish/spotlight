@@ -94,6 +94,15 @@ def validate() -> None:
         unknown = set(row) - set(INK)
         if unknown:
             raise ValueError(f"row {y} has unknown cells: {sorted(unknown)}")
+    for i, worker in enumerate(WORKERS):
+        # Position and blood are authored on the same line so they cannot drift
+        # apart, and the shape is checked because a two-element row would
+        # silently fall back to the default clock for everybody -- which is the
+        # exact bug issue #18 exists to remove.
+        if len(worker) != 3:
+            raise ValueError(f"worker {i} is {worker}, need (x, y, blood)")
+        if worker[2] <= 0:
+            raise ValueError(f"worker {i} starts dead: {worker}")
 
 
 def ink_map() -> bytearray:
@@ -151,12 +160,12 @@ MOVERS = frozenset({"worker", "cleg"})
 #: of thing a room holds, not about these two.
 ENTITIES = ()
 
-#: Trapped workers, as (x, y) in pixels. **These are the reason to want light.**
+#: Trapped workers, as (x, y, blood) in pixels and blood points.
+#: **These are the reason to want light.**
 #:
 #: Spike 2 had nothing to look for, which made its own question unanswerable:
 #: you cannot judge whether switching the light on is worth it when there is
-#: nothing you need to see. Finding these is the objective -- no tail, no quota,
-#: no blood clocks, none of which spike 2 is building. Reaching one is enough.
+#: nothing you need to see. Finding these is the objective.
 #:
 #: They are people, so they are only drawn where a light is on them, and the
 #: opening flash does not show them. You are given the shape of the room and
@@ -170,14 +179,41 @@ ENTITIES = ()
 #: a rescue -- there is no journey, no decision about when to leave, and nothing
 #: the clock can bite on. A worker's distance from the way out is the size of the
 #: bet you take by going to fetch them.
+#:
+#: --- the blood ladder (issue #18, values from issue #23) -------------------
+#:
+#: **The third column is authored, never computed, and never rolled.** A room
+#: is designed. Every worker used to start on the same blood and bleed on the
+#: same tick, so all seven died in the same frame: there was no "who do I go to
+#: first", no death anybody could learn from, and no body ever lay on screen
+#: because the level ended on the frame they were created.
+#:
+#: 30/40/50/60/70/80/90 against `rescue.BLEED_EVERY` of 100 frames gives lives
+#: of **60, 80, 100, 120, 140, 160 and 180 seconds** -- twenty seconds between
+#: consecutive deaths, which is one body window each, and what target T7 asks
+#: for. The shortest is sixty because the ceiling has to mean something; the
+#: longest two effectively have no clock inside a normal run, deliberately,
+#: because the pressure belongs on the first three or four.
+#:
+#: **Which worker gets which value is this room's decision, not the ladder's.**
+#: The rule used here is that *the nearest is the least urgent*: the easy one on
+#: open floor seven cells from the start has the longest clock, and the mid-left
+#: worker -- a real walk away from both the start and the exit -- has the
+#: shortest. So sweeping outward from where you stand is the wrong order, and
+#: "who first" has an answer that is not "whoever is closest". The two far
+#: corners get long clocks because they are already the two hardest journeys in
+#: the room and a short clock there would be a loss rather than a decision.
+#:
+#: The vault (*The Playtest Building*) wants the three longest clocks in the
+#: near room once #21 splits the building in two. That split is not made here.
 WORKERS = (
-    (14 * 8 + 3, 4 * 8 + 2),        # inside the inner room, through one door
-    (3 * 8 + 4, 2 * 8),             # top left
-    (9 * 8 + 2, 4 * 8),             # north, behind the inner room
-    (2 * 8 + 3, 19 * 8),            # bottom left
-    (29 * 8, 19 * 8),               # bottom right, behind the low wall
-    (17 * 8 + 5, 16 * 8),           # open floor, easy
-    (7 * 8 + 2, 11 * 8),            # mid left
+    (14 * 8 + 3, 4 * 8 + 2, 50),    # inside the inner room, through one door
+    (3 * 8 + 4, 2 * 8, 60),         # top left
+    (9 * 8 + 2, 4 * 8, 40),         # north, behind the inner room
+    (2 * 8 + 3, 19 * 8, 70),        # bottom left
+    (29 * 8, 19 * 8, 80),           # bottom right, behind the low wall
+    (17 * 8 + 5, 16 * 8, 90),       # open floor, easy -- and the longest clock
+    (7 * 8 + 2, 11 * 8, 30),        # mid left -- the first voice to go urgent
 )
 
 #: What the exit sign says, and it is always on.
@@ -214,6 +250,15 @@ def exit_cell() -> tuple[int, int]:
 #:
 #: Spread wide and none of them near the player, so a swarm has to travel and
 #: you hear it coming long before it arrives.
+#:
+#: **Six, which is already the building's total** (issue #23, item 5). The
+#: budget note revised the swarm from nine down to six because two concurrent
+#: nests plus a tail plus the player have to fit inside eighteen
+#: Cleg-equivalents, and six is that number. It asks for three per room; there
+#: is only one room until #21 lands, so **the per-room split is deferred and
+#: the six stay here**. Cutting to three now would halve the swarm in the only
+#: room that exists, invalidate every phase-2 baseline measured against it, and
+#: buy nothing at all against a budget that is already met.
 CLEGS = ((11, 6), (26, 14), (2, 3), (29, 8), (6, 20), (24, 19))
 
 #: Spotlight pickups lying about the building, as (cx, cy, power). Powers vary

@@ -89,7 +89,8 @@ def test_the_player_can_actually_move_from_the_start():
 
 def test_entities_are_placed_off_the_cell_grid():
     """They must straddle cells, or the two-tone question cannot be judged."""
-    placed = ([(x, y) for _, x, y in scene.ENTITIES] + list(scene.WORKERS))
+    placed = ([(x, y) for _, x, y in scene.ENTITIES]
+              + [(x, y) for x, y, _blood in scene.WORKERS])
     off_grid = [p for p in placed if p[0] % 8 or p[1] % 8]
     assert len(off_grid) >= 4, "most things should sit at awkward offsets"
     assert len(off_grid) < len(placed), "a couple aligned makes the contrast"
@@ -127,7 +128,8 @@ def test_a_cleg_starts_against_a_wall_and_another_does_not():
 def _a_worker():
     """A worker from the scene, at its awkward pixel offset."""
     assert scene.WORKERS, "the scene has no workers to find"
-    return scene.WORKERS[0]
+    x, y, _blood = scene.WORKERS[0]
+    return x, y
 
 
 def _light_over(x, y):
@@ -231,7 +233,7 @@ def test_every_worker_can_actually_be_reached():
     from spikes.rescue import Worker
     player = Player(*scene.PLAYER_START)
     reachable = _reachable_from((player.cx, player.cy))
-    for x, y in scene.WORKERS:
+    for x, y, _blood in scene.WORKERS:
         standing = Worker(x, y).cells()
         assert standing & reachable, f"worker at {x},{y} cannot be got to"
         assert not any(scene.is_solid(*c) for c in standing), \
@@ -246,7 +248,7 @@ def test_the_workers_are_spread_out():
     """Clustered workers would be one search, not seven."""
     from spikes.player import Player
     player = Player(*scene.PLAYER_START)
-    far = [1 for x, y in scene.WORKERS
+    far = [1 for x, y, _blood in scene.WORKERS
            if max(abs(x // CELL - player.cx), abs(y // CELL - player.cy)) > 9]
     assert len(far) >= 3, "most workers are within a stone's throw of the start"
 
@@ -286,7 +288,7 @@ def test_every_worker_can_be_reached_by_something_person_shaped():
     from spikes.rescue import Worker
     player = Player(*scene.PLAYER_START)
     reachable = _reachable_by_a_person((player.cx, player.cy))
-    for x, y in scene.WORKERS:
+    for x, y, _blood in scene.WORKERS:
         assert Worker(x, y).cells() & reachable, \
             f"nobody person-shaped can get to the worker at {x},{y}"
 
