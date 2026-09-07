@@ -443,6 +443,15 @@ class Rescue:
             if at < len(self._trail):
                 worker.x, worker.y = self._trail[at]
 
+    def at_exit(self, cells) -> bool:
+        """Is the player touching the way out?
+
+        Split out of `deliver` for issue #20: the exit now ends the run whether
+        or not anybody is following, so "am I at the door" and "is there
+        anybody to hand over" are two questions and were one.
+        """
+        return self.exit is not None and self.exit in set(cells)
+
     def deliver(self, cells) -> list[Worker]:
         """At the exit, everybody following is out. Returns who was saved.
 
@@ -452,7 +461,7 @@ class Rescue:
         masonry, and the feet-cell test made the way out unreachable. Touching
         the door is leaving by it.
         """
-        if self.exit is None or not self.tail or self.exit not in set(cells):
+        if self.exit is None or not self.tail or not self.at_exit(cells):
             return []
         out = list(self.tail)
         for worker in out:

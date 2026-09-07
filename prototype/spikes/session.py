@@ -60,7 +60,10 @@ DEFAULT_SEED = 0xBEEF
 # room to say them in. Both should be edits to `_ending()` and to this table,
 # not a rewrite of everything that reads an ending.
 
+#: Walked out of the exit with everybody alive and accounted for.
 ALL_OUT = "all_out"
+#: Walked out of the exit without them. Some are dead; some may still be in
+#: there. Either way the player chose to leave, which is what #20 made possible.
 NOBODY_LEFT = "nobody_left"
 NO_LIVES = "no_lives"
 #: The driver ran out of frames, or the player closed the window. Not endings
@@ -237,6 +240,10 @@ class Session:
         self.panel.set("rescued", 0)
 
         self.frame = 0
+        #: Is the player touching the way out right now, and have they ever not
+        #: been? Both are read only by `_ending`, which explains them.
+        self.at_exit = False
+        self._gone_in = False
         self.over: str | None = None
         self.calls_on = True
         self.log: list[Event] = []
@@ -378,10 +385,15 @@ class Session:
             self._record(FREED, who=self._index[id(freed)], room=room)
         self.rescue.follow(self.player.x, self.player.y)
 
-        # The exit banks whoever is behind you. Leaving early is safe and slow;
-        # gathering everybody first is the gamble.
+        # The exit banks whoever is behind you, and then it ends the run --
+        # see `_ending`. Leaving early is safe and cheap in people; going back
+        # for one more is the gamble, and after issue #19 it is a gamble with
+        # the tail you already have on the table.
+        at_door = self.rescue.at_exit(self.player.occupied_cells())
         for saved in self.rescue.deliver(self.player.occupied_cells()):
             self._record(DELIVERED, who=self._index[id(saved)], room=room)
+        self.at_exit = at_door
+        self._gone_in = self._gone_in or not at_door
         if self.rescue.saved != self.tally.found:
             self.tally.found = self.rescue.saved
             self.panel.set("rescued", self.rescue.saved)
@@ -450,18 +462,64 @@ class Session:
     def _ending(self) -> str | None:
         """Has the run ended, and how?
 
-        Three endings, and the difference between the first two is new: the
-        spike ended on "nobody left to save", which was true both when everyone
-        was dead and when everyone was out, so a clean sweep and a massacre
-        ended the same way with nothing to tell them apart.
+        **Two conditions, and nothing else ends a run** (issue #20): you reach
+        the exit, or you lose the last life. The three endings are the same
+        three; what changed is what fires them.
 
-        Issue #20 changes this method and only this method: it wants the level
-        to run on past the last death, ending at the exit or on the last life.
-        The endings themselves do not change, only what triggers them.
+        What it removes is `rescue.settled` -- *everybody saved or dead* -- which
+        stopped the run on the exact frame the last worker died. That cost three
+        things at once, and all three are the reason this issue exists:
+
+        * **A loss could not be felt**, because there was no *after* to feel it
+          in. The screen went to a tally on the frame the person died.
+        * **A body was never seen.** Bodies were created on the frame the level
+          ended, so `rescue.BODY_FRAMES` -- ten seconds in which a flyspray could
+          have saved a corpse from becoming a nest -- had never once elapsed on
+          screen in the whole life of the prototype.
+        * **A player who could not save anybody had no way to leave**, and being
+          made to stand in a room you have failed until your blood runs out is
+          not an ending, it is a punishment for having lost.
+
+        So the exit is a finish line, not a delivery hatch: *Progression and
+        Scoring* says "reach the exit with at least the quota of rescued
+        workers", and this is that rule. Arriving with a tail hands them over
+        first -- `deliver` runs earlier in `step` -- so the count is right before
+        the run is judged. **A player with people still alive and unreachable
+        can walk out**, and should be able to; they take the loss with them.
+
+        `_gone_in` is what stops the door being an ending on frame one. The
+        prototype's start is a patch of open floor in the middle of the room,
+        so today the flag is set on the first frame and changes nothing at all
+        -- but *Building Structure* settled on 2026-09-07 that **the player
+        starts at the exit, because that is where they came in**, and on the day
+        that lands, a door that ends the run on contact ends every run
+        instantly. One bit, set the first time you are anywhere else, and the
+        door means "back out the way I came" rather than "here I am".
+
+        **Two things this leaves open, both measured and both the vault's to
+        settle rather than this method's.** They are written down here because
+        the next person to read this code will hit them and should know they
+        were seen.
+
+        1. **A door you can leave by is a door you can leave by *accidentally*.**
+           A Wanderer -- the bot that models a first-timer's opening minute --
+           ends its run in under two seconds on three of twelve seeds, by
+           random-walking into the exit with nobody rescued. The exit is about
+           a hundred pixels from the start, its sign is permanently lit, and
+           nothing asks the player whether they meant it.
+        2. **`NOBODY_LEFT` reads "THERE IS NOBODY LEFT TO SAVE / THE REST OF
+           THEM BLED TO DEATH", and that is now sometimes untrue** -- a player
+           who walks out with four people still alive in there gets told they
+           are dead. `ABANDONED` already carries the right words ("YOU LEFT THE
+           BUILDING") and is currently unreachable from inside the game.
+
+        Neither is fixed here, because issue #20 says in as many words that the
+        three endings do not change and only their triggers do. Both want an
+        answer before a stranger plays it.
         """
         if self.lives <= 0:
             return NO_LIVES
-        if self.rescue.settled:
+        if self.at_exit and self._gone_in:
             return ALL_OUT if self.rescued == self.total else NOBODY_LEFT
         return None
 

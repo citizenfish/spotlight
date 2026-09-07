@@ -82,21 +82,75 @@ def test_different_seeds_give_different_runs():
            [(c.cx, c.cy) for c in b.swarm.clegs]
 
 
-def test_standing_still_ends_with_nobody_left_to_save():
-    """The Statue's ending: everybody bleeds out and the run says so.
+def test_the_last_worker_dying_does_not_end_the_run():
+    """**Issue #20's first criterion, and the thing that was wrong.**
 
-    Given lives it will not need, because the ending is what is under test and
-    not the bot's survival. Worth knowing why that became necessary: with the
-    clock ladder the room takes 180 seconds to empty rather than 144, and a
-    motionless player is now **within one life** of not living to see the end
-    of it -- two of six seeds run out first. That is the game and not a bug,
-    but it is not this test's subject.
+    The level used to stop on the exact frame the last worker died. So a loss
+    could not be felt -- there was no *after* to feel it in -- the player was
+    never left alone in a room they had failed, and a body was never once seen:
+    bodies are created on the frame somebody dies, and that was the frame the
+    play area was replaced by a tally.
+
+    A Statue never moves, so it loses everybody. Given lives it will not need,
+    because what is under test is that the room carries on with nobody left in
+    it to save.
     """
     run = Session(lives=99)
-    assert run_until_over(run) == session.NOBODY_LEFT
+    while run.frame < 12000 and run.lost < run.total:
+        run.step()
+    assert run.lost == run.total, "not everybody died"
+    assert run.over is None, "the run stopped on the last death"
+
+    for _ in range(500):
+        run.step()
+    assert run.over is None, "ten seconds later it is still running"
     assert run.rescued == 0
-    assert run.lost == run.total
     assert run.tally_adds_up()
+
+
+def test_walking_out_of_the_exit_ends_the_run():
+    """The other half of #20: the exit is a finish line, not a delivery hatch.
+
+    *Progression and Scoring* says "reach the exit with at least the quota of
+    rescued workers", so reaching it is what completes a level -- and a player
+    who cannot save anybody else has to have some way to stop that is not
+    standing in a failed room until their blood runs out.
+
+    Nobody is following, and it still ends. That is the case the old rule could
+    not reach at all.
+    """
+    run = Session()
+    run.step()                           # one frame in the room they came into
+    ex, ey = scene.exit_cell()
+    run.player.x, run.player.y = ex * 8, ey * 8
+    run.step()
+    assert run.over == session.NOBODY_LEFT
+    assert run.rescued == 0
+    assert run.tally_adds_up()
+
+
+def test_the_door_is_not_an_ending_until_you_have_gone_in():
+    """One bit, and it costs nothing today because the prototype's start is a
+    patch of open floor in the middle of the room.
+
+    *Building Structure* settled on 2026-09-07 that **the player starts at the
+    exit, because that is where they came in.** On the day that lands, a door
+    that ends the run on contact ends every run on frame one. Pinned now, while
+    it is cheap, rather than found by a tester whose run lasted 0:00.
+    """
+    run = Session()
+    ex, ey = scene.exit_cell()
+    run.player.x, run.player.y = ex * 8, ey * 8
+    run._gone_in = False                 # as if they had started here
+    run.step()
+    assert run.over is None, "the run ended on the doorstep"
+
+    # Step off the door and come back: now it is a way out.
+    run.player.x, run.player.y = scene.PLAYER_START
+    run.step()
+    run.player.x, run.player.y = ex * 8, ey * 8
+    run.step()
+    assert run.over == session.NOBODY_LEFT
 
 
 def test_running_out_of_tries_ends_the_run():
@@ -345,13 +399,14 @@ def test_every_death_is_announced_exactly_once():
     # to save" -- so its call is cut off after one frame. That is issue #20's
     # to fix (*do not end the level the instant the last worker dies*), not
     # this one's, and when it lands this test should tighten to all of them.
-    # The **last** death ends the run on the frame it happens -- "nobody left
-    # to save" -- so its call is cut off after one frame. That is issue #20's
-    # to fix (*do not end the level the instant the last worker dies*), not
-    # this one's, and when it lands this test should tighten to all of them.
-    assert lengths[:-1] == [rescue_mod.CALL_FRAMES] * (len(lengths) - 1), \
+    # **Every one of them, including the last.** This used to have to skip the
+    # final death, because the run ended on the frame it happened and the shout
+    # was cut off after a single frame. Issue #20 is what lets a death be
+    # announced in full, and that is the whole point of it: there is now an
+    # *after* for the loss to land in.
+    assert lengths == [rescue_mod.CALL_FRAMES] * len(lengths), \
         f"death calls lasted {lengths} frames"
-    assert run.over == session.NOBODY_LEFT
+    assert run.over is None, "the run ended on the last death again"
 
 
 # --- dying must not empty the room (issue #27) -----------------------------
@@ -653,3 +708,130 @@ def test_the_players_own_bites_are_untouched_by_the_new_rule():
     assert sum(run.swarm.blood_by_source) == run.tally.blood_lost
     assert run.swarm.victim_blood > 0
 
+
+# --- the level ends at the exit or the last life (issue #20) ---------------
+
+
+def test_a_body_lies_on_screen_for_its_whole_lifetime():
+    """**The measurement nobody had ever been able to take.**
+
+    *Playtest readiness*: "bodies appear on the frame the level ends", and
+    `BODY_FRAMES` -- the window in which a flyspray could save a corpse from
+    becoming a nest -- "has never once elapsed on screen". Both were true
+    because the run stopped on the last death, and the first death is not the
+    last only since issue #18 staggered the clocks.
+
+    So this is the first test in the prototype's life that can watch a body
+    lie there, and it watches the whole window out.
+    """
+    run = Session(seed=1, lives=99)
+    while run.frame < 12000 and not run.rescue.bodies():
+        run.step()
+    body = run.rescue.bodies()[0]
+    fell_at = (body.x, body.y)
+    assert not body.turning, "it turned before it had lain there at all"
+
+    screen = Screen()
+    for _ in range(rescue_mod.BODY_FRAMES):
+        run.step()
+        assert run.over is None, "the run ended under the body"
+        assert body in run.rescue.bodies(), "the body stopped existing"
+        assert (body.x, body.y) == fell_at, "the body moved"
+    assert body.turning, "the window never ran out"
+
+    # And it is on the screen, not merely in the model. A body is a fixture:
+    # it is drawn wherever the ground is lit or remembered, unlike a person,
+    # who is drawn only where a light is on them this frame.
+    run.draw(screen)
+    assert any(screen.point(body.x + dx, body.y + CELL + dy)
+               for dy in range(CELL) for dx in range(CELL)), \
+        "nothing was drawn where somebody died"
+
+
+def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
+    """Rescued + lost + still inside = seven, whichever way a run stops.
+
+    It is the number a tester reads off the ending screen and it has been wrong
+    before: a run of seven reported "0 out, 0 lost, 4 never found", with three
+    people in the tail appearing in no column at all.
+    """
+    endings = {}
+
+    # Everybody out: collect the room and walk out of the door.
+    sweep = Session()
+    for worker in list(sweep.rescue.workers):
+        touch(sweep, worker)
+        sweep.step()
+    ex, ey = scene.exit_cell()
+    sweep.player.x, sweep.player.y = ex * 8, ey * 8
+    sweep.step()
+    endings[sweep.over] = sweep
+
+    # Walked out without them, with three in the tail and four still waiting.
+    part = Session()
+    for worker in list(part.rescue.workers)[:3]:
+        touch(part, worker)
+        part.step()
+    part.player.x, part.player.y = ex * 8, ey * 8
+    part.step()
+    endings[part.over] = part
+
+    # Out of tries.
+    spent = Session(lives=1)
+    spent.step()
+    spent.blood = 0
+    spent.step()
+    endings[spent.over] = spent
+
+    assert set(endings) == {session.ALL_OUT, session.NOBODY_LEFT,
+                            session.NO_LIVES}
+    for name, run in endings.items():
+        assert run.tally_adds_up(), \
+            f"{name}: {run.rescued} + {run.lost} + {run.inside} " \
+            f"!= {run.total}"
+        assert run.rescued + run.lost + run.inside == 7
+
+
+def test_arriving_with_a_tail_banks_them_before_the_run_is_judged():
+    """The exit is a finish line, but it hands people over on the way through.
+
+    `deliver` runs earlier in the frame than `_ending` does, so somebody in the
+    tail on the last frame is counted as out rather than as still inside. Get
+    that order wrong and a clean sweep reports as an abandonment.
+    """
+    run = Session()
+    for worker in list(run.rescue.workers)[:2]:
+        touch(run, worker)
+        run.step()
+    ex, ey = scene.exit_cell()
+    run.player.x, run.player.y = ex * 8, ey * 8
+    run.step()
+    assert run.over == session.NOBODY_LEFT
+    assert run.rescued == 2 and len(run.rescue.tail) == 0
+    assert run.inside == 5
+
+
+def test_the_run_carries_on_past_a_loss_so_the_loss_can_be_felt():
+    """Not the same claim as "the last death does not end it".
+
+    A player is meant to be left in the room afterwards, with the body in it
+    and the rest of the building still running: the swarm still moving, the
+    clock still going on everybody who is left. That is the *after* a loss
+    needs in order to be a loss rather than a screen change.
+    """
+    run = Session(seed=1, lives=99)
+    while run.frame < 12000 and run.lost == 0:
+        run.step()
+    assert run.lost == 1
+    at_death = run.frame
+    moving = [(c.cx, c.cy) for c in run.swarm.clegs]
+    blood = [w.blood for w in run.rescue.alive_waiting()]
+
+    for _ in range(600):
+        run.step()
+    assert run.over is None
+    assert run.frame == at_death + 600
+    assert [(c.cx, c.cy) for c in run.swarm.clegs] != moving, \
+        "the swarm froze when somebody died"
+    assert [w.blood for w in run.rescue.alive_waiting()] != blood, \
+        "the clock stopped for everybody else"

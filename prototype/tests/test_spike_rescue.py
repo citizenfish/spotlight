@@ -566,3 +566,15 @@ def test_a_bite_death_and_a_clock_death_have_the_same_frame_zero():
     bled.tick()
     assert bitten.calling(0) == bled.calling(0) is False
 
+
+def test_the_exit_is_a_place_you_can_be_whether_or_not_you_have_anybody():
+    """Issue #20 split "am I at the door" from "is there anybody to hand over".
+    They were one question, and the run now ends on the first of them."""
+    rescue = R.Rescue([(80, 48)], exit_cell=(4, 4))
+    assert rescue.at_exit({(4, 4), (4, 5)})
+    assert not rescue.at_exit({(9, 9)})
+    assert rescue.deliver({(4, 4)}) == [], "nobody to deliver, and no error"
+
+    worker = rescue.workers[0]
+    rescue.reach(worker.cells())
+    assert rescue.deliver({(4, 4)}) == [worker]
