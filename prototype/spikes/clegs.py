@@ -38,7 +38,7 @@ that solved mazes would be a different animal and a much more expensive one.
 from spotlight.core.constants import COLS
 
 from .layout import PLAY_ROWS
-from .sources import xorshift16
+from .sources import LURE_KINDS, LURE_NONE, xorshift16
 
 # --- states ----------------------------------------------------------------
 
@@ -234,8 +234,8 @@ NOTICE_MIN, NOTICE_MAX = 7, 19
 class Cleg:
     """One fly. Position is a cell; Clegs do not need pixel placement."""
 
-    __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "kind",
-                 "flank", "step_every", "hunger", "heading", "_run",
+    __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "goal_source",
+                 "kind", "flank", "step_every", "hunger", "heading", "_run",
                  "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
@@ -252,6 +252,11 @@ class Cleg:
         #: goes out**, which is what makes a one-second flash cost something:
         #: it commits whoever noticed to walking to where you were standing.
         self.goal: tuple[int, int] | None = None
+        #: **Which light it came for**, kept from the moment it acquired the
+        #: goal until it next feeds. One byte, and the thing bites are billed
+        #: to -- see `commit` and issue #22. Nothing reads it to decide
+        #: anything; it is a record, not an input.
+        self.goal_source = LURE_NONE
         #: What sort of Cleg this is, and how it comes at you.
         self.kind = TEMPERAMENTS[self._random() % len(TEMPERAMENTS)]
         self.flank = FLANK_OFFSETS[self._random() % len(FLANK_OFFSETS)]
@@ -261,6 +266,39 @@ class Cleg:
         #: Which way it is wandering, and how much longer for.
         self.heading = (0, 0)
         self._run = 0
+
+    def commit(self, cell: tuple[int, int], kind: int) -> None:
+        """Take up a lure: where it is, **and what it was**.
+
+        The whole of the attribution hook on the Cleg's side (issue #22), and
+        it is one line of behaviour and one line of bookkeeping deliberately
+        kept together, because the bookkeeping is only correct if it happens at
+        the same instant as the decision.
+
+        **The source is recorded at acquisition and then left alone for as long
+        as the journey lasts.** A hunting Cleg re-takes its goal on every frame
+        it can notice a light, and the light it can notice from one cell away is
+        nearly always the player's own glow -- so billing the *latest*
+        acquisition credits the glow with almost every bite in the game and
+        measures nothing but the last hop. That version was built first and it
+        put 100% of a dark Statue's blood on the glow, which is the coincidence
+        the issue warns about rather than a finding.
+
+        So the source moves only when the fly takes up a lure **having had
+        none**: at the start of a journey. It survives the fly changing its mind
+        mid-journey, which is the case that matters -- a Cleg that crossed the
+        room for the searchlight and then switched to the glow at the last
+        moment, or blundered onto a dark player after arriving, is the beam's
+        kill. Feeding clears it, in `_sate`.
+
+        Also tried and rejected: keeping the *first* lure since the last meal,
+        never overwriting until the fly feeds. It bills a fly to something it
+        walked to, arrived at and left forty cells and twenty seconds ago, which
+        is not the journey that killed you.
+        """
+        if self.goal is None:
+            self.goal_source = kind
+        self.goal = cell
 
     @property
     def keenness(self) -> int:
@@ -361,15 +399,29 @@ class Swarm:
         self.clegs = list(clegs or [])
         self.drained = 0          # blood taken this frame, for the caller
         self.attachments = 0      # completed attachments, for the record
+        #: **What each lure cost the player**, indexed by the `LURE_*` kind in
+        #: `sources`. Issue #22: the claim that the searchlight delivers three
+        #: quarters of the swarm was inferred from timing, and no beam constant
+        #: moves until it is measured at the point of attachment instead.
+        #:
+        #: Write-only as far as the game is concerned. Nothing in `tick` reads
+        #: either of these, and nothing ever should -- a Cleg that knew which
+        #: lure had paid best would be a different animal.
+        self.bites_by_source = [0] * LURE_KINDS
+        self.blood_by_source = [0] * LURE_KINDS
 
     # --- the one rule ------------------------------------------------------
 
     @staticmethod
-    def nearest_lure(cx: int, cy: int, lures, within: int | None = None,
-                     keenness: int = 0) -> tuple[int, int] | None:
-        """The closest light this Cleg can notice, or None.
+    def notice(cx: int, cy: int, lures, within: int | None = None,
+               keenness: int = 0) -> tuple[int, int, int, int] | None:
+        """The closest light this Cleg can notice, whole, or None.
 
-        Each lure is `(cx, cy, reach)`: where it is, and how far it carries.
+        Each lure is `(cx, cy, reach, kind)`: where it is, how far it carries,
+        and **what it is** -- the last of which is carried so a bite can be
+        billed to the light that caused it (issue #22). It takes no part in the
+        choice: the winner is decided on squared distance exactly as before,
+        and the kind comes along with it.
         A light must be inside **both** its own reach and this Cleg's -- a
         bright light across the room is no use to a fly that cannot notice it,
         and your dim glow is no use to one three rooms away.
@@ -384,7 +436,8 @@ class Swarm:
         distances.
         """
         best, best_d2 = None, None
-        for lx, ly, reach in lures:
+        for lure in lures:
+            lx, ly, reach = lure[0], lure[1], lure[2]
             reach += keenness
             limit = reach if within is None else min(within, reach)
             dx, dy = lx - cx, ly - cy
@@ -392,8 +445,20 @@ class Swarm:
             if d2 > limit * limit:
                 continue
             if best_d2 is None or d2 < best_d2:
-                best, best_d2 = (lx, ly), d2
+                best, best_d2 = lure, d2
         return best
+
+    @classmethod
+    def nearest_lure(cls, cx: int, cy: int, lures, within: int | None = None,
+                     keenness: int = 0) -> tuple[int, int] | None:
+        """Where the closest light this Cleg can notice *is*, or None.
+
+        `notice` with the answer narrowed to the cell. Kept because the cell is
+        all most callers want, and because the one rule reads better without
+        the bookkeeping in the middle of it.
+        """
+        seen = cls.notice(cx, cy, lures, within, keenness)
+        return None if seen is None else (seen[0], seen[1])
 
     # --- the frame ---------------------------------------------------------
 
@@ -466,10 +531,10 @@ class Swarm:
             # Hunting. A light it can notice becomes the place it is going;
             # one it cannot notice may as well not be lit.
             cleg.hunger += 1
-            seen = self.nearest_lure(cleg.cx, cleg.cy, lures, cleg.notice,
-                                     cleg.keenness)
+            seen = self.notice(cleg.cx, cleg.cy, lures, cleg.notice,
+                               cleg.keenness)
             if seen is not None:
-                cleg.goal = seen
+                cleg.commit((seen[0], seen[1]), seen[3])
             target = cleg.goal
 
             if (cleg.cx, cleg.cy) == player_cell:
@@ -500,6 +565,17 @@ class Swarm:
         cleg.taken = 0
         cleg._timer = 0
         self.attachments += 1
+        self._bill(cleg, bites=1)
+
+    def _bill(self, cleg: Cleg, bites: int = 0, blood: int = 0) -> None:
+        """Charge a bite or a point of blood to whatever lured this fly here.
+
+        Counting only. If this method did nothing at all the run would be
+        identical, which is the property issue #22 asks for and the property a
+        measurement hook has to have to be worth trusting.
+        """
+        self.bites_by_source[cleg.goal_source] += bites
+        self.blood_by_source[cleg.goal_source] += blood
 
     def _drain(self, cleg: Cleg, blood: int) -> int:
         """An attached Cleg takes its fixed amount, then leaves of its own
@@ -515,6 +591,7 @@ class Swarm:
             blood -= bite
             cleg.taken += 1
             self.drained += bite
+            self._bill(cleg, blood=bite)
             if cleg.taken >= DRAIN_TOTAL:
                 self._sate(cleg)
         return blood
@@ -533,6 +610,10 @@ class Swarm:
         cleg._tick = 0
         cleg.goal = None
         cleg.hunger = 0            # fed, and no longer straining to find you
+        # A meal closes the account (issue #22). What it does next is a new
+        # hunt, and a bite it takes after blundering about with nothing in its
+        # head belongs to nothing -- which is a finding, not a gap.
+        cleg.goal_source = LURE_NONE
 
     def detach(self, is_solid) -> int:
         """Take every attached Cleg off the player. Returns how many.

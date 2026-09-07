@@ -302,3 +302,82 @@ def test_the_driver_needs_no_host_at_all():
     for module in (session, bots, report):
         source = open(module.__file__).read()
         assert "import pygame" not in source
+
+
+# --- blood by lure (issue #22) ---------------------------------------------
+
+def _without_the_lure_buckets(metrics: dict) -> dict:
+    return {k: v for k, v in metrics.items()
+            if not (k.startswith("blood_by_") or k.startswith("bites_by_"))}
+
+
+@pytest.mark.parametrize("seed", (1, 2, 3))
+def test_the_attribution_hook_changes_nothing_about_the_run(monkeypatch, seed):
+    """**The test issue #22 states.** Every metric identical with the hook
+    present and absent, on the same seed.
+
+    A measurement that perturbs what it measures is worse than no measurement,
+    because it is believed. The hook is two writes -- the source at acquisition
+    and a counter on the way past -- and neither is read by anything that
+    decides where a fly goes. This drives a whole run both ways and compares
+    the metrics *and* the event log, frame by frame.
+    """
+    from spikes import clegs as clegs_mod
+
+    def play():
+        run = driver.drive(bots.make("wanderer", seed=seed), seed=seed,
+                           frames=4000)
+        results = report.results(run, bot="wanderer")
+        return _without_the_lure_buckets(results["metrics"]), results["events"]
+
+    with_hook = play()
+
+    # The hook, removed: `commit` reverts to what it was before the issue, and
+    # the counters stop counting.
+    monkeypatch.setattr(clegs_mod.Cleg, "commit",
+                        lambda self, cell, kind: setattr(self, "goal", cell))
+    monkeypatch.setattr(clegs_mod.Swarm, "_bill",
+                        lambda self, cleg, bites=0, blood=0: None)
+    without_hook = play()
+
+    assert with_hook[0] == without_hook[0]
+    assert with_hook[1] == without_hook[1]
+
+
+def test_blood_and_bites_are_attributable_per_lure_in_the_report():
+    """The breakdown is in the machine-readable report, in flat integer keys,
+    so blood-by-lure tabulates across seeds like everything else."""
+    from spikes import sources
+
+    run = driver.drive(bots.make("wanderer", seed=1, light=True), seed=1,
+                       frames=4000)
+    m = report.metrics(run)
+    for lure in sources.LURE_NAMES:
+        assert isinstance(m[f"blood_by_{lure}"], int)
+        assert isinstance(m[f"bites_by_{lure}"], int)
+    assert sum(m[f"blood_by_{l}"] for l in sources.LURE_NAMES) == m["blood_lost"]
+    assert sum(m[f"bites_by_{l}"] for l in sources.LURE_NAMES) == m["attachments"]
+
+
+def test_the_searchlight_can_be_told_from_the_torch():
+    """The number the hook exists for. The claim that the beam delivers three
+    quarters of the swarm was inferred by correlating attachments with the beam
+    passing nearby; this is the same quantity measured at the point of
+    attachment.
+
+    Asserted loosely and on one bot, because it is a measurement rather than a
+    rule: what is pinned is that the buckets can actually tell two lures apart,
+    so a future run that put everything in one of them would be read as a
+    finding rather than as the hook being broken.
+    """
+    from spikes import sources
+
+    dark = report.metrics(driver.drive(bots.make("statue", seed=1, light=False),
+                                       seed=1, frames=7500))
+    assert dark[f"blood_by_{sources.LURE_NAMES[sources.LURE_TORCH]}"] == 0, \
+        "a torch that was never lit cannot have cost anything"
+    assert dark["blood_by_beam"] > dark["blood_by_glow"]
+
+    lit = report.metrics(driver.drive(bots.make("statue", seed=2, light=True),
+                                      seed=2, frames=7500))
+    assert lit["blood_by_torch"] > 0, "a burning torch recruits, and is billed"

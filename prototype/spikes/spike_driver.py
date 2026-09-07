@@ -109,6 +109,14 @@ SUMMARY = (
     ("torch", "torch_seconds", 6),
     ("tries", "tries_lost", 6),
     ("dspread", "death_spread_seconds", 8),
+    # Blood by lure, at the point of attachment (issue #22). The searchlight
+    # is the largest single term in every dark-player number the tester has
+    # taken, and until this hook existed the figure behind that claim was
+    # inferred from proximity in time. Three columns rather than six because
+    # the table has to stay readable; the JSON carries all of them.
+    ("beam", "blood_by_beam", 5),
+    ("torch", "blood_by_torch", 5),
+    ("glow", "blood_by_glow", 5),
 )
 
 

@@ -42,6 +42,48 @@ _AXES = {
 #: a Cleg is capable of noticing; the dim personal glow cannot.
 FAR = 255
 
+# --- which light a bite gets billed to --------------------------------------
+#
+# **Every lure says what it is, so blood can be billed to the thing that caused
+# it.** Issue #22, and it exists because the largest number in the phase-2
+# re-baseline -- that the searchlight delivers roughly three quarters of the
+# swarm -- was *inferred* by correlating attachments with the beam passing
+# nearby in the preceding five seconds, rather than measured at the point of
+# attachment. The searchlight is now understood to be the dominant threat in the
+# game on the strength of that, and no searchlight constant should move until
+# the number is measured rather than guessed.
+#
+# The kind is recorded at the moment a Cleg **acquires** the lure and carries
+# through to the attachment. That is deliberate and it is the part that is easy
+# to build wrongly: a fly that crossed the room for the beam and then found the
+# player in the dark is the **beam's** kill, not the glow's. Billing whatever
+# was nearest when it landed would measure a coincidence.
+#
+# One byte per fly on the Z80, which stores a goal anyway, so this is not a
+# prototype-only convenience.
+
+#: Nothing lured it. A fly that blundered into you with no light in its head --
+#: it fed and lost interest, or it has never noticed anything. Worth its own
+#: bucket rather than being folded into the glow, because "the room found you on
+#: its own" is a different claim from "your own body gave you away".
+LURE_NONE = 0
+#: The player's own glow: hunger closing the last few cells.
+LURE_GLOW = 1
+#: The carried spotlight, burning in the player's hand.
+LURE_TORCH = 2
+#: A spotlight left burning on the floor -- bait, whether meant or not.
+LURE_FLOOR = 3
+#: Authored emergency lighting.
+LURE_ROOM = 4
+#: The searchlight.
+LURE_BEAM = 5
+
+#: How many buckets a counter needs. A fixed-size table on the Z80.
+LURE_KINDS = 6
+
+#: What each bucket is called in a report. Index by the constant.
+LURE_NAMES = ("none", "glow", "torch", "floor", "room", "beam")
+
 #: How close a Cleg has to be to notice your own glow.
 #:
 #: Small on purpose. It is what stops standing still in the dark being perfectly
@@ -73,8 +115,12 @@ class Source:
         """The cell a Cleg heads for when this light is what drew it."""
         raise NotImplementedError
 
-    def lure(self) -> tuple[int, int, int] | None:
-        """Where this light pulls Clegs to and from how far, or None.
+    #: Which bucket a bite drawn by this light is billed to. Class-level, so
+    #: it costs nothing per instance and a subclass names itself once.
+    lure_kind = LURE_NONE
+
+    def lure(self) -> tuple[int, int, int, int] | None:
+        """Where this light pulls Clegs to, from how far, and **what it is**.
 
         **All light attracts; how far it carries depends on how bright it is.**
         A lit source can be noticed from anywhere; the dim personal glow only
@@ -89,7 +135,7 @@ class Source:
         """
         if not self.enabled or self.level <= 0:
             return None
-        return (*self.origin(), FAR)
+        return (*self.origin(), FAR, self.lure_kind)
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
@@ -127,9 +173,12 @@ class Glow(Source):
     def origin(self) -> tuple[int, int]:
         return self.x, self.y
 
-    def lure(self) -> tuple[int, int, int] | None:
+    lure_kind = LURE_GLOW
+
+    def lure(self) -> tuple[int, int, int, int] | None:
         """You are always slightly visible, and only from very close."""
-        return None if not self.enabled else (self.x, self.y, GLOW_REACH)
+        return (None if not self.enabled
+                else (self.x, self.y, GLOW_REACH, self.lure_kind))
 
     def emit(self, field: LightField) -> None:
         for dy in range(-self.tall, 2):
@@ -149,6 +198,8 @@ class RoomLight(Source):
     Emergency lighting tells you the shape of the place; finding the people in
     it is the player's job (issue #12).
     """
+
+    lure_kind = LURE_ROOM
 
     def __init__(self, left: int, top: int, width: int, height: int,
                  level: int = LIT, memory: int = CHARGE_LIT,
@@ -213,7 +264,9 @@ class Cone(Source):
     def origin(self) -> tuple[int, int]:
         return self.x, self.y
 
-    def lure(self) -> tuple[int, int, int] | None:
+    lure_kind = LURE_TORCH
+
+    def lure(self) -> tuple[int, int, int, int] | None:
         """The player's own cell, not the wedge ahead of them.
 
         A Cleg drawn by your spotlight is drawn to *you*: the wedge is where the
@@ -221,7 +274,7 @@ class Cone(Source):
         to the wedge would have the swarm converge somewhere in front of you and
         then need a second rule to find you.
         """
-        return (self.x, self.y, FAR) if self.lit else None
+        return (self.x, self.y, FAR, self.lure_kind) if self.lit else None
 
     def cells(self) -> list[tuple[int, int]]:
         """The wedge, **and the cell you are standing in**.
@@ -318,7 +371,7 @@ class Flash(Source):
     def origin(self) -> tuple[int, int]:
         return COLS // 2, PLAY_ROWS // 2
 
-    def lure(self) -> tuple[int, int, int] | None:
+    def lure(self) -> tuple[int, int, int, int] | None:
         """Nothing. A light that is everywhere has no *toward*.
 
         Clegs steer up a gradient, and a uniform flash has none -- so it draws
@@ -585,6 +638,8 @@ class Roaming(Source):
     `PATH` follows waypoints the level author drew, and `DRIFT` wanders at
     random, both kept for the editor to offer.
     """
+
+    lure_kind = LURE_BEAM
 
     DRIFT, PATH, SWEEP, ARC = 0, 1, 2, 3
 

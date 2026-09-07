@@ -9,13 +9,17 @@ OPEN = lambda cx, cy: False          # noqa: E731 - a room with no walls
 
 
 def _lures(*cells):
-    """Cells as lures a Cleg can notice from anywhere."""
-    return [(cx, cy, S.FAR) for cx, cy in cells]
+    """Cells as lures a Cleg can notice from anywhere.
+
+    A lure is `(cx, cy, reach, kind)` since issue #22 -- the kind is what a
+    bite gets billed to and takes no part in the choice.
+    """
+    return [(cx, cy, S.FAR, S.LURE_TORCH) for cx, cy in cells]
 
 
 def _run(swarm, lures, player=(20, 10), frames=1, is_solid=OPEN, blood=64):
     """`lures` may be given as plain cells; they carry full reach."""
-    lures = [l if len(l) == 3 else (*l, S.FAR) for l in lures]
+    lures = [l if len(l) == 4 else (*l, S.FAR, S.LURE_TORCH) for l in lures]
     for _ in range(frames):
         blood = swarm.tick(lures, player, is_solid, blood)
     return blood
@@ -27,7 +31,7 @@ def test_the_personal_glow_pulls_only_from_close():
     """Standing still in the dark is a reprieve, not a hiding place."""
     glow = S.Glow()
     glow.x, glow.y = 10, 10
-    assert glow.lure() == (10, 10, S.GLOW_REACH)
+    assert glow.lure() == (10, 10, S.GLOW_REACH, S.LURE_GLOW)
     assert S.GLOW_REACH < S.FAR
 
     # A fly with every reason to come still cannot notice you from across it.
@@ -44,7 +48,7 @@ def test_a_burning_spotlight_attracts_and_a_dark_one_does_not():
     cone.x, cone.y = 10, 10
     assert cone.lure() is None, "switched off, so nothing to come to"
     cone.enabled = True
-    assert cone.lure() == (10, 10, S.FAR)
+    assert cone.lure() == (10, 10, S.FAR, S.LURE_TORCH)
     cone.power = 0
     assert cone.lure() is None, "out of power is out of bait"
 
@@ -54,22 +58,22 @@ def test_the_cone_lures_to_the_player_not_to_the_wedge():
     cone = S.Cone(reach=6, power=100)
     cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
     cone.enabled = True
-    assert cone.lure() == (10, 10, S.FAR)
+    assert cone.lure() == (10, 10, S.FAR, S.LURE_TORCH)
     assert (14, 10) in cone.cells(), "the wedge really is out in front"
 
 
 def test_a_room_light_and_a_searchlight_both_attract():
     room = S.RoomLight(4, 4, 4, 2)
-    assert room.lure() == (6, 5, S.FAR)
+    assert room.lure() == (6, 5, S.FAR, S.LURE_ROOM)
     beam = S.Roaming(15, 10, radius=2, mode=S.Roaming.DRIFT)
-    assert beam.lure() == (15, 10, S.FAR)
+    assert beam.lure() == (15, 10, S.FAR, S.LURE_BEAM)
 
 
 def test_a_spotlight_left_burning_on_the_floor_is_bait():
     lit = FloorLight(5, 5, power=100, lit=True)
     dark = FloorLight(9, 9, power=100, lit=False)
     kit = Spotlights(S.Cone(), [lit, dark])
-    assert kit.floor_lures() == [(5, 5, S.FAR)]
+    assert kit.floor_lures() == [(5, 5, S.FAR, S.LURE_FLOOR)]
 
 
 # --- attraction ------------------------------------------------------------
@@ -467,8 +471,8 @@ def test_keenness_is_capped():
 
 def test_hunger_only_helps_with_faint_light():
     """A bright light already carries further than any Cleg can notice."""
-    faint = [(20, 10, 2)]
-    bright = [(20, 10, S.FAR)]
+    faint = [(20, 10, 2, S.LURE_GLOW)]
+    bright = [(20, 10, S.FAR, S.LURE_TORCH)]
     assert C.Swarm.nearest_lure(28, 10, faint, within=30) is None
     assert C.Swarm.nearest_lure(28, 10, faint, within=30, keenness=8) == (20, 10)
     # The bright one was already noticed, and stays noticed. No change.
@@ -477,7 +481,7 @@ def test_hunger_only_helps_with_faint_light():
 
 def test_a_cleg_cannot_notice_past_its_own_range_however_hungry():
     """Hunger sharpens the senses; it does not grant omniscience."""
-    assert C.Swarm.nearest_lure(28, 10, [(20, 10, 2)], within=4,
+    assert C.Swarm.nearest_lure(28, 10, [(20, 10, 2, S.LURE_GLOW)], within=4,
                                 keenness=99) is None
 
 
@@ -635,3 +639,122 @@ def test_detaching_nobody_is_not_an_error():
     swarm = C.Swarm([C.Cleg(2, 2), C.Cleg(9, 9)])
     assert swarm.detach(OPEN) == 0
     assert len(swarm.clegs) == 2
+
+
+# --- every bite is billed to the lure that caused it (issue #22) ------------
+
+def _lure(cell, kind, reach=None):
+    return (cell[0], cell[1], S.FAR if reach is None else reach, kind)
+
+
+def test_a_cleg_records_the_source_it_acquired_at_acquisition():
+    cleg = C.Cleg(20, 4, seed=0xBEEF)
+    cleg.notice = 30
+    swarm = C.Swarm([cleg])
+    assert cleg.goal_source == S.LURE_NONE, "nothing has lured it yet"
+    swarm.tick([_lure((20, 10), S.LURE_BEAM)], (0, 0), OPEN, 64)
+    assert cleg.goal == (20, 10)
+    assert cleg.goal_source == S.LURE_BEAM
+
+
+def test_the_source_survives_the_fly_changing_its_mind():
+    """**The whole point of the hook**, and the thing that is easy to build the
+    wrong way.
+
+    A Cleg that crossed the room for the searchlight and then found the player
+    in the dark is the beam's kill. A hunting fly re-takes its goal on every
+    frame it can notice a light, and one cell from the player the nearest light
+    it can notice is nearly always the player's own glow -- so billing the
+    latest acquisition would put almost every bite in the game on the glow and
+    measure a coincidence rather than the game.
+    """
+    cleg = C.Cleg(20, 4, seed=0xBEEF)
+    cleg.notice = 30
+    swarm = C.Swarm([cleg])
+    swarm.tick([_lure((20, 20), S.LURE_BEAM)], (0, 0), OPEN, 64)
+    assert cleg.goal_source == S.LURE_BEAM
+
+    # Now the player's glow is much the nearer light. It changes where the fly
+    # is going; it does not change what brought it.
+    for _ in range(C.STEP_EVERY * 8):
+        swarm.tick([_lure((20, 20), S.LURE_BEAM),
+                    _lure((20, 5), S.LURE_GLOW, reach=S.GLOW_REACH + 12)],
+                   (20, 5), OPEN, 64)
+    assert cleg.goal_source == S.LURE_BEAM, "the glow only closed the gap"
+    assert cleg.state == C.ATTACHED
+    assert swarm.bites_by_source[S.LURE_BEAM] == 1
+    assert swarm.bites_by_source[S.LURE_GLOW] == 0
+
+
+def test_a_fly_that_arrived_and_then_blundered_onto_you_is_still_billed():
+    """It walked across the room for the beam, got where it was going, found
+    nothing there and stumbled onto a dark player. That is the beam's kill and
+    not nobody's."""
+    cleg = C.Cleg(20, 10, seed=0xBEEF)
+    cleg.goal, cleg.goal_source = None, S.LURE_BEAM
+    swarm = C.Swarm([cleg])
+    swarm.tick([], (20, 10), OPEN, 64)
+    assert cleg.state == C.ATTACHED
+    assert swarm.bites_by_source[S.LURE_BEAM] == 1
+
+
+def test_a_new_journey_takes_a_new_source():
+    """The source moves when the fly sets off again from a standing start.
+
+    Rejected alternative, recorded because it is the obvious other answer:
+    keeping the first lure since the last meal for ever. That bills a fly to
+    something it walked to, arrived at and left forty cells and twenty seconds
+    ago, which is not the journey that killed anybody.
+    """
+    cleg = C.Cleg(20, 10, seed=0xBEEF)
+    cleg.notice = 30
+    cleg.goal, cleg.goal_source = None, S.LURE_BEAM
+    swarm = C.Swarm([cleg])
+    swarm.tick([_lure((24, 10), S.LURE_TORCH)], (0, 0), OPEN, 64)
+    assert cleg.goal_source == S.LURE_TORCH
+
+
+def test_feeding_closes_the_account():
+    swarm = C.Swarm([C.Cleg(20, 10, seed=0xBEEF)])
+    cleg = swarm.clegs[0]
+    _run(swarm, [(20, 10)], player=(20, 10),
+         frames=C.DRAIN_EVERY * C.DRAIN_TOTAL + 2)
+    assert cleg.state == C.SATED
+    assert cleg.goal_source == S.LURE_NONE, "a meal closes the account"
+
+
+def test_blood_and_bites_add_up_to_what_was_taken():
+    """The buckets are the whole of it: nothing is drained off the books."""
+    swarm = C.Swarm([C.Cleg(20 + i, 10, seed=0xBEEF + i) for i in range(4)])
+    for cleg in swarm.clegs:
+        cleg.notice = 30
+    blood = 10 ** 6
+    start = blood
+    for _ in range(C.STEP_EVERY * 60):
+        blood = swarm.tick(_lures((20, 10)), (20, 10), OPEN, blood)
+    assert sum(swarm.blood_by_source) == start - blood
+    assert sum(swarm.bites_by_source) == swarm.attachments
+
+
+def test_the_billing_is_never_read_back_by_the_swarm():
+    """A record, not an input. A Cleg that knew which lure had paid best would
+    be a different and much more expensive animal.
+
+    Scrambling the field every frame changes nothing about where anybody goes,
+    which is what makes the hook safe to measure with.
+    """
+    def play(scramble):
+        swarm = C.Swarm([C.Cleg(20 + i, 6 + i, seed=0xBEEF + i)
+                         for i in range(6)])
+        for cleg in swarm.clegs:
+            cleg.notice = 12
+        blood, where = 10 ** 6, []
+        for frame in range(C.STEP_EVERY * 80):
+            blood = swarm.tick(_lures((20, 10)), (20, 10), OPEN, blood)
+            if scramble:
+                for i, cleg in enumerate(swarm.clegs):
+                    cleg.goal_source = (frame + i) % S.LURE_KINDS
+            where.append([(c.cx, c.cy, c.state) for c in swarm.clegs])
+        return blood, where
+
+    assert play(False) == play(True)

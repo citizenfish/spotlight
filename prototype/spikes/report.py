@@ -26,7 +26,7 @@ counts rather than people, which is exactly why a run could report four workers
 
 from spotlight.core.constants import COLS
 
-from . import rescue as rescue_mod, scene, session as session_mod
+from . import rescue as rescue_mod, scene, session as session_mod, sources
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
 
@@ -180,7 +180,18 @@ def metrics(run) -> dict:
     def when(kind):
         return _seconds(first[kind]) if kind in first else None
 
+    # What each lure cost, at the point of attachment rather than inferred
+    # from timing (issue #22). Flat scalars with the bucket in the key, so
+    # blood-by-lure tabulates across seeds like everything else here. The
+    # `_none` bucket is bites nothing lured -- a fly that fed, lost interest,
+    # and blundered back onto the player -- and it is an answer, not a gap.
+    by_lure = {}
+    for kind, lure in enumerate(sources.LURE_NAMES):
+        by_lure[f"blood_by_{lure}"] = run.swarm.blood_by_source[kind]
+        by_lure[f"bites_by_{lure}"] = run.swarm.bites_by_source[kind]
+
     return {
+        **by_lure,
         "frames": run.frame,
         "seconds": run.seconds,
         "workers_total": run.total,

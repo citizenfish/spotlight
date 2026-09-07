@@ -124,15 +124,21 @@ class Spotlights:
 
     # --- what Clegs steer for ----------------------------------------------
 
-    def floor_lures(self) -> list[tuple[int, int, int]]:
+    def floor_lures(self) -> list[tuple[int, int, int, int]]:
         """Every spotlight burning on the ground, and how far it carries.
 
         A light on the floor pulls exactly as hard as one in your hand, which
         is the whole of baiting: leave one burning, walk away in the dark, and
         the swarm goes to it instead of to you.
+
+        Billed to its own bucket rather than to the carried torch (issue #22).
+        Bait you left behind on purpose and a light burning in your hand are
+        the same lure to a Cleg and completely different decisions to a player,
+        so a report that could not tell them apart would be measuring the wrong
+        thing.
         """
-        from .sources import FAR
-        return [(l.cx, l.cy, FAR) for l in self.floor if l.burning]
+        from .sources import FAR, LURE_FLOOR
+        return [(l.cx, l.cy, FAR, LURE_FLOOR) for l in self.floor if l.burning]
 
     # --- lighting ----------------------------------------------------------
 
