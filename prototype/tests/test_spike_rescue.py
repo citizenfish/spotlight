@@ -521,3 +521,48 @@ def test_a_body_lies_on_screen_for_its_whole_window():
         assert (body.x, body.y) == where, "the body moved"
         assert body in rescue.bodies()
     assert rescue.waiting > 0, "the room emptied before the window elapsed"
+
+
+# --- a death can now come from two directions (issue #19) ------------------
+
+def test_a_death_is_counted_once_whichever_way_it_arrives():
+    """A Cleg kills in `Swarm.tick`; the clock kills in `Rescue.tick`, later in
+    the same frame. `reap` is the one place that notices either, so a death
+    cannot be counted twice or missed by whichever killer forgot to report it.
+    """
+    rescue = R.Rescue([(80, 48), (160, 96)])
+    bitten, bled = rescue.workers
+    bitten.bitten(bitten.blood)                  # a fly drank them dry
+    assert bitten.state == R.DEAD
+    assert rescue.tick() == [bitten]
+    assert rescue.tick() == [], "the same death was counted twice"
+    assert rescue.died == [bitten] and rescue.lost == 1
+
+    bled.blood = 1
+    for _ in range(R.BLEED_EVERY):
+        rescue.tick()
+    assert rescue.died == [bitten, bled] and rescue.lost == 2
+    assert rescue.settled is False or rescue.saved == 0
+
+
+def test_a_bite_death_and_a_clock_death_have_the_same_frame_zero():
+    """One frame, and nobody could see it -- but the body's age is what the
+    nest window will be measured in, so an off-by-one nobody can perceive today
+    is one somebody builds on tomorrow.
+    """
+    bitten = R.Worker(80, 48, blood=1)
+    bled = R.Worker(80, 48, blood=1)
+    bitten.bitten(1)                    # killed before the frame's tick
+    bitten.tick()                       # ...and then the frame ticks
+    for _ in range(R.BLEED_EVERY):
+        bled.tick()                     # killed by the tick itself
+    assert bitten.state == bled.state == R.DEAD
+    assert bitten.calling(0) and bled.calling(0)
+    for _ in range(R.CALL_FRAMES - 1):
+        bitten.tick()
+        bled.tick()
+    assert bitten.calling(0) == bled.calling(0) is True
+    bitten.tick()
+    bled.tick()
+    assert bitten.calling(0) == bled.calling(0) is False
+

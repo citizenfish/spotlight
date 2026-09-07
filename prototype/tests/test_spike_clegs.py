@@ -797,3 +797,220 @@ def test_halving_the_hunger_cap_changes_no_measured_number():
 
     for seed in (1, 2, 3):
         assert play(6, seed) == play(12, seed), f"seed {seed}"
+
+
+# --- a lit person is prey, and the player is not the only person (issue #19) -
+#
+# **The thing that was wrong.** `Swarm.tick` never saw a worker at all, so a
+# follower in the light was in no danger, the tail was a rucksack rather than a
+# liability, and the choice the whole design rests on -- turn to check your line
+# and you expose it -- did not exist in the build. These pin the mechanism; the
+# session tests pin it happening in a real run.
+
+
+class Person:
+    """The smallest thing a Cleg can feed on, for testing the swarm alone.
+
+    `Worker` is the real one. This exists so that the swarm's side of the
+    contract is stated in one place and tested without dragging the clock, the
+    tail and the exit in with it. Anything with `cells`, `cell`, `bitten` and
+    `alive` is prey.
+    """
+
+    def __init__(self, cx, cy, blood=8):
+        self.cx, self.cy = cx, cy
+        self.blood = blood
+        self.hits = 0
+
+    def cells(self):
+        return {(self.cx, self.cy)}
+
+    def cell(self):
+        return self.cx, self.cy
+
+    @property
+    def alive(self):
+        return self.blood > 0
+
+    def bitten(self, amount=1):
+        self.blood = max(0, self.blood - amount)
+        self.hits += amount
+        return self.blood == 0
+
+
+def test_a_cleg_that_reaches_a_lit_person_attaches_to_them():
+    """The mechanism, at its smallest. A fly steered onto somebody who is not
+    the player lands on them and starts drinking."""
+    victim = Person(12, 10)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.state == C.ATTACHED
+    assert cleg.victim is victim
+    assert swarm.bitten == [victim]
+    assert swarm.victim_attachments == 1
+
+
+def test_a_person_in_the_dark_is_not_prey_at_all():
+    """**The asymmetry is the mechanic.** The session decides who is lit, so
+    "in the dark" is simply not being in the prey list -- and a fly standing on
+    somebody it cannot see walks over them."""
+    victim = Person(12, 10)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[])
+    assert cleg.state == C.HUNTING
+    assert cleg.victim is None
+    assert victim.blood == 8
+
+
+def test_a_bite_costs_a_worker_the_same_as_it_costs_the_player():
+    """DRAIN_TOTAL points at one every DRAIN_EVERY frames, then it leaves.
+
+    Same numbers, different pocket: a point of a worker's blood is
+    `rescue.BLEED_EVERY` frames of their life, so a full meal is a real bite
+    out of the clock rather than a scratch.
+    """
+    victim = Person(12, 10, blood=99)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1)])
+    for _ in range(C.DRAIN_EVERY * C.DRAIN_TOTAL + 2):
+        swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert victim.hits == C.DRAIN_TOTAL
+    assert swarm.clegs[0].state == C.SATED, "a fed fly leaves"
+    assert swarm.clegs[0].victim is None
+    assert swarm.victim_blood == C.DRAIN_TOTAL
+
+
+def test_a_worker_can_be_drunk_to_death():
+    """Which is the whole point: a lit follower can be killed on the way out."""
+    victim = Person(12, 10, blood=3)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1)])
+    for _ in range(C.DRAIN_EVERY * 4):
+        swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert not victim.alive
+    assert swarm.victim_blood == 3, "it cannot take more than they had"
+
+
+def test_a_fly_whose_host_dies_goes_back_to_hunting_rather_than_sated():
+    """It has not had a meal, so it does not get a meal's ten seconds off.
+
+    The opposite choice is defensible for the *player* -- `detach` sates them,
+    because a fly on a dying player has had the whole blood budget -- and it is
+    wrong here for exactly that reason: a fly on a worker has taken at most
+    eight points off a clock that was already running out. Sating it would hand
+    the player a reprieve in exchange for a death.
+    """
+    victim = Person(12, 10, blood=1)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    for _ in range(C.DRAIN_EVERY + 1):
+        swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert not victim.alive
+    assert cleg.state == C.HUNTING and cleg.victim is None
+
+
+def test_an_attached_fly_rides_the_person_it_is_on():
+    """Running does not help a worker either. It is on them, and it is drawn on
+    them rather than at the spot where it landed."""
+    victim = Person(12, 10, blood=99)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.state == C.ATTACHED
+    victim.cx, victim.cy = 20, 4
+    swarm.tick([], (30, 20), OPEN, 64, prey=[victim])
+    assert (cleg.cx, cleg.cy) == (20, 4)
+
+
+def test_the_player_is_prey_lit_or_not_and_everybody_else_is_not():
+    """Contact is contact for the player -- their own glow is a light they
+    cannot switch off -- and darkness is what protects the people behind them.
+    Both rules, in one test, because they are one rule read twice."""
+    victim = Person(12, 10)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1), C.Cleg(20, 20, seed=2)])
+    swarm.tick([], (20, 20), OPEN, 64, prey=[])
+    assert swarm.clegs[1].state == C.ATTACHED, "the player is always prey"
+    assert swarm.clegs[0].state == C.HUNTING, "the worker is in the dark"
+
+
+def test_a_worker_bite_moves_none_of_the_player_counters():
+    """**The player being bitten is unchanged**, and it is the criterion most
+    easily broken by accident. Every phase-2 baseline is stated in
+    `attachments`, in the frame of the first `BITTEN` event, and in the
+    per-lure billing from issue #22 -- so a worker being eaten must not appear
+    in any of them. Worker blood is a different currency: a point is two
+    seconds of somebody's life, not a pip of eight.
+    """
+    victim = Person(12, 10, blood=99)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1)])
+    for _ in range(C.DRAIN_EVERY * 3):
+        swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert victim.hits > 0, "the test is worthless if nothing was bitten"
+    assert swarm.attachments == 0
+    assert swarm.drained == 0
+    assert sum(swarm.bites_by_source) == 0
+    assert sum(swarm.blood_by_source) == 0
+    assert swarm.on_player() == []
+
+
+def test_the_players_blood_is_untouched_by_a_fly_on_a_worker():
+    victim = Person(12, 10, blood=99)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1)])
+    blood = 64
+    for _ in range(C.DRAIN_EVERY * 3):
+        blood = swarm.tick(_lures((12, 10)), (30, 20), OPEN, blood,
+                           prey=[victim])
+    assert blood == 64
+
+
+def test_bleeding_out_does_not_shake_the_flies_off_your_followers():
+    """`detach` is about the player's death and only the player's death.
+
+    Scattering a fly that is riding a follower would teleport it across the
+    room to the cell you fell on, which is not where it was.
+    """
+    victim = Person(12, 10, blood=99)
+    on_worker = C.Cleg(12, 10, seed=1)
+    on_player = C.Cleg(30, 20, seed=2)
+    swarm = C.Swarm([on_worker, on_player])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert on_worker.state == on_player.state == C.ATTACHED
+
+    assert swarm.detach(OPEN) == 1, "only the one on the player comes off"
+    assert on_worker.state == C.ATTACHED and on_worker.victim is victim
+    assert on_player.state == C.SATED
+
+
+def test_the_spray_does_not_reach_a_fly_that_has_already_landed_on_anybody():
+    """The rule is *landed*, not *landed on you*: once it is on, the damage is
+    decided and the whole defensive game happened before contact."""
+    victim = Person(12, 10, blood=99)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.state == C.ATTACHED
+    assert swarm.sprayable() == []
+
+
+def test_several_flies_can_feed_on_one_worker_at_once():
+    """As they can on the player. A swarm that reaches somebody is far worse
+    than one Cleg arriving four times."""
+    victim = Person(12, 10, blood=99)
+    swarm = C.Swarm([C.Cleg(12, 9, seed=1), C.Cleg(12, 11, seed=2),
+                     C.Cleg(11, 10, seed=3)])
+    for _ in range(40):
+        swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert len(swarm.attached()) >= 2, \
+        [c.state for c in swarm.clegs]
+
+
+def test_the_prey_map_is_built_once_and_covers_the_whole_figure():
+    """A person is 8x16, so they straddle two or three cells and a fly landing
+    on any of them has landed on them. It is a map rather than a search because
+    a Cleg must never acquire one."""
+    class Tall(Person):
+        def cells(self):
+            return {(self.cx, self.cy), (self.cx, self.cy - 1)}
+
+    victim = Tall(12, 10)
+    assert C.Swarm.prey_cells([victim]) == {(12, 10): victim, (12, 9): victim}

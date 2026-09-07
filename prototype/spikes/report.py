@@ -205,6 +205,17 @@ def metrics(run) -> dict:
             sum(c for f, c in drained if minute < f <= 2 * minute),
         "attachments": run.tally.attachments,
         "first_attachment_seconds": when(session_mod.BITTEN),
+        # What the swarm took off everybody who is not the player (issue #19),
+        # in its own columns. Kept out of `attachments` and `blood_lost` on
+        # purpose: those are the player's, every phase-2 baseline is stated in
+        # them, and a worker's blood is a different currency anyway -- a point
+        # is `rescue.BLEED_EVERY` frames of somebody's life rather than a pip
+        # of eight. Target T9 (*the doorway must cost*) is asked of these.
+        "worker_bites": run.swarm.victim_attachments,
+        "worker_blood_lost": run.swarm.victim_blood,
+        "first_worker_bite_seconds": when(session_mod.WORKER_BITTEN),
+        "followers_lost": sum(
+            1 for r in people(run) if r["outcome"] == DIED_FOLLOWING),
         "tries_lost": session_mod.LIVES - run.lives,
         "first_try_lost_seconds": when(session_mod.LIFE_LOST),
         "torch_seconds": run.tally.lit_seconds,

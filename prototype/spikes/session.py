@@ -92,6 +92,11 @@ FREED = "freed"
 DELIVERED = "delivered"
 WORKER_DIED = "worker_died"
 BITTEN = "bitten"
+#: A Cleg landed on somebody who is not the player (issue #19). Its own kind
+#: rather than a `BITTEN` with a `who`, because every phase-2 baseline is stated
+#: in the count of `BITTEN` events and in the frame of the first one, and a
+#: worker being bitten must not move either of them.
+WORKER_BITTEN = "worker_bitten"
 LIFE_LOST = "life_lost"
 SPRAY_KILL = "spray_kill"
 #: Blood taken this frame. Recorded because difficulty target T8 asks what the
@@ -273,6 +278,39 @@ class Session:
         """out + died + still inside == everybody. Cheap enough to assert."""
         return self.rescued + self.lost + self.inside == self.total
 
+    def _lit_people(self) -> list:
+        """Everybody except the player who is **plainly lit** this frame.
+
+        The swarm's prey list (issue #19). Three things it is careful about:
+
+        * **It is the same test that decides whether a person is drawn.**
+          `LightField.prey_at` is what `draw` uses through `reveals_at`, one
+          step stricter: a person a *lit* revealing light is on, not one merely
+          glimpsed in your own dim glow. So *if you can see them, so can the
+          flies*, and the player is never surprised by a rule they cannot
+          observe. Room lights are excluded by `prey_at` itself and
+          deliberately: they show the room and not who is in it, to Clegs
+          exactly as to the player.
+        * **It reads last frame's field**, because `_light()` runs at the end of
+          `step` -- the swarm reacts to the light the player was standing in
+          when they last saw it, which is a frame of lag nobody can perceive and
+          the honest reading of "what was lit". It also means nobody is prey on
+          frame one, before any light has been cast.
+        * **Waiting workers count too**, not only followers. Somebody standing
+          in the searchlight's path, or beside a spotlight left burning on the
+          floor, is prey where they stand. That is the same baiting the design
+          already has, with a person in the middle of it.
+        """
+        lit = []
+        for worker in self.rescue.workers:
+            if not worker.alive:
+                continue
+            for cx, cy in worker.cells():
+                if self.field.prey_at(cx, cy):
+                    lit.append(worker)
+                    break
+        return lit
+
     # --- one frame ---------------------------------------------------------
 
     def step(self, intent: Intent = IDLE) -> list[Event]:
@@ -314,10 +352,14 @@ class Session:
         lures = [p for p in (s.lure() for s in self.all_sources)
                  if p is not None]
         lures += self.kit.floor_lures()
-        was_attached = len(self.swarm.attached())
+        was_attached = len(self.swarm.on_player())
         self.blood = self.swarm.tick(lures, (self.player.cx, self.player.cy),
                                      scene.is_solid, self.blood,
-                                     is_sprayed=self.spray.covers)
+                                     is_sprayed=self.spray.covers,
+                                     prey=self._lit_people())
+        for victim in self.swarm.bitten:
+            self._record(WORKER_BITTEN, who=self._index[id(victim)],
+                         count=1, room=room)
         # Spray reaches everything except a Cleg already on you.
         killed = self.swarm.kill(self.spray.kills(self.swarm.sprayable()))
         if killed:
@@ -344,7 +386,7 @@ class Session:
             self.tally.found = self.rescue.saved
             self.panel.set("rescued", self.rescue.saved)
 
-        now_attached = len(self.swarm.attached())
+        now_attached = len(self.swarm.on_player())
         if now_attached > was_attached:
             bites = now_attached - was_attached
             self.tally.attachments += bites

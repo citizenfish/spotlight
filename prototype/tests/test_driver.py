@@ -215,11 +215,18 @@ def test_the_human_log_names_where_somebody_was():
 
 def test_the_human_log_calls_out_a_follower_who_died():
     """Somebody who died while you were leading them out is a different story
-    from somebody you never reached, and it is the one the design is about."""
-    run = driver.drive(bots.make("wanderer", seed=4), seed=4)
+    from somebody you never reached, and it is the one the design is about.
+
+    **Seed 6 rather than seed 4 since issue #19.** Seed 4 was chosen when the
+    only way to lose a follower was the clock, and with Clegs able to bite a lit
+    one the run diverges long before its first death. Seed 6 loses three of them
+    in the tail; the seed is picked for the story it tells, not for the number
+    it is.
+    """
+    run = driver.drive(bots.make("wanderer", seed=6), seed=6)
     people = report.people(run)
     assert any(p["outcome"] == report.DIED_FOLLOWING for p in people), \
-        "seed 4 is chosen because somebody dies in the tail"
+        "seed 6 is chosen because somebody dies in the tail"
     text = " ".join(report.human(run, bot="wanderer"))
     assert "following you" in text
 

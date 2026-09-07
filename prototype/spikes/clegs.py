@@ -29,6 +29,19 @@ Once a Cleg is on you the damage is already decided. It cannot be shaken off and
 the flyspray does not touch it. The whole defensive game happens *before*
 contact -- in where you stand, what you light, and where you laid spray.
 
+**A lit person is prey, and the player is not the only person.** Issue #19: the
+swarm never saw a worker, so a follower in the light was in no danger and the
+choice the tail is built on -- turn to check your line and you expose it -- did
+not exist in the build. It is not a second rule; it is the one rule read
+honestly. *Trapped Workers* has it: "a worker trailing you through darkness is
+ignored, and one standing in your cone is prey."
+
+The asymmetry is the mechanic and not an implementation detail. **Darkness
+protects the tail; light endangers it.** So a Cleg finds a worker exactly where
+a *player* would see one -- see `Swarm.tick`'s `prey` argument, which the
+session fills from the same `LightField.prey_at` the drawing uses. If you can
+see them, so can the flies.
+
 No pathfinding, and nothing here should ever acquire any. A Cleg steers for the
 nearest lit source by comparing squared distances -- a handful of integer
 subtractions per Cleg per step -- and slides along a wall it cannot pass. A fly
@@ -255,13 +268,21 @@ class Cleg:
     """One fly. Position is a cell; Clegs do not need pixel placement."""
 
     __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "goal_source",
-                 "kind", "flank", "step_every", "hunger", "heading", "_run",
-                 "_timer", "_tick", "_seed")
+                 "kind", "flank", "step_every", "hunger", "heading", "victim",
+                 "_run", "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
         self.state = HUNTING
         self.taken = 0            # blood drawn during the current attachment
+        #: **Who it is on**, and `None` means the player (issue #19). One byte
+        #: on the Z80 -- an index into the building's people, with zero for the
+        #: player -- and it is the only thing that has to be remembered to let a
+        #: fly feed on somebody who is not you. It is `None` rather than an
+        #: index here because the player is passed to `tick` as a bare cell and
+        #: a worker as an object; that asymmetry is deliberate, so that the
+        #: player's path through this file is byte-for-byte what it was.
+        self.victim = None
         self._timer = 0
         self._tick = 0
         self._seed = seed or 1
@@ -430,6 +451,22 @@ class Swarm:
         self.bites_by_source = [0] * LURE_KINDS
         self.blood_by_source = [0] * LURE_KINDS
 
+        # --- what the swarm took off somebody who is not the player --------
+        #
+        # Kept apart from the four counters above **on purpose**. The vault
+        # quotes "184-192 of a dark Statue's 192 points of blood are the
+        # searchlight's" and the whole value of that figure is that it is a
+        # measurement of what the *player* paid; folding a worker's blood into
+        # the same buckets would silently invalidate every number taken with
+        # the #22 hook. Worker blood is a different currency anyway -- a point
+        # is `rescue.BLEED_EVERY` frames of somebody's life, not a pip of eight.
+        #: Victims that gained a fly this frame, for the session to log.
+        self.bitten: list = []
+        #: Blood taken off non-player victims: this frame, and in all.
+        self.victim_drained = 0
+        self.victim_blood = 0
+        self.victim_attachments = 0
+
     # --- the one rule ------------------------------------------------------
 
     @staticmethod
@@ -498,13 +535,51 @@ class Swarm:
         taken.discard(player_cell)
         return taken
 
+    @staticmethod
+    def prey_cells(prey) -> dict:
+        """cell -> the lit person standing in it.
+
+        `prey` is whoever is **plainly lit this frame and not the player**: see
+        `Session._lit_people`, which builds it from `LightField.prey_at`, the
+        same test that decides whether a person is drawn at all. A person in
+        darkness is not in this map and is therefore ignored, which is the
+        whole of the tail's tension (issue #19).
+
+        Built once a frame rather than asked per fly, because a fly must not
+        acquire a search: this is at most seven people times the three cells an
+        8x16 figure straddles, and the swarm then does one dictionary lookup
+        each. On the Z80 it is a short list of (cell, person) pairs walked
+        linearly, which for a handful of entries is cheaper than a hash.
+
+        Later people win a shared cell. Two figures standing in the same square
+        is rare and either answer is defensible; what matters is that it is
+        decided here rather than by iteration order somewhere else.
+        """
+        cells = {}
+        for person in prey:
+            for cell in person.cells():
+                cells[cell] = person
+        return cells
+
     def tick(self, lures, player_cell, is_solid, blood: int,
-             is_sprayed=None) -> int:
-        """Advance every Cleg. Returns blood remaining.
+             is_sprayed=None, prey=()) -> int:
+        """Advance every Cleg. Returns the **player's** blood remaining.
 
         `lures` is the cells of every light currently attracting -- see
         `sources.Source.lure`. An empty list means nothing is lit above a glow,
         and the swarm loses interest and blunders.
+
+        `prey` is every *lit* person who is not the player (issue #19). They
+        are bitten on the same terms the player is -- `DRAIN_TOTAL` points at
+        one every `DRAIN_EVERY` frames, then the fly is sated and leaves -- and
+        a worker who runs out of blood under a fly dies of it, which is how a
+        follower can be lost on the walk to the exit.
+
+        **The player is prey whether lit or not; everybody else is prey only
+        while lit.** That is not an inconsistency, it is the asymmetry the
+        design is built on: your own glow is a light you cannot switch off, so
+        contact is contact for you, and darkness is what protects the people
+        behind you. Turning to look at them is what gets them eaten.
 
         **A Cleg that ends up in your cell attaches, lit or not.** It does not
         have to see you to land on you.
@@ -523,14 +598,22 @@ class Swarm:
         ground against them -- it just no longer kills them for free.
         """
         self.drained = 0
+        self.victim_drained = 0
+        self.bitten = []
+        victims = self.prey_cells(prey)
         taken = self._elbow_room(player_cell)
         for cleg in self.clegs:
             if cleg.state == ATTACHED:
-                # It is on you, so it goes where you go. Walking away does not
-                # leave it behind draining you from across the room, and it is
-                # drawn on you rather than at the spot where it landed.
-                cleg.cx, cleg.cy = player_cell
-                blood = self._drain(cleg, blood)
+                # It is on whoever it landed on, so it goes where they go.
+                # Walking away does not leave it behind draining you from
+                # across the room, and it is drawn on the host rather than at
+                # the spot where it landed. A follower who runs is carrying it
+                # too.
+                if cleg.victim is None:
+                    cleg.cx, cleg.cy = player_cell
+                    blood = self._drain(cleg, blood)
+                else:
+                    self._ride(cleg)
                 continue
             cleg._tick += 1
             if cleg.state == SATED:
@@ -560,6 +643,10 @@ class Swarm:
             if (cleg.cx, cleg.cy) == player_cell:
                 self._attach(cleg)
                 continue
+            here_victim = victims.get((cleg.cx, cleg.cy))
+            if here_victim is not None:
+                self._attach(cleg, here_victim)
+                continue
             if cleg._tick < (cleg.step_every if target else DRIFT_EVERY):
                 continue
             cleg._tick = 0
@@ -577,15 +664,30 @@ class Swarm:
                     cleg.goal = None
                 if (cleg.cx, cleg.cy) == player_cell:
                     self._attach(cleg)
+                else:
+                    stepped_onto = victims.get((cleg.cx, cleg.cy))
+                    if stepped_onto is not None:
+                        self._attach(cleg, stepped_onto)
             taken.add((cleg.cx, cleg.cy))
         return blood
 
-    def _attach(self, cleg: Cleg) -> None:
+    def _attach(self, cleg: Cleg, victim=None) -> None:
+        """Land on somebody. `victim` of `None` is the player.
+
+        The player's counters are the ones every phase-2 baseline is stated in,
+        so a bite on a worker is counted separately and is billed to no lure at
+        all -- see `__init__`.
+        """
         cleg.state = ATTACHED
+        cleg.victim = victim
         cleg.taken = 0
         cleg._timer = 0
-        self.attachments += 1
-        self._bill(cleg, bites=1)
+        if victim is None:
+            self.attachments += 1
+            self._bill(cleg, bites=1)
+        else:
+            self.victim_attachments += 1
+            self.bitten.append(victim)
 
     def _bill(self, cleg: Cleg, bites: int = 0, blood: int = 0) -> None:
         """Charge a bite or a point of blood to whatever lured this fly here.
@@ -596,6 +698,58 @@ class Swarm:
         """
         self.bites_by_source[cleg.goal_source] += bites
         self.blood_by_source[cleg.goal_source] += blood
+
+    def _ride(self, cleg: Cleg) -> None:
+        """One frame of a fly attached to somebody who is not the player.
+
+        The same clock and the same appetite as `_drain` -- *"bites cost the
+        victim blood on the same terms the player is bitten on"* -- against a
+        different pocket. A point of a worker's blood is `rescue.BLEED_EVERY`
+        frames of their life, so a full meal of `DRAIN_TOTAL` is a real bite out
+        of the clock rather than a scratch, and it is what lets a follower die
+        on the walk to the exit.
+
+        **A host that stops being a host loses the fly**, and the fly is *not*
+        sated by it: it goes back to hunting with its hunger where it was. Two
+        cases, and neither is a reward for the player. A worker who dies under a
+        fly has been drunk down to nothing and there is nothing left to take, so
+        sating the fly would hand the player ten seconds of drift for a death.
+        A worker who reaches the exit walks out of the building, which should
+        not feed anything either.
+
+        Rejected, and recorded because it is the obvious alternative: sating the
+        fly on the victim's death, by analogy with `detach` and issue #27. It is
+        wrong here for the reason that made it right there -- a fly on a dying
+        *player* has taken a whole blood budget, and a fly on a worker has taken
+        at most eight points of a clock that was already running out.
+        """
+        victim = cleg.victim
+        if not victim.alive:
+            self._lose_host(cleg)
+            return
+        cleg.cx, cleg.cy = victim.cell()
+        cleg._timer += 1
+        if cleg._timer < DRAIN_EVERY:
+            return
+        cleg._timer = 0
+        victim.bitten(1)
+        cleg.taken += 1
+        self.victim_drained += 1
+        self.victim_blood += 1
+        if not victim.alive:
+            self._lose_host(cleg)
+        elif cleg.taken >= DRAIN_TOTAL:
+            self._sate(cleg)
+
+    @staticmethod
+    def _lose_host(cleg: Cleg) -> None:
+        """The thing it was feeding on is gone. Back to hunting, still hungry."""
+        cleg.state = HUNTING
+        cleg.victim = None
+        cleg.taken = 0
+        cleg._timer = 0
+        cleg._tick = 0
+        cleg.goal = None
 
     def _drain(self, cleg: Cleg, blood: int) -> int:
         """An attached Cleg takes its fixed amount, then leaves of its own
@@ -626,6 +780,7 @@ class Swarm:
         is standing in and biting again for ever.
         """
         cleg.state = SATED
+        cleg.victim = None
         cleg._timer = SATED_FRAMES
         cleg._tick = 0
         cleg.goal = None
@@ -647,10 +802,15 @@ class Swarm:
         nowhere free stays exactly where it is: it may be inconvenient, it is
         never deleted.
         """
-        freed = [c for c in self.clegs if c.state == ATTACHED]
+        # **Only the flies on the player.** One on a follower is not riding the
+        # person who just bled out, and scattering it would teleport it across
+        # the room to the spot where you fell (issue #19).
+        freed = [c for c in self.clegs
+                 if c.state == ATTACHED and c.victim is None]
         if not freed:
             return 0
-        taken = {(c.cx, c.cy) for c in self.clegs if c.state != ATTACHED}
+        taken = {(c.cx, c.cy) for c in self.clegs
+                 if c.state != ATTACHED or c.victim is not None}
         for cleg in freed:
             for dx, dy in SCATTER:
                 nx, ny = cleg.cx + dx, cleg.cy + dy
@@ -667,7 +827,19 @@ class Swarm:
     # --- what the rest of the game sees -------------------------------------
 
     def attached(self) -> list[Cleg]:
+        """Every fly currently feeding, on anybody."""
         return [c for c in self.clegs if c.state == ATTACHED]
+
+    def on_player(self) -> list[Cleg]:
+        """Only the flies feeding on the player.
+
+        The session counts bites by watching this number rise, and every
+        phase-2 baseline is stated in that count, so it must not move when a
+        worker is bitten (issue #19). Worker bites are counted in
+        `victim_attachments` and reported as their own event.
+        """
+        return [c for c in self.clegs
+                if c.state == ATTACHED and c.victim is None]
 
     def sprayable(self) -> list[Cleg]:
         """Clegs the spray can reach: everything not currently attached."""

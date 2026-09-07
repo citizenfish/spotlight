@@ -39,6 +39,20 @@ everything else. A worker trailing you through darkness is ignored; one standing
 in your cone is prey. The instinct to turn and check on the people behind you is
 exactly what gets them eaten.
 
+**Built with issue #19**, and it was the last thing missing: `Swarm.tick` never
+saw a worker at all, so the tail was a rucksack -- nothing could happen to it,
+and gathering all seven before leaving cost nothing. A Cleg now finds a worker
+exactly where the *player* would see one, so a person is prey precisely when
+they are drawn. Waiting workers are on the same footing: a spotlight left
+burning beside somebody is bait with a person standing in it.
+
+**If a follower dies the line closes up and the body stays where it fell.**
+Settled in the vault 2026-09-07. It needs no code of its own and that is the
+point: the tail is a path and a set of people walking it, not a set of slots, so
+taking somebody out of `tail` moves everybody behind them one place up the trail
+and leaves the body at the last position `follow` gave it. Nothing shuffles
+because there is nothing to shuffle.
+
 They are people, so the rules from issue #12 apply: drawn only where a light is
 on them this frame, and the opening flash does not show them.
 """
@@ -129,7 +143,7 @@ class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
     __slots__ = ("x", "y", "state", "blood", "start_blood", "reference",
-                 "phase", "_tick", "_since_death")
+                 "phase", "recorded", "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
                  blood: int = WORKER_BLOOD, reference: int = 0) -> None:
@@ -145,6 +159,11 @@ class Worker:
         self.reference = reference or blood
         #: Offset into the call cycle, so the room does not shout in chorus.
         self.phase = phase
+        #: Has this death been counted yet? A worker can now die of a bite as
+        #: well as of bleeding (issue #19), and the two happen in different
+        #: places in the frame, so "who died" is a sweep for the unrecorded
+        #: rather than the return value of one function. One bit on the Z80.
+        self.recorded = False
         self._tick = 0
         self._since_death = 0
 
@@ -167,6 +186,15 @@ class Worker:
             for cy in range(self.y // CELL, (self.y + HEIGHT - 1) // CELL + 1)
         }
 
+    def cell(self) -> tuple[int, int]:
+        """The one cell they are standing on: feet, as `Player.cy` uses.
+
+        A fly attached to them is drawn here, so it rides them rather than
+        staying where it landed -- the same rule the player gets, and for the
+        same reason (issue #19).
+        """
+        return self.x // CELL, (self.y + HEIGHT - 1) // CELL
+
     # --- the clock --------------------------------------------------------
 
     def bleed(self, amount: int = 1) -> bool:
@@ -183,6 +211,25 @@ class Worker:
         self.state = DEAD
         self._since_death = 0
         return True
+
+    def bitten(self, amount: int = 1) -> bool:
+        """Lose blood to a Cleg. Same wound, different moment in the frame.
+
+        A fly drains in `Swarm.tick`, which runs *before* `Rescue.tick`, so a
+        worker killed by one is already dead when the clock comes round and
+        gets an extra ageing tick on their own death frame. Starting the body a
+        frame behind cancels it, and the two kinds of death then have the same
+        frame zero.
+
+        It is one frame -- nobody could see it. It is worth a method anyway,
+        because the body's age is what the nest window will be measured in and
+        an off-by-one that nobody can perceive today is an off-by-one somebody
+        builds on tomorrow. A test caught it; that is what the test is for.
+        """
+        died = self.bleed(amount)
+        if died:
+            self._since_death = -1
+        return died
 
     def tick(self) -> bool:
         """One frame of bleeding. Returns True if they died on it."""
@@ -328,12 +375,39 @@ class Rescue:
     # --- the frame ---------------------------------------------------------
 
     def tick(self) -> list[Worker]:
-        """Bleed everybody. Returns whoever died on this frame."""
-        gone = [w for w in self.workers if w.tick()]
-        for w in gone:
-            if w in self.tail:
-                self.tail.remove(w)
-            self.died.append(w)
+        """Bleed everybody. Returns whoever has died since the last look.
+
+        The return value used to be "whoever bled out on this frame", which was
+        the same thing while bleeding was the only way to die. Issue #19 gave
+        Clegs a second way, and it happens earlier in the frame than this does,
+        so the question became *who is dead and not yet counted* -- see `reap`.
+        """
+        for worker in self.workers:
+            worker.tick()
+        return self.reap()
+
+    def reap(self) -> list[Worker]:
+        """Count anybody who has died and not been counted, whatever killed them.
+
+        A sweep rather than a return value, because a death can now arrive from
+        two directions -- the clock here, and a Cleg in `Swarm.tick`. One bit
+        per worker says whether it has been counted, which is cheaper and far
+        harder to get wrong than making every killer remember to report.
+
+        **Taking them out of the tail is what closes the line.** Followers are
+        placed by their index into the player's trail, so removing one moves
+        everybody behind them one place forward, and the body is left at
+        whatever position `follow` last gave it. The vault settled that on
+        2026-09-07 and it costs nothing to honour.
+        """
+        gone = []
+        for worker in self.workers:
+            if worker.state == DEAD and not worker.recorded:
+                worker.recorded = True
+                if worker in self.tail:
+                    self.tail.remove(worker)
+                self.died.append(worker)
+                gone.append(worker)
         return gone
 
     def reach(self, cells) -> Worker | None:
