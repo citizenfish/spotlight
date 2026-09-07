@@ -17,7 +17,8 @@ cd prototype
 python -m spotlight            # --scale N to resize the window (default 3)
 ```
 
-QAOP or arrow keys to move, Escape to quit.
+That starts the game. Three controls, and the title screen names them: arrow
+keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
 
 ## Test
 

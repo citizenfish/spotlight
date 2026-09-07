@@ -1,53 +1,32 @@
-"""Entry point: ``python -m spotlight`` from the prototype/ directory."""
+"""Entry point: ``python -m spotlight`` from the prototype/ directory.
+
+**This is the one command a player is given**, so it has to start the game.
+Until issue #14 it started the walking skeleton in ``core.game`` -- a blob of
+light moving round an empty grid -- while the game itself was
+``python -m spikes.spike1``. Anybody handed the obvious command played the
+wrong program and concluded the game was a dot.
+
+So this module delegates, and the delegation direction is deliberately the
+awkward way round: ``spotlight`` reaches into ``spikes``. That is backwards
+(``spikes`` imports ``spotlight.core``, not the other way about) and it is
+temporary. The spike is still the spike; what has changed is only which command
+reaches it. When the architecture replaces ``spikes/``, this file gains a real
+runner and loses the import.
+
+The skeleton is still in ``core.game`` and still tested -- it proves the 50Hz
+loop end to end -- it is simply no longer what the entry point reaches.
+"""
 
 import sys
-
-import pygame
-
-from .core.constants import FRAME_RATE
-from .core.game import Game
-from .core.screen import Screen
-from .frontend import input as game_input
-from .frontend.display import Display
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    scale = 3
-    if "--scale" in argv:
-        scale = int(argv[argv.index("--scale") + 1])
+    # Imported here rather than at module scope so that importing
+    # ``spotlight.__main__`` does not drag pygame in behind it.
+    from spikes import spike1
 
-    pygame.init()
-    try:
-        display = Display(scale=scale)
-        clock = pygame.time.Clock()
-        screen = Screen()
-        game = Game()
-
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    running = False
-
-            actions = game_input.poll()
-            dx = bool(actions & game_input.Action.RIGHT) - bool(
-                actions & game_input.Action.LEFT
-            )
-            dy = bool(actions & game_input.Action.DOWN) - bool(
-                actions & game_input.Action.UP
-            )
-            game.update(dx, dy)
-            game.draw(screen)
-            display.render(screen)
-
-            # The Spectrum gets one 50Hz interrupt; match its frame budget.
-            clock.tick(FRAME_RATE)
-    finally:
-        pygame.quit()
-    return 0
+    return spike1.main(argv)
 
 
 if __name__ == "__main__":

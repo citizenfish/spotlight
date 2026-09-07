@@ -5,6 +5,12 @@ loop -- input to state to screen -- runs end to end at 50Hz through the
 attribute model. The actual mechanics come from the spec notes in the vault
 (../spotlight_kb) by way of a GitHub issue; replace this when that lands.
 
+**No longer reachable from ``python -m spotlight``.** Issue #14 pointed the
+entry point at the playable spike, because that is the command a tester is
+handed and it has to start the game. This module and its tests stay, because
+what they prove -- that the loop runs end to end through the attribute model --
+is still worth proving and costs nothing.
+
 Nothing in this module may import pygame.
 """
 
