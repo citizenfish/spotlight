@@ -382,6 +382,19 @@ class Building:
                     # you somewhere else would teleport a tail.
                     raise ValueError(
                         f"{room.name}: {door} does not line up with {back}")
+        # **Can the swarm get everywhere the player can?** Last, because it
+        # needs the doorways to line up first -- a fly reaches part of a room
+        # by walking in through one. See `swarming`: floor the player can reach
+        # and the Clegs cannot is a permanent refuge in a dark game, and it is
+        # invisible to whoever drew the room. It is a level property and not
+        # something the searchlight can guarantee.
+        from . import swarming
+        for room in self.rooms:
+            stranded = swarming.unswarmable(room)
+            if stranded:
+                raise ValueError(
+                    f"{room.name}: the swarm cannot reach "
+                    f"{len(stranded)} floor cells, starting at {stranded[0]}")
 
     def index_of(self, name: str) -> int:
         for i, room in enumerate(self.rooms):
