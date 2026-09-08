@@ -40,6 +40,40 @@ stay used -- room A's inner box has one.
 from spotlight.core.constants import CELL, COLS, CYAN, MAGENTA, WHITE
 
 from .layout import PLAY_ROWS
+from .rescue import NEST_BROOD
+
+# --- the entity budget ------------------------------------------------------
+#
+# **A level's budget is sized for its worst plausible failure, not its opening
+# state.** Issue #33, and it is the first mechanic that manufactures entities:
+# until nests, everything on screen was authored and counting the authored list
+# was counting the worst case. A nest makes six Clegs out of nothing, so the
+# question a level has to answer is no longer "what did you draw" but "what can
+# this become".
+#
+# The unit is a **Cleg-equivalent**, held in quarters so that nothing here needs
+# a fraction -- a Z80 has no floats and neither does `core`. A Cleg is one; a
+# person is one and three quarters, being 8x16 rather than 8x8 and drawn with a
+# visibility test on every cell; a nest is one, being an 8x8 object.
+#
+# **The count is the building's, not a room's, and it is compared against what
+# one room may hold.** Clegs cross doorways and go to light, so a room's
+# authored population is not its worst case -- the whole swarm can be in the
+# room you are standing in. People are the other way round: they are where the
+# player put them, so the worst case is the player and the longest tail the
+# level can produce, in whichever room they are standing in.
+
+CLEG_COST = 4
+PERSON_COST = 7
+NEST_COST = 4
+
+#: The ceiling, in quarters. Eighteen Cleg-equivalents, from *Resource budgets*.
+ENTITY_CEILING = 18 * CLEG_COST
+
+
+def cost(clegs: int = 0, people: int = 0, nests: int = 0) -> int:
+    """What this many of each costs, in quarters of a Cleg-equivalent."""
+    return clegs * CLEG_COST + people * PERSON_COST + nests * NEST_COST
 
 # --- the authoring legend ---------------------------------------------------
 # A room is written as text because it has to be read by a person, not parsed
@@ -395,6 +429,55 @@ class Building:
                 raise ValueError(
                     f"{room.name}: the swarm cannot reach "
                     f"{len(stranded)} floor cells, starting at {stranded[0]}")
+
+    # --- the entity budget --------------------------------------------------
+
+    @property
+    def population(self) -> int:
+        """Every Cleg the building starts with. All of them can be in one room."""
+        return sum(len(room.clegs) for room in self.rooms)
+
+    @property
+    def largest_tail(self) -> int:
+        """The most people who can be walking behind the player at once.
+
+        Everybody but the one whose death made the nest. A tail is a set of
+        *living* workers, and the worst plausible failure has a nest in it, so
+        one of them is on the floor rather than in the line.
+        """
+        return max(0, sum(len(room.workers) for room in self.rooms) - 1)
+
+    def worst_case(self) -> int:
+        """What this building can come to, in quarters of a Cleg-equivalent.
+
+        **The worst plausible failure, not the opening state**: the swarm the
+        level authored, one nest's full brood, the nest itself, the player, and
+        the largest tail the level can produce. Sized for the moment it all
+        goes wrong, because that is the moment the machine has to keep drawing.
+        """
+        return cost(clegs=self.population + NEST_BROOD,
+                    people=1 + self.largest_tail, nests=1)
+
+    @property
+    def over_budget(self) -> int:
+        """Quarters by which the worst plausible failure beats the ceiling.
+
+        **Counted here and refused nowhere**, and that is the issue's own
+        wording rather than a softening of it: *"the valve, which is now the
+        budget's only guarantee"*. A level whose worst case is over the ceiling
+        is a level whose nests will be held up by the valve; it is not a level
+        that cannot be drawn, because the valve is what stops the drawing ever
+        being asked for.
+
+        The playtest building is over it, and by more than nests account for --
+        see `test_held_constants.py`, which pins the arithmetic. Six Clegs, the
+        player and a tail of six is 18.25 before a single nest turns, so
+        eighteen and a seven-person building were already in tension and nobody
+        had counted. That is a decision for the vault and not for this method:
+        the levers are the swarm, the number of people, and the ceiling, and
+        all three are authored numbers somebody argued for.
+        """
+        return max(0, self.worst_case() - ENTITY_CEILING)
 
     def index_of(self, name: str) -> int:
         for i, room in enumerate(self.rooms):

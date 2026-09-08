@@ -62,6 +62,23 @@ taking somebody out of `tail` moves everybody behind them one place up the trail
 and leaves the body at the last position `follow` gave it. Nothing shuffles
 because there is nothing to shuffle.
 
+**And a body does not lie there for ever** (issue #33). A worker who bleeds out
+leaves one, it ticks for twenty seconds while a spray charge can still save it,
+and if nobody comes it turns into a nest that spawns six Clegs and burns out.
+Twenty seconds of window, thirty of nest, gone -- **whatever you do about it**,
+because a doused body expires on the same clock as the nest it prevented.
+
+That last part is a fix as much as a mechanic. Measured after issue #20, bodies
+accumulated and never left: up to seven on screen at once in a losing room's
+last minute, and *Screen Layout*'s rule is that anything drawn is a claim that
+it matters, because the player paid light to see it.
+
+**A body is found by ear or it is not found at all.** In its whole window a body
+sits on lit-or-remembered ground for 0 to 80 frames -- at best 1.6 seconds of
+twenty, and none at all on the first three deaths of every seed. So the tick is
+the primary channel and not a garnish, it quickens as the window runs out, and
+it carries from the room next door, which the sonar does not.
+
 They are people, so the rules from issue #12 apply: drawn only where a light is
 on them this frame, and the opening flash does not show them.
 """
@@ -134,9 +151,75 @@ WORKER_BLOOD = 48
 #: the game depends on the tick.
 BLEED_EVERY = 100
 
-#: A body lies there for a while before it turns into a nest. Nests are not
-#: built in this spike; the delay is kept so the window is visible.
-BODY_FRAMES = 500
+# --- the body, the window, and the nest at the end of it -------------------
+#
+# **A worker who bleeds out leaves a body, and every body is temporary whatever
+# you do about it.** Twenty seconds of window, thirty of nest, gone -- and a
+# body you save is gone at the same moment the nest it prevented would have
+# burnt out, because the alternative is a screen of them. Measured after issue
+# #20: bodies accumulated and never left, seven of them on screen at once in a
+# losing room's last minute, and *Screen Layout*'s rule is that anything drawn
+# is a claim that it matters, because the player paid light to see it.
+
+#: How long a body lies there before it turns: twenty seconds.
+#:
+#: **1,000 with issue #33, and it was 500 until then on purpose.** The vault
+#: agreed twenty seconds when the mechanic was argued; the spike left ten
+#: behind, and `test_held_constants.py` pinned the old value so the discrepancy
+#: would be found deliberately rather than by surprise. This is that moment.
+BODY_FRAMES = 1000
+
+#: Clegs a nest produces, and how long it waits between them.
+#:
+#: **The spray economy already says the right thing and no number here was
+#: chosen to make it:** a patch lasts `spray.PATCH_FRAMES` -- five seconds --
+#: and a nest spawns every five, so **one charge buys exactly one spawn**. You
+#: start with five charges and a nest's life is six spawns, so you cannot
+#: suppress a nest for its whole life even by spending everything, and if you
+#: tried you would have nothing left for the doorway you then have to get your
+#: tail through. That is what *Clegs* means by suppression: you can hold ground
+#: near a nest, you cannot destroy one.
+#:
+#: It is also why the window is worth so much more than the nest -- one charge
+#: before it turns, against more than five after and still losing.
+NEST_BROOD = 6
+NEST_SPAWN_EVERY = 250
+
+#: How long a nest lasts: thirty seconds, which is its six spawns.
+#:
+#: **A nest burns out and leaves nothing on screen.** It is the only thing
+#: standing between a bad run and an unrecoverable one -- a Wanderer saves
+#: nobody and douses nothing, so it faces up to six nests in sequence.
+NEST_FRAMES = NEST_BROOD * NEST_SPAWN_EVERY
+
+#: When a body stops existing, doused or not.
+#:
+#: **One rule, and that is the point of it.** A doused body lingers for as long
+#: as the nest it prevented would have taken, so every body's whole life is the
+#: same fifty seconds however it ends -- twenty of window and thirty of either a
+#: nest or a corpse nobody has to keep looking at. Ending a doused body's life
+#: thirty seconds after the *dousing* was the other reading and was rejected: it
+#: makes saving somebody's body leave it on screen longer than losing it does.
+GONE_FRAMES = BODY_FRAMES + NEST_FRAMES
+
+#: Frames between a fresh body's ticks, and between a body's on the turn.
+#:
+#: **A body is found by ear or it is not found at all.** Measured: in its whole
+#: window a body sits on lit-or-remembered ground for 0 to 80 frames -- at best
+#: 1.6 seconds of twenty, and zero frames on the first three deaths of every
+#: seed. The twenty-second window was argued from *reaching* a body and quietly
+#: assumed the player would ever *see* one. They mostly will not, so the tick is
+#: the primary channel rather than a garnish.
+#:
+#: **The same two numbers as the sonar, deliberately.** In Spotlight a
+#: quickening tick always means you have less time than you did -- the swarm's
+#: clicks quicken as they close, a worker's calls quicken as their blood runs
+#: out, a body's tick quickens as it turns. One language, three speakers, three
+#: things you cannot see. What tells them apart is timbre and not rate: the body
+#: is a lower, doubled click against the sonar's single one, because rate is
+#: already carrying the meaning and cannot carry identity as well.
+TICK_SLOWEST = 50
+TICK_FASTEST = 8
 
 # --- what a worker is doing ------------------------------------------------
 
@@ -161,7 +244,8 @@ class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
     __slots__ = ("x", "y", "room", "start", "state", "blood", "start_blood",
-                 "reference", "phase", "recorded", "_tick", "_since_death")
+                 "reference", "phase", "recorded", "doused", "hatched",
+                 "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
                  blood: int = WORKER_BLOOD, reference: int = 0,
@@ -195,6 +279,16 @@ class Worker:
         #: places in the frame, so "who died" is a sweep for the unrecorded
         #: rather than the return value of one function. One bit on the Z80.
         self.recorded = False
+        #: **Has a spray charge been spent on this body inside its window?**
+        #: One bit, and it is the whole of what dousing changes: a doused body
+        #: never turns, so it never spawns, and it still goes at `GONE_FRAMES`
+        #: like every other body. One byte on the Z80 alongside `recorded`.
+        self.doused = False
+        #: How many of this nest's brood have been placed. The rest of the
+        #: nest's state is arithmetic on `_since_death`, so a nest that is
+        #: held up by the valve keeps its clock and spends its thirty seconds
+        #: regardless -- see `owed`.
+        self.hatched = 0
         self._tick = 0
         self._since_death = 0
 
@@ -277,15 +371,115 @@ class Worker:
         self._tick = 0
         return self.bleed()
 
+    # --- the body's own lifecycle -----------------------------------------
+    #
+    # Four states and no state variable: a body is where it is in its fifty
+    # seconds, plus one bit saying whether somebody spent a charge on it. That
+    # is deliberate -- the whole of this section is arithmetic on the frame
+    # counter every body already had, which is what makes it affordable to run
+    # for seven people in two rooms on a Z80.
+
+    @property
+    def age(self) -> int:
+        """Frames since they died, which is the whole of a body's state.
+
+        Negative for exactly one frame after a Cleg kills somebody -- see
+        `bitten`, which starts the body a frame behind so that the two kinds of
+        death share a frame zero.
+        """
+        return self._since_death
+
+    @property
+    def gone(self) -> bool:
+        """Has this body stopped existing?
+
+        **Every body expires, doused or not, and this is the one rule that says
+        so.** A burnt-out nest leaves nothing on screen and neither does a body
+        somebody saved; what the player is left with is what they did about it
+        while it was there.
+        """
+        return self.state == DEAD and self._since_death >= GONE_FRAMES
+
     @property
     def turning(self) -> bool:
         """Has this body lain long enough to become a nest?
 
-        Nests are not built here. The window is, because it is the thing the
-        flyspray is for and it wants to be visible even before there is
-        anything at the end of it.
+        The name is older than nests: it was the window, kept visible before
+        there was anything at the end of it. There is now, and the only thing
+        that changes the answer is a spray charge spent inside the window.
         """
-        return self.state == DEAD and self._since_death >= BODY_FRAMES
+        return (self.state == DEAD and not self.doused
+                and self._since_death >= BODY_FRAMES)
+
+    @property
+    def nesting(self) -> bool:
+        """Is this a nest right now -- turned, and not yet burnt out?"""
+        return self.turning and not self.gone
+
+    @property
+    def in_window(self) -> bool:
+        """Is this a body a spray charge could still save?
+
+        The twenty seconds between the death and the turn, and only those. A
+        doused body cannot be doused again and a nest cannot be undone.
+        """
+        return (self.state == DEAD and not self.doused
+                and self._since_death < BODY_FRAMES)
+
+    def douse(self) -> bool:
+        """Spend a charge on this body. Returns True the once.
+
+        **One charge, of five, and it stays a body.** It is the cheapest thing
+        the spray ever does -- one charge before it turns against more than five
+        after and still losing -- and it is why the window is the mechanic and
+        the nest is the consequence.
+        """
+        if not self.in_window:
+            return False
+        self.doused = True
+        return True
+
+    @property
+    def owed(self) -> int:
+        """Spawns this nest has earned and not yet placed.
+
+        Earned from the clock rather than counted down, so **a nest that is
+        held up spends its thirty seconds regardless**: the hold-the-spawn valve
+        can delay a brood and it can never cancel one, and it cannot buy the
+        nest more time by making it wait. The first hatches on the frame it
+        turns and the sixth five seconds before it burns out.
+        """
+        if not self.nesting:
+            return 0
+        age = self._since_death - BODY_FRAMES
+        earned = min(NEST_BROOD, age // NEST_SPAWN_EVERY + 1)
+        return earned - self.hatched
+
+    # --- the body's tick ---------------------------------------------------
+
+    @property
+    def ticking(self) -> bool:
+        """Is this body making a noise?
+
+        **From the moment of death until it is doused or it turns**, which is
+        exactly the window a charge is worth spending in. A doused body is
+        silent because there is nothing left to decide about it; a nest is
+        silent because it is no longer a decision either -- by then the room is
+        telling you about it in Clegs.
+        """
+        return self.in_window
+
+    @property
+    def tick_period(self) -> int:
+        """Frames between this body's ticks: slower fresh, quicker on the turn.
+
+        Linear in the age of the body, in integers, the same shape as the
+        sonar's own interval. It is the third speaker of the same sentence:
+        a quickening tick means you have less time than you did.
+        """
+        span = TICK_SLOWEST - TICK_FASTEST
+        age = min(BODY_FRAMES, max(0, self._since_death))
+        return TICK_SLOWEST - span * age // BODY_FRAMES
 
     # --- calling out -------------------------------------------------------
 
@@ -412,8 +606,45 @@ class Rescue:
                 and (room is None or w.room == room)]
 
     def bodies(self, room: int | None = None) -> list[Worker]:
-        return [w for w in self.workers if w.state == DEAD
+        """The bodies lying there: still in their window, or doused.
+
+        **Not the nests and not the ones that have gone.** A body that turned
+        is a nest and is drawn as one; a body that ran out of lifecycle is not
+        drawn at all. Everything that asks this question is asking what to
+        paint, and a burnt-out nest is a claim that something matters made
+        about nothing.
+
+        `lost` and `died` still count all of them, because they are a tally of
+        what happened to seven people and that does not expire.
+        """
+        return [w for w in self.workers
+                if w.state == DEAD and not w.turning and not w.gone
                 and (room is None or w.room == room)]
+
+    def nests(self, room: int | None = None) -> list[Worker]:
+        """The bodies that turned and have not yet burnt out."""
+        return [w for w in self.workers if w.nesting
+                and (room is None or w.room == room)]
+
+    def ticking(self, rooms=None) -> Worker | None:
+        """The body to be heard, of those in `rooms`, or None.
+
+        **At most one body ticks at a time**, and with twenty-second clocks and
+        a twenty-second window that is nearly always literally true rather than
+        a choice this has to make. When a bite makes it false, the one with the
+        least time left wins: the tick means *you have less time than you did*,
+        so the body nearest turning is the one it is about.
+
+        `rooms` is which rooms can be heard from where the player is standing.
+        **The tick carries from the adjacent room**, unlike the sonar, which
+        reports only the room you are in -- and that is the only reason going
+        back for a body behind you is a decision rather than a guess.
+        """
+        heard = [w for w in self.workers if w.ticking
+                 and (rooms is None or w.room in rooms)]
+        if not heard:
+            return None
+        return max(heard, key=lambda w: w._since_death)
 
     def calling(self, frame: int, room: int | None = None) -> list[Worker]:
         """Whoever is shouting, optionally only in one room.

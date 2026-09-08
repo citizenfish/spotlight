@@ -21,6 +21,28 @@ _SAMPLES = 180
 #: Samples per half-cycle. Small is bright and ticky; large is a thud.
 _HALF = 4
 
+# --- the body's tick (issue #33) -------------------------------------------
+#
+# **A lower, doubled click against the sonar's single one.** Not a different
+# rate: rate is already carrying the meaning -- in Spotlight a quickening tick
+# always means you have less time than you did, and it says so for the swarm
+# closing, for a worker bleeding out and for a body about to turn. Three
+# speakers, one sentence. What tells them apart has to be timbre, so the body
+# gets a longer half-cycle (a lower pitch) and two beats where the sonar has
+# one.
+#
+# On a Spectrum both are OUTs to port 254 and the difference is the delay
+# between the flips, which is the cheapest way there is to have two voices on
+# one beeper.
+
+#: Samples per half-cycle for the body's tick. Twice the sonar's, so an octave
+#: down and unmistakably a different thing in the dark.
+_BODY_HALF = 9
+
+#: Samples in each beat of the doubled click, and the gap between the two.
+_BODY_SAMPLES = 120
+_BODY_GAP = 90
+
 
 def click_wave(samples: int = _SAMPLES, half: int = _HALF,
                stereo: bool = True) -> bytes:
@@ -35,13 +57,28 @@ def click_wave(samples: int = _SAMPLES, half: int = _HALF,
     return bytes(out)
 
 
+def tick_wave(samples: int = _BODY_SAMPLES, half: int = _BODY_HALF,
+              gap: int = _BODY_GAP, stereo: bool = True) -> bytes:
+    """The body's tick: two of the same burst, lower, with a gap between."""
+    beat = click_wave(samples, half, stereo)
+    silence = bytes(2 * (2 if stereo else 1) * gap)
+    return beat + silence + beat
+
+
 class Speaker:
-    """Plays a click when asked. Silent and harmless with no audio device."""
+    """Plays a click or a tick when asked. Silent and harmless with no device.
+
+    **One channel, because a Spectrum has one beeper.** The session never asks
+    for both on a frame -- the sonar wins the speaker and the body's tick drops
+    the beat -- and playing them down the same channel is what keeps that
+    honest rather than merely intended.
+    """
 
     def __init__(self, volume: float = 0.35) -> None:
         self.volume = volume
         self.available = False
         self._click = None
+        self._tick = None
         self._channel = None
 
     def open(self) -> bool:
@@ -56,6 +93,9 @@ class Speaker:
             self._click = pygame.mixer.Sound(
                 buffer=click_wave(stereo=init[2] > 1))
             self._click.set_volume(self.volume)
+            self._tick = pygame.mixer.Sound(
+                buffer=tick_wave(stereo=init[2] > 1))
+            self._tick.set_volume(self.volume)
             self._channel = pygame.mixer.Channel(0)
             self.available = True
         except Exception:
@@ -69,6 +109,12 @@ class Speaker:
         a rattle rather than smearing into a tone."""
         if self.available:
             self._channel.play(self._click)
+
+    def tick(self) -> None:
+        """One body tick. The same channel as the click, deliberately: there is
+        one speaker, and the sonar has already been given first refusal."""
+        if self.available:
+            self._channel.play(self._tick)
 
     def close(self) -> None:
         if self.available and self._channel is not None:

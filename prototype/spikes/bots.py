@@ -35,7 +35,10 @@ Z80 would use, so a seed names a run.
 
 from spotlight.core.constants import CELL, COLS
 
-from . import building, lighting, rescue as rescue_mod, scene, sources
+from . import (
+    building, lighting, rescue as rescue_mod, scene, sources,
+    spray as spray_mod,
+)
 from .layout import PLAY_ROWS
 from .player import HEIGHT
 from .session import Intent
@@ -595,6 +598,54 @@ class Oracle(Walker):
         return self._leave(run)
 
 
+class Undertaker(Oracle):
+    """An Oracle that **abandons what it is doing at the moment of death** and
+    goes to douse the body. Difficulty target T12, and nothing else.
+
+    T12 asks whether the body window is winnable and whether it is free, and it
+    is a comparison between two bots rather than a number: this one should reach
+    a body in at least three deaths in five, and a `Listener` -- which carries
+    on working, because it does not know a body exists -- in at most one in
+    five. A window only one bot can use is a window; one both can use is a
+    formality, and one neither can use is a twenty-second lie.
+
+    So this is the ceiling on the window, exactly as the Oracle is the ceiling
+    on the room: it knows there is a body and where, it has a route, and it
+    still has to walk there before the twenty seconds are up. **It presses keys
+    like every other bot** -- the spray goes down ahead of it, so it fires on
+    the approach, on the first frame from which a patch would land on the body.
+
+    It goes for **the body nearest turning**, which is the one the game is
+    ticking about. With deaths this close together that is a real choice and
+    not a formality.
+    """
+
+    name = "undertaker"
+
+    def intent(self, run) -> Intent:
+        body = run.rescue.ticking()
+        if body is not None and not run.spray.empty:
+            if self._would_cover(run, body):
+                return Intent(spray=True, torch=self._torch(run))
+            return self._walk(run, stand_cells(body.room, *body.cell()))
+        return super().intent(run)
+
+    @staticmethod
+    def _would_cover(run, body) -> bool:
+        """Would a burst fired this frame land on that body?
+
+        Asked of the spray's own rule rather than guessed at, and it is why the
+        bot never has to think about which way it is facing: it is walking
+        towards the body, so the patch it lays ahead of itself arrives on the
+        body as soon as it is close enough.
+        """
+        if run.here != body.room:
+            return False
+        patch = set(spray_mod.patch_cells(run.player.cx, run.player.cy,
+                                          run.player.facing))
+        return bool(patch & body.cells())
+
+
 class Crosser(Walker):
     """Walks a stated route, over and over, lit or dark. Difficulty target T3e.
 
@@ -801,6 +852,7 @@ BOTS = {
     "scout": Scout,
     "crosser": Crosser,
     "oracle": Oracle,
+    "undertaker": Undertaker,
 }
 
 

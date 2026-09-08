@@ -11,7 +11,7 @@ else. If one of these should move, the way to move it is to argue it in the
 vault, raise an issue, and edit this file in the same commit as the constant.
 """
 
-from spikes import clegs, rescue, scene, session, sources, spray
+from spikes import building, clegs, rescue, scene, session, sources, spray
 
 
 def test_cleg_hunger_was_cut_in_half_and_it_bought_nothing():
@@ -103,15 +103,54 @@ def test_the_spray_keeps_five_charges_and_a_five_second_patch():
     assert spray.PATCH_FRAMES == 5 * 50
 
 
-def test_the_nest_constants_are_untouched():
-    """Never measured, because a body had never once lain on screen. Now that
-    one does -- the clocks are staggered and the run outlives the first death --
-    they can be, and that is the nest work's job rather than this issue's.
+def test_the_body_window_moved_to_the_number_the_vault_agreed():
+    """**The discrepancy this file was keeping, collected.**
 
-    `BODY_FRAMES` is the prototype's stand-in for the twenty-second window the
-    vault specifies. It is ten seconds, and it is *not* the agreed number: it
-    is what the spike left behind and nothing has yet been built that reads it.
-    Recorded here so the discrepancy is found on purpose rather than by
-    surprise when nests are built.
+    `BODY_FRAMES` was 500 -- ten seconds -- against a vault that had agreed
+    twenty. It was the spike's leftover and nothing read it, so it was pinned
+    here rather than quietly corrected, on the rule that a number should be
+    found on purpose rather than by surprise. Issue #33 is the work that reads
+    it, so this is where it moves.
+
+    The nest constants beside it are new and are not held: they are derived
+    from the spray, not chosen against it. See `rescue.NEST_SPAWN_EVERY`.
     """
-    assert rescue.BODY_FRAMES == 500
+    assert rescue.BODY_FRAMES == 20 * 50
+    assert rescue.NEST_FRAMES == 30 * 50
+    assert rescue.GONE_FRAMES == 50 * 50
+
+
+def test_the_playtest_building_is_over_the_entity_ceiling():
+    """**Counted here, and refused nowhere.** The number, and why it is a
+    finding rather than a bug fix.
+
+    Issue #33 asks that level validation be sized for a level's **worst
+    plausible failure** rather than its opening state, because a nest is the
+    first thing in the game that manufactures entities. Counted that way -- the
+    authored swarm, one nest's full brood, the nest, the player and the largest
+    tail the level can produce -- the playtest building comes to 25.25
+    Cleg-equivalents against a ceiling of eighteen.
+
+    **And it was already over before nests existed.** Six flies, the player and
+    a tail of six is 18.25, and nobody had counted it: the figure quoted in
+    `scene.py` and in `test_spike_doorway.py` is 14.75, which assumes a tail of
+    four. Eighteen and a seven-person building have been in tension since issue
+    #21 and the tension is arithmetic, not a nest.
+
+    Nothing is refused on it, and that is the issue's own wording rather than a
+    softening: *"the valve, which is now the budget's only guarantee"*. A nest
+    whose spawn would take the room over the ceiling holds it -- see
+    `session.Session._nests` -- so the ceiling is enforced at the moment it
+    would be exceeded rather than by refusing to start.
+
+    **What to do about it is a decision for the vault**, and there are three
+    levers, all of them authored numbers somebody argued for: the size of the
+    swarm, the number of people in the building, and the ceiling itself. This
+    test exists so that whichever one moves, it moves on purpose.
+    """
+    b = scene.BUILDING
+    assert b.worst_case() == 101, "the worst plausible failure moved"
+    assert b.over_budget == 101 - building.ENTITY_CEILING
+    # Before a single nest turns, and this is the part that is not about nests.
+    assert building.cost(clegs=b.population, people=1 + b.largest_tail) \
+        > building.ENTITY_CEILING

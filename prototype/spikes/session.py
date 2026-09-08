@@ -34,8 +34,9 @@ from spotlight.core.constants import BLACK, CELL, COLS, CYAN, GREEN, RED, WHITE
 from spotlight.core.screen import Screen, attr_byte
 
 from . import (
-    buzz, clegs as clegs_mod, floor, font, lighting, rescue as rescue_mod,
-    scene, sources, spray as spray_mod, sprites, tally as tally_mod,
+    building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
+    rescue as rescue_mod, scene, sources, spray as spray_mod, sprites,
+    tally as tally_mod,
 )
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .lighting import LightField
@@ -149,6 +150,26 @@ TORCH_OUT = "torch_out"
 #: door" is the first question the playtest asks -- target T10 is stated in it.
 CROSSED = "crossed"
 GAME_OVER = "game_over"
+
+# --- the body's lifecycle (issue #33) ---------------------------------------
+# Five kinds, because a nest is the only thing in the game with a life of its
+# own and every stage of it is a thing the playtest wants to be able to count.
+# The whole of T11, T12 and T13 is stated in these and in nothing else.
+
+#: A spray charge saved a body inside its window. `who` is the person it was.
+DOUSED = "doused"
+#: A body nobody reached has become a nest.
+NEST_TURNED = "nest_turned"
+#: A nest placed one of its six. `count` is how many it has placed in all.
+HATCHED = "hatched"
+#: A nest burnt out, or a doused body finally went. Nothing is drawn after it.
+NEST_BURNT = "nest_burnt"
+BODY_GONE = "body_gone"
+#: **The valve held a spawn** rather than dropping it. `count` is how many
+#: nests were live in the building at the time, which is the number target T13
+#: is stated in: a hold with fewer than three nests live means the level is
+#: over-populated and the editor should have refused it.
+VALVE_HELD = "valve_held"
 
 
 class Event:
@@ -352,6 +373,20 @@ class Session:
         #: Set by `step` when the sonar wants a click. The host makes the noise;
         #: deciding how urgent it is stays portable and integer (see buzz).
         self.click = False
+        #: The body's tick, and the body it is about (issue #33). Two speakers
+        #: and one beeper: `step` sets at most one of `click` and `tick` on any
+        #: frame, and the sonar is the one that wins.
+        self.ticker = buzz.Ticker()
+        self.tick = False
+        self.ticking = None
+        #: Where the next hatchling's temperament comes from. Its own chain,
+        #: run on from the starting swarm's, so no fly in the building shares a
+        #: seed with another and a brood is as varied as an authored swarm.
+        self._brood_seed = sources.xorshift16(beam_seed)
+        #: How often the valve has held a spawn, and the most nests that have
+        #: ever been live at once. Target T13 is stated in both.
+        self.valve_holds = 0
+        self.most_nests = 0
 
         # The room is shown once, on first entry, and then taken away. What the
         # player keeps is what they held in their head. Each room gets its own,
@@ -670,6 +705,13 @@ class Session:
             self._record(WORKER_DIED, who=self._index[id(gone)],
                          room=self.places[gone.room].room.name)
 
+        # A body is temporary whatever you do about it: twenty seconds in which
+        # a charge saves it, thirty as a nest if it is not, and then nothing.
+        # Dousing is looked at before the turn, so a patch laid on the last
+        # frame of the window still counts.
+        self._douse()
+        self._nests()
+
         # Freeing somebody starts the hard part: they follow, and they go on
         # bleeding while they do.
         freed = self.rescue.reach(self.here, self.player.occupied_cells())
@@ -769,11 +811,161 @@ class Session:
         self.click = self.sonar.update(
             self.place.swarm.nearest_distance(self.player.cx, self.player.cy))
 
+        # **A body is found by ear or it is not found at all**, so the tick is
+        # the primary channel and not a garnish: measured, a body sits on
+        # lit-or-remembered ground for at best 1.6 seconds of its twenty, and
+        # for none at all on the first three deaths of every seed.
+        #
+        # **It carries from the room next door**, unlike the sonar, which
+        # reports only the room you are in. A ticking body is one fixed thing
+        # and there is never more than one of it, so this is affordable where a
+        # second room's sonar is not -- and it is the only reason going back
+        # for a body behind you is a decision rather than a guess.
+        rooms = {self.here}
+        rooms.update(door.to for door in self.place.room.doorways)
+        self.ticking = self.rescue.ticking(rooms)
+        self.tick = self.ticker.update(
+            buzz.NEVER if self.ticking is None else self.ticking.tick_period)
+        # **The sonar wins the speaker**, per *Clegs*: one beeper, and the fly
+        # about to land on you outranks the body twenty cells away. The tick
+        # drops the beat and the player still hears that something is wrong.
+        if self.click:
+            self.tick = False
+
         self._light()
         ending = self._ending()
         if ending is not None:
             self.finish(ending)
         return self.frame_events
+
+    # --- bodies, and what becomes of them -----------------------------------
+
+    def _douse(self) -> None:
+        """A spray patch on a body inside its window saves it from turning.
+
+        **Sprayed ground douses a body**, which is the same rule the spray has
+        always had rather than a new verb: you do not aim it at a corpse, you
+        put a patch where one is lying -- `spray.py` has said "on a fresh body
+        before it turns" since it was written. One charge, of five, and it is
+        the cheapest thing the spray ever does.
+
+        A patch laid before the death counts, and that is right: the ground is
+        poisoned either way, and requiring the charge to be spent *after* the
+        fall would reward waiting rather than anticipating.
+        """
+        for body in self.rescue.bodies():
+            if body.doused:
+                continue
+            if any(self.spray.covers(cx, cy, body.room)
+                   for cx, cy in body.cells()):
+                if body.douse():
+                    self._record(DOUSED, who=self._index[id(body)],
+                                 room=self.places[body.room].room.name)
+
+    def _load(self, room: int) -> int:
+        """What this room may have to draw, in quarters of a Cleg-equivalent.
+
+        **The valve's whole input, and it is the same question `Building.
+        worst_case` asks, asked of the state instead of the level:** every Cleg
+        in the building against the people in this one room. Flies cross
+        doorways and go to light, so the room's own count is not its worst case
+        -- the whole swarm can follow the player through a door, and a valve
+        that let a brood hatch because half the swarm was next door would be
+        counting a state that lasts as long as it takes somebody to walk.
+        People are the other way round: they are where the player put them.
+
+        A body is a person, because it is drawn in a person's box; a nest is an
+        8x8 object and costs what a Cleg costs. Both are on the level's bill for
+        as long as they are drawn, which is what makes the lifecycle ending a
+        budget decision as much as a screen-clutter one.
+        """
+        people = 1 if room == self.here else 0
+        people += sum(1 for w in self.rescue.workers
+                      if w.room == room and w.alive)
+        return building_mod.cost(
+            clegs=len(self.swarm.clegs),
+            people=people + len(self.rescue.bodies(room)),
+            nests=len(self.rescue.nests(room)))
+
+    def _hatch(self, nest) -> bool:
+        """Place one of a nest's brood. Returns False if there was no room.
+
+        **Ordinary Clegs in every respect but one: they have never fed**, so
+        they are born at the top of the hunger curve and can notice the faintest
+        light in the room from the moment they hatch. They come straight for
+        you, wherever you are. That is not a second rule -- it is the existing
+        hunger rule read honestly for a fly that has never eaten, and it resets
+        to nothing the first time each of them feeds, in `Swarm._sate`, which
+        needed no change at all.
+
+        That is what makes a nest a spike rather than a climate: a nest-born fly
+        is only exceptional until its first meal.
+
+        It hatches on the nest's own cell where it can, which is what makes a
+        patch of spray laid over a nest kill the brood as it arrives -- one
+        charge, one spawn, exactly as the arithmetic in `rescue` says. The
+        `SCATTER` table is the fallback for a crowded nest, because no two
+        Clegs may share a cell.
+        """
+        place = self.places[nest.room]
+        taken = {(c.cx, c.cy) for c in place.swarm.clegs}
+        at = nest.cell()
+        for dx, dy in ((0, 0),) + clegs_mod.SCATTER:
+            cell = (at[0] + dx, at[1] + dy)
+            if cell in taken or place.room.is_solid(*cell):
+                continue
+            self._brood_seed = sources.xorshift16(self._brood_seed)
+            fly = clegs_mod.Cleg(cell[0], cell[1], seed=self._brood_seed)
+            fly.hunger = clegs_mod.KEEN_MAX * clegs_mod.HUNGER_STEP
+            place.swarm.clegs.append(fly)
+            nest.hatched += 1
+            self._record(HATCHED, who=self._index[id(nest)],
+                         count=nest.hatched, room=place.room.name)
+            return True
+        return False
+
+    def _nests(self) -> None:
+        """One frame of every body in the building: turn, hatch, burn out.
+
+        The lifecycle itself is arithmetic on the frame counter and lives in
+        `rescue.Worker`; what is here is the three things a body cannot do on
+        its own -- announce itself, make a Cleg, and be told it cannot.
+
+        **The valve.** A nest whose spawn would take the room over the ceiling
+        **holds it rather than dropping it**, and spends its thirty seconds
+        regardless: a busy room delays a brood, it never cancels one, and the
+        nest still burns out on time. It is the budget's only guarantee now that
+        the game manufactures entities, and it was demoted to a backstop behind
+        the twenty-second death spacing until that spacing became distributional
+        -- a guarantee cannot survive a randomising accelerator, and Clegs
+        eating workers is one.
+
+        **One a frame at most.** A nest that has been held for a while does not
+        empty itself in a burst when the room clears; it places the backlog a
+        fly at a time, which is what a delay is supposed to look like.
+        """
+        live = len(self.rescue.nests())
+        self.most_nests = max(self.most_nests, live)
+        for body in self.rescue.workers:
+            if body.state != rescue_mod.DEAD:
+                continue
+            if body.age == rescue_mod.BODY_FRAMES and not body.doused:
+                self._record(NEST_TURNED, who=self._index[id(body)],
+                             room=self.places[body.room].room.name)
+            if body.age == rescue_mod.GONE_FRAMES:
+                self._record(NEST_BURNT if not body.doused else BODY_GONE,
+                             who=self._index[id(body)],
+                             room=self.places[body.room].room.name)
+            if body.owed <= 0:
+                continue
+            if self._load(body.room) + building_mod.CLEG_COST \
+                    > building_mod.ENTITY_CEILING:
+                self.valve_holds += 1
+                self._record(VALVE_HELD, who=self._index[id(body)],
+                             count=live,
+                             room=self.places[body.room].room.name)
+                continue
+            self._hatch(body)
 
     # --- the doorway --------------------------------------------------------
 
@@ -1100,6 +1292,16 @@ class Session:
         # written for.
         for body in self.rescue.bodies(self.here):
             sprites.draw(screen, sprites.BODY, body.x, body.y)
+        # A nest is drawn where the body's feet were, in the object's own 8x8
+        # box. **A nest and a body are told apart by size**, now that a body is
+        # person-sized and sprawled -- which is why the nest sprite only has to
+        # look like an object and the art is a phase-3 problem.
+        for nest in self.rescue.nests(self.here):
+            cx, cy = nest.cell()
+            sprites.draw(screen, sprites.NEST, cx * CELL, cy * CELL)
+        # ...and a burnt-out nest is in neither list, so **it leaves nothing on
+        # screen**. Anything drawn is a claim that it matters, because the
+        # player paid light to see it.
         # **Waiting workers have their arms up and followers have them down.**
         # Raised arms mean "I still need reaching", so a person who is already
         # walking behind you must not be drawn making the signal -- and a

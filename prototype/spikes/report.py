@@ -241,6 +241,32 @@ def metrics(run) -> dict:
         "sprays_fired": run.tally.sprays,
         "clegs_killed": run.tally.swatted,
         "clegs_left": len(run.swarm.clegs),
+        # **The nest lifecycle** (issue #33), which is where T11, T12 and T13
+        # are stated and nowhere else. A body has three possible ends and the
+        # run has to be able to say which each of them got: doused inside its
+        # window, turned into a nest, or -- for a body nobody was ever near --
+        # both counts zero because the person is still alive.
+        #
+        # `clegs_hatched` is the swarm the run manufactured, which is the
+        # difference between `clegs_left` and what the level authored, and it
+        # is the number T11's "a nest costs about three quarters of a life"
+        # has to be read against.
+        "bodies_doused": sum(1 for e in log if e.kind == session_mod.DOUSED),
+        "nests_turned":
+            sum(1 for e in log if e.kind == session_mod.NEST_TURNED),
+        "first_nest_seconds": when(session_mod.NEST_TURNED),
+        "clegs_hatched": sum(1 for e in log if e.kind == session_mod.HATCHED),
+        # **The valve, and the two things T13 asks of it.** How often it held a
+        # spawn, and the fewest nests that were live when it did: a hold with
+        # fewer than three nests live means the level is over-populated and the
+        # editor should have refused it, so the *minimum* is the number that
+        # answers the target rather than the count. `None` is a run in which it
+        # never fired, which is the answer the target wants.
+        "valve_holds": run.valve_holds,
+        "valve_fewest_nests": min(
+            [e.count for e in log if e.kind == session_mod.VALVE_HELD],
+            default=None),
+        "most_nests_at_once": run.most_nests,
         "spotlight_swaps": run.kit.swaps,
         # **Did they ever find the door.** Target T10 is stated in this and in
         # nothing else, and a second room that nobody goes into bought walking
@@ -527,6 +553,27 @@ def human(run, bot: str = "", label: str = "",
         if shared:
             who_left += f", all in {shared}"
         lines += _wrap(f"Still in the building at the end: {who_left}{tail}.")
+
+    # **What the deaths turned into** (issue #33). Said in its own line and in
+    # English, because it is the one thing in the run the player may have heard
+    # and never seen: a body ticks in the dark, and a nest is what happens if
+    # nobody got to it. The questionnaire asks *"did anything change after
+    # somebody died?"*, open and not leading, and this is the line the user
+    # reads the answer against.
+    turned = sum(1 for e in run.log if e.kind == session_mod.NEST_TURNED)
+    doused = sum(1 for e in run.log if e.kind == session_mod.DOUSED)
+    hatched = sum(1 for e in run.log if e.kind == session_mod.HATCHED)
+    if turned or doused:
+        parts = []
+        if doused:
+            parts.append(f"{_word(doused)} of the bodies "
+                         f"{'was' if doused == 1 else 'were'} sprayed in time")
+        if turned:
+            parts.append(f"{_word(turned)} turned into "
+                         f"{'a nest' if turned == 1 else 'nests'} and hatched "
+                         f"{_word(hatched)} more "
+                         f"{'fly' if hatched == 1 else 'flies'}")
+        lines += _wrap(_join(parts).capitalize() + ".")
 
     lines.append(ENDING_WORDS.get(run.over, f"It ended: {run.over}."))
     return lines + crossing_lines(measured)

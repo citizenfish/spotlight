@@ -258,7 +258,7 @@ class Shell:
     clear, and the list is wrong the first time somebody adds a field.
     """
 
-    def __init__(self, screen: Screen, on_click=None,
+    def __init__(self, screen: Screen, on_click=None, on_tick=None,
                  debug: bool = False) -> None:
         self.screen = screen
         self.state = TITLE
@@ -267,8 +267,11 @@ class Shell:
         #: locked there is nothing for a stray key to reach.
         self.debug: Debug | None = None
         self.debug_enabled = debug
-        #: The host makes the noise; the session only says when.
+        #: The host makes the noise; the session only says when. Two of them
+        #: now (issue #33) -- the sonar's click and a body's tick -- and the
+        #: session never asks for both on the same frame.
         self.on_click = on_click
+        self.on_tick = on_tick
         self._torch = False
         self._spray = False
         screens.draw_title(screen)
@@ -313,6 +316,8 @@ class Shell:
         self._torch = self._spray = False
         if self.run.click and self.on_click is not None:
             self.on_click()
+        if self.run.tick and self.on_tick is not None:
+            self.on_tick()
         self.run.draw(self.screen)
         if self.run.over is not None:
             self.state = ENDED
@@ -337,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
         screen = Screen()
         speaker = spike_buzz.Speaker()
         speaker.open()
-        shell = Shell(screen, on_click=speaker.click, debug=debug)
+        shell = Shell(screen, on_click=speaker.click, on_tick=speaker.tick,
+                      debug=debug)
 
         running = True
         while running:

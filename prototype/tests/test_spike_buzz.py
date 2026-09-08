@@ -1,4 +1,4 @@
-"""The proximity sonar: the portable half, which is when it clicks."""
+"""The two speakers: the portable half, which is when each of them sounds."""
 
 from spikes import buzz as B
 
@@ -81,3 +81,58 @@ def test_the_sonar_reports_the_interval_it_chose():
     assert s.interval == B.FASTEST
     s.update(None)
     assert s.interval == B.NEVER
+
+
+# --- the body's tick (issue #33) -------------------------------------------
+#
+# The same counter with the interval handed to it rather than worked out from a
+# distance, because a body's tick period is a property of the body. What makes
+# the two voices tell apart is timbre and not rate -- see `spike_buzz.tick_wave`
+# -- because rate is already carrying the meaning in both of them.
+
+def test_the_ticker_is_silent_when_there_is_nothing_to_hear():
+    t = B.Ticker()
+    assert not any(t.update(B.NEVER) for _ in range(200))
+
+
+def test_the_ticker_fires_on_the_interval_it_is_given():
+    t = B.Ticker()
+    assert [t.update(4) for _ in range(12)].count(True) == 3
+    assert t.ticks == 3
+
+
+def test_a_quickening_interval_fires_sooner_rather_than_restarting():
+    """The same property the sonar has: the tempo tightens the moment the body
+    gets closer to turning, not after one more wait."""
+    t = B.Ticker()
+    for _ in range(6):
+        assert not t.update(50)
+    assert t.update(6), "the count restarted when the interval shortened"
+
+
+def test_a_silence_resets_the_count():
+    """A body that is doused, turns, or is left two rooms away stops ticking
+    rather than pausing mid-beat."""
+    t = B.Ticker()
+    for _ in range(9):
+        t.update(10)
+    t.update(B.NEVER)
+    assert [t.update(10) for _ in range(9)].count(True) == 0
+
+
+# --- the host's two voices --------------------------------------------------
+#
+# `spike_buzz` is the Pygame layer and does not port, but the *shape* of what it
+# plays is the design: a lower, doubled click against the sonar's single one.
+# On a Spectrum both are OUTs to port 254 and the difference is the delay
+# between the flips, so the shape is the part that survives.
+
+def test_the_bodys_tick_is_doubled_and_lower_than_the_sonars():
+    from spikes import spike_buzz as H
+    click = H.click_wave(stereo=False)
+    tick = H.tick_wave(stereo=False)
+    assert len(tick) > 2 * len(H.click_wave(H._BODY_SAMPLES, H._BODY_HALF,
+                                            stereo=False)) - 1, \
+        "the tick is not two beats and a gap"
+    assert H._BODY_HALF > H._HALF, "the body's tick is not the lower voice"
+    assert click and tick

@@ -440,3 +440,50 @@ def test_the_same_route_is_comparable_lit_and_dark():
 def test_the_crossing_walker_is_selectable_from_the_driver():
     assert "crosser" in bots.BOTS
     assert isinstance(bots.make("crosser", light=True), bots.Crosser)
+
+
+# --- the bot that goes back for a body (issue #33) --------------------------
+
+def test_the_undertaker_douses_a_body_inside_its_window():
+    """**The ceiling on the body window**, which is what difficulty target T12
+    is asked of: a bot that abandons what it is doing at the moment of death
+    should reach the body in at least three deaths in five.
+
+    The death is forced here rather than waited for, and deliberately: an
+    Oracle on this building saves everybody, so on its own it never produces a
+    body to go back for. That is itself worth knowing -- **the window cannot be
+    measured against perfect play**, because perfect play never opens one -- and
+    it is why T12 is stated as a comparison between two bots rather than as a
+    figure. What this test pins is that the instrument works: told there is a
+    body, the bot walks to it and spends a charge inside the twenty seconds.
+    """
+    reached = 0
+    for seed in (1, 2, 3, 4, 5):
+        bot = bots.make("undertaker", seed=seed)
+        run = Session(seed=seed)
+        for _ in range(60):
+            run.step(bot.intent(run))
+        victim = [w for w in run.rescue.workers
+                  if w.room == scene.NEAR and w.state == rescue_mod.WAITING][-1]
+        victim.bitten(victim.blood)
+        run.step()
+        while victim.in_window and run.over is None:
+            run.step(bot.intent(run))
+        reached += 1 if victim.doused else 0
+    assert reached >= 3, f"the window was reached in {reached} deaths of five"
+
+
+def test_a_bot_that_does_not_know_about_bodies_walks_past_them():
+    """The other half of T12, and the reason the window is worth anything: a
+    Listener carries on working, because a body is not a shout."""
+    bot = bots.make("listener", seed=1)
+    run = Session(seed=1)
+    for _ in range(60):
+        run.step(bot.intent(run))
+    victim = [w for w in run.rescue.workers
+              if w.room == scene.NEAR and w.state == rescue_mod.WAITING][-1]
+    victim.bitten(victim.blood)
+    run.step()
+    while victim.in_window and run.over is None:
+        run.step(bot.intent(run))
+    assert not victim.doused, "the Listener went back for a body it cannot hear"

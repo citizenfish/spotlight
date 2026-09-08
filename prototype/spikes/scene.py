@@ -30,6 +30,15 @@ room you can see all of at once.
   to light, so a room's authored count is not its worst case. Six flies and a
   tail of four in one room is 6 + (5 x 1.75) = 14.75 Cleg-equivalents against a
   ceiling of eighteen.
+
+  **That is the opening state, and issue #33 says it is the wrong question.** A
+  level's budget is sized for its worst plausible failure -- the swarm, one
+  nest's full brood, the nest, the player and the largest tail the level can
+  produce -- which for this building is 25.25, and it was 18.25 before nests
+  existed. See `Building.worst_case` and `test_held_constants.py`: the number is
+  counted, the valve in `session.Session._nests` is what enforces the ceiling at
+  the moment it would be broken, and which of the three levers moves is a
+  decision for the vault.
 """
 
 from .building import (
@@ -187,8 +196,9 @@ MOVERS = frozenset({"worker", "cleg"})
 #: Fixed scenery, for the whole building. **Empty on purpose.** A body and a
 #: nest were placed while sprites were the question in spike 1, and they stayed
 #: long after they meant anything -- two objects on screen that could not be
-#: reached, sprayed or rescued. Bodies come from workers who bleed out now, and
-#: nests are not built. The list stays because the drawing code and its tests
+#: reached, sprayed or rescued. Bodies come from workers who bleed out, and
+#: since issue #33 nests come from bodies nobody reached; neither is scenery and
+#: neither is authored. The list stays because the drawing code and its tests
 #: are about the *kinds* of thing a room holds, not about these two.
 ENTITIES = ()
 

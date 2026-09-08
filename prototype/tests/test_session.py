@@ -471,12 +471,12 @@ def _lit_statue_run(seed: int = BUG_SEED, frames: int = 12000):
     from spikes import bots
     bot = bots.Statue(seed=seed, light=True)
     run = Session(seed=seed)
-    sizes, deaths = set(), []
+    sizes, deaths = [], []
     while run.over is None and run.frame < frames:
         for event in run.step(bot.intent(run)):
             if event.kind == session.LIFE_LOST:
                 deaths.append(run.frame)
-        sizes.add(len(run.swarm.clegs))
+        sizes.append(len(run.swarm.clegs))
     return run, sizes, deaths
 
 
@@ -490,8 +490,12 @@ def test_the_swarm_is_the_same_size_across_a_run_with_deaths():
     between the first death and the second was nearly four times the gap before
     the first. **Dying was the cheapest way to make the game easier.**
 
-    Nothing kills a Cleg but the spray, and a Statue never sprays, so on this
-    run the count may not move at all.
+    Nothing kills a Cleg but the spray, and a Statue never sprays. **The count
+    may still go up**, and since issue #33 it does: a Statue rescues nobody, so
+    its workers bleed out, their bodies turn, and the nests hatch. That is a
+    swarm the run manufactured rather than one it lost, so the claim is stated
+    as the one this test has always been about -- **it must never go down** --
+    and every fly above the authored six has to be accounted for by a nest.
     """
     run, sizes, deaths = _lit_statue_run()
     assert len(deaths) >= 2, f"wanted a run with deaths in it, got {deaths}"
@@ -500,8 +504,12 @@ def test_the_swarm_is_the_same_size_across_a_run_with_deaths():
     # rooms up, so this now also catches a fly being dropped on the floor
     # between two swarms while it walks through a doorway -- which is the same
     # bug in a new place, and the one thing a per-room count would miss.
-    assert sizes == {len(scene.CLEGS_A) + len(scene.CLEGS_B)}, \
-        f"the swarm changed size: {sizes}"
+    authored = len(scene.CLEGS_A) + len(scene.CLEGS_B)
+    assert sizes[0] == authored
+    assert sizes == sorted(sizes), f"the swarm shrank: {sorted(set(sizes))}"
+    hatched = sum(1 for e in run.log if e.kind == session.HATCHED)
+    assert sizes[-1] == authored + hatched, \
+        f"{sizes[-1] - authored} flies appeared that no nest made"
 
 
 def test_the_player_does_not_instantly_re_die_at_the_entrance():
@@ -886,20 +894,36 @@ def test_a_body_lies_on_screen_for_its_whole_lifetime():
     assert not body.turning, "it turned before it had lain there at all"
 
     screen = Screen()
-    for _ in range(rescue_mod.BODY_FRAMES):
+    while not body.turning:
         run.step()
         assert run.over is None, "the run ended under the body"
-        assert body in run.rescue.bodies(), "the body stopped existing"
         assert (body.x, body.y) == fell_at, "the body moved"
-    assert body.turning, "the window never ran out"
+        if not body.turning:
+            assert body in run.rescue.bodies(), "the body stopped existing"
+    assert body.age == rescue_mod.BODY_FRAMES, "the window was the wrong length"
 
     # And it is on the screen, not merely in the model. A body is a fixture:
     # it is drawn wherever the ground is lit or remembered, unlike a person,
-    # who is drawn only where a light is on them this frame.
+    # who is drawn only where a light is on them this frame. It is a nest by
+    # now (issue #33), drawn in an object's 8x8 box on the cell the feet were
+    # in -- **a nest and a body are told apart by size**, so this is the same
+    # ground either way and the assertion is unchanged.
     run.draw(screen)
     assert any(screen.point(body.x + dx, body.y + CELL + dy)
                for dy in range(CELL) for dx in range(CELL)), \
         "nothing was drawn where somebody died"
+
+    # ...and fifty seconds after the death there is nothing there at all.
+    # Bodies accumulated and never left before this: seven on screen at once in
+    # a losing room's last minute, and every one of them a claim that something
+    # mattered that the player had paid light to see.
+    while not body.gone and run.over is None:
+        run.step()
+    assert body.gone, "the run ended before the nest burnt out"
+    run.draw(screen)
+    assert not any(screen.point(body.x + dx, body.y + dy)
+                   for dy in range(2 * CELL) for dx in range(CELL)), \
+        "a burnt-out nest was still on screen"
 
 
 def test_the_tally_adds_up_at_every_ending_the_game_can_reach():

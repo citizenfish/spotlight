@@ -23,7 +23,8 @@ design's sharpest claims untestable and one of them quietly false:
 import pytest
 
 from spikes import (
-    clegs as clegs_mod, lighting, rescue as rescue_mod, scene, session,
+    building, clegs as clegs_mod, lighting, rescue as rescue_mod, scene,
+    session,
 )
 from spikes.session import Intent, Session
 from spotlight.core.constants import CELL, COLS
@@ -777,9 +778,22 @@ def test_the_building_is_inside_the_entity_budget():
 
     **The count is the building's, not a room's**: Clegs cross doorways and go
     to light, so a room's authored population is not its worst case.
+
+    **This is the opening state, and issue #33 says that is the wrong
+    question.** The figure is kept because it is the one issue #21 was argued
+    on and the arithmetic still holds; what it is *not* is a statement that the
+    building fits. A level's budget is sized for its worst plausible failure,
+    which is `Building.worst_case`, and the playtest building is over it -- see
+    `test_held_constants.py`, which pins the number and says what the levers
+    are. The two live side by side deliberately: this one says a tail of four
+    is affordable, and the other says a tail of six with a nest in the room is
+    not.
     """
     run = Session(seed=1)
     flies = len(run.swarm.clegs)
     assert flies == 6
-    worst = flies * 4 + (1 + 4) * 7          # quarters, to stay in integers
-    assert worst <= 18 * 4, f"{worst / 4} Cleg-equivalents against 18"
+    worst = building.cost(clegs=flies, people=1 + 4)
+    assert worst <= building.ENTITY_CEILING, \
+        f"{worst / 4} Cleg-equivalents against 18"
+    assert run.building.worst_case() > worst, \
+        "the worst plausible failure is not worse than the opening state"

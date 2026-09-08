@@ -266,6 +266,11 @@ def test_a_body_lies_there_before_it_would_turn():
     for _ in range(R.BODY_FRAMES):
         w.tick()
     assert w.turning
+    # ...and it does not lie there for ever. Twenty seconds of window, thirty
+    # of nest, gone (issue #33).
+    for _ in range(R.NEST_FRAMES):
+        w.tick()
+    assert w.gone
 
 
 def test_a_dead_worker_calls_once_and_then_never_again():
@@ -537,10 +542,12 @@ def test_a_body_lies_on_screen_for_its_whole_window():
             break
     assert first is not None
     frame, body, where = first
-    for _ in range(R.BODY_FRAMES):
+    for _ in range(R.BODY_FRAMES - 1):
         rescue.tick()
         assert (body.x, body.y) == where, "the body moved"
         assert body in rescue.bodies()
+    rescue.tick()
+    assert body.turning, "the window was the wrong length"
     assert rescue.waiting > 0, "the room emptied before the window elapsed"
 
 
