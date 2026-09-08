@@ -366,18 +366,36 @@ def _name_them(records, rooms: int, omit: str | None = None) -> list[str]:
     either. The second becomes "another one in the top left", which is how a
     person would say it.
     """
-    out, seen = [], set()
+    out, seen, said = [], set(), None
     for record in records:
         where = record["found_in"]
-        if rooms > 1 and record["room"] != omit:
+        if rooms > 1 and record["room"] == said:
+            # **A room is named once for as long as it keeps being the same
+            # room** (issue #35). "the main room's bottom right and the main
+            # room's top middle" is how a database says it; a person says "the
+            # main room's bottom right and top middle", and eleven characters
+            # is most of a line over a whole report.
+            said = record["room"]
+        elif rooms > 1 and record["room"] != omit:
             # "the far room's bottom left" rather than "the bottom left in the
             # far room". Both say the same thing; the first is ten characters
             # shorter and reads like something a person would say out loud,
             # and the log is five or six *lines* rather than five or six
             # sentences -- adding a room clause to every name took the longest
             # of them from eight lines to nine.
-            where = f"{record['room']}'s {where.removeprefix('the ')}"
-        clause = ("another one in " if where in seen else "the one in ") + where
+            said = record["room"]
+            where = (f"{record['room'].removeprefix('the ')}'s "
+                     f"{where.removeprefix('the ')}")
+        else:
+            said = record["room"]
+        # **"the one in" is gone** (issue #35). It was twelve characters on
+        # every mention of every person, and a person cost most of a line to
+        # refer to: "the one in the far room's bottom left" is 37 characters
+        # against a 76-column wrap, so three of them and a time is three lines
+        # for one sentence. What identifies somebody is *where you found them*
+        # and that is untouched -- the user can still ask "did you know they
+        # were there?", which is the whole job the phrase does.
+        clause = f"another in {where}" if where in seen else where
         seen.add(where)
         out.append(clause)
     return out
@@ -402,9 +420,17 @@ def _wrap(text: str, width: int = 76) -> list[str]:
     return lines
 
 
-#: How many people a line names before it stops naming them. Four names with
-#: four times in one sentence is a list, and a list is not a memory aid.
-NAME_LIMIT = 3
+#: How many people a line names before it stops naming them.
+#:
+#: **Three to two with issue #35.** The original reason holds and is simply
+#: sharper than it was written: *four names with four times in one sentence is
+#: a list, and a list is not a memory aid* -- and so, it turns out, is three.
+#: Two names and a count fits a line, which is the difference between a
+#: sentence somebody reads out and one they have to find their place in twice.
+#:
+#: It is also the cheapest of the levers, because a third name costs about
+#: forty characters and the report is short of characters rather than of facts.
+NAME_LIMIT = 2
 
 
 def _capped(clauses: list[str]) -> list[str]:
@@ -421,15 +447,18 @@ def _capped(clauses: list[str]) -> list[str]:
 
 
 def _sentence(prefix: str, records, rooms: int, key: str,
-              total: int) -> str:
+              total: int, notes: dict | None = None) -> str:
     """One line about one group of people, kept short enough to say out loud.
 
     Three cases, and they exist because the first draft produced a four-line
     sentence naming seven people at the same time, which nobody would read out
     and nobody could remember.
     """
+    notes = notes or {}
     times = sorted(r[key] for r in records)
-    if len(records) == total and total > 1:
+    if len(records) == total and total > 1 and not notes:
+        # Everybody, and nothing to say about any of them individually. Naming
+        # seven people is a roster; "all seven of them" is a sentence.
         span = (f"at {roughly(times[0])}" if times[0] == times[-1]
                 else f"between {roughly(times[0])} and {roughly(times[-1])}")
         return f"{prefix}: all {_word(total)} of them, {span}."
@@ -441,12 +470,32 @@ def _sentence(prefix: str, records, rooms: int, key: str,
     together = times[0] == times[-1]
     named = _name_them(records, rooms, omit=shared)
     if not together:
-        named = [f"{clause} at {roughly(r[key])}"
+        # **"about" is said once, by the prefix** (issue #35). It was six
+        # characters on every time in the list and the times are rounded to ten
+        # seconds anyway -- what it is there to prevent is the user reading a
+        # figure out as exact and the tester agreeing with it, and "roughly"
+        # once at the front prevents that for the whole sentence.
+        prefix += ", roughly"
+        named = [f"{clause} at {clock(r[key] // 10 * 10)}"
                  for clause, r in zip(named, records)]
+    # Anything that is true of one of them and not the others rides their own
+    # name (issue #35), so nobody is described twice to say a second thing
+    # about them.
+    named = [clause + notes.get(r["who"], "")
+             for clause, r in zip(named, records)]
     if len(named) > NAME_LIMIT:
         rest = len(named) - NAME_LIMIT
-        named = named[:NAME_LIMIT] + [
-            f"{_word(rest)} more by {roughly(times[-1])}"]
+        # **A capped person still takes their note with them** (issue #35).
+        # The cap drops names, and it must not silently drop the fact the
+        # design cares most about along with them: somebody who died while you
+        # were leading them out is a different story from somebody you never
+        # reached. They lose their name, not their story.
+        capped = sum(1 for r in records[NAME_LIMIT:] if notes.get(r["who"]))
+        more = f"{_word(rest)} more by {clock(times[-1] // 10 * 10)}"
+        if capped:
+            more += (", one of them following you" if capped == 1
+                     else f", {_word(capped)} of them following you")
+        named = named[:NAME_LIMIT] + [more]
         together = False
     tail = f", all in {shared}" if shared else ""
     if together:
@@ -483,6 +532,38 @@ def crossing_lines(measured: dict | None) -> list[str]:
     return lines
 
 
+def _death_notes(dead, rooms: int) -> dict:
+    """Per-person clauses for the deaths sentence: who, and where they fell.
+
+    Two facts the design cares about, and both belong to one person rather than
+    to a group:
+
+    * **Died while following you**, which is a different story from somebody
+      you never reached and is the one the design cares most about.
+    * **Died somewhere other than where you found them**, which is the question
+      the user opens with -- *you lost the one in the far room at about a
+      minute, over in the main room; did you know they were there?*
+
+    Returned by worker index so `_sentence` can hang them on the name it is
+    already writing, rather than repeating the name to say them.
+    """
+    notes = {}
+    for record in dead:
+        parts = []
+        if record["outcome"] == DIED_FOLLOWING:
+            parts.append("following you")
+        if rooms > 1 and record["died_in"] \
+                and record["died_in"] != record["room"]:
+            parts.append(f"lost in {record['died_in']}")
+        if parts:
+            # Parenthesised, because these hang inside a list joined by "and":
+            # *following you and lost in the main room and one more by 2:00*
+            # is three things joined the same way and two of them belong to one
+            # person. Brackets are how somebody writing that down would do it.
+            notes[record["who"]] = " (" + ", ".join(parts) + ")"
+    return notes
+
+
 def _nest_clause(run) -> str:
     """What became of the bodies, as a clause to hang on the deaths.
 
@@ -497,10 +578,14 @@ def _nest_clause(run) -> str:
     if doused:
         parts.append(f"{_word(doused)} sprayed in time")
     if turned:
-        parts.append(f"{_word(turned)} left "
-                     f"{'a nest' if turned == 1 else 'nests'}"
-                     + (f" and {_word(hatched)} more flies" if hatched else ""))
-    return f" Of the bodies, {_join(parts)}." if parts else ""
+        parts.append(f"{_word(turned)} "
+                     f"{'nest' if turned == 1 else 'nests'}")
+    if hatched:
+        parts.append(f"{_word(hatched)} flies")
+    # A tally rather than a sentence, and deliberately: it shares a line with
+    # the ending, it is the shortest thing in the report, and "four nests, 15
+    # flies" is what somebody would jot beside a run anyway.
+    return f"Bodies: {', '.join(parts)}. " if parts else ""
 
 
 def human(run, bot: str = "", label: str = "",
@@ -515,49 +600,47 @@ def human(run, bot: str = "", label: str = "",
     records = people(run)
     rooms = len({r["room"] for r in records} | {run.room})
 
-    lines = [f"Seed {run.seed}, played by {who}. "
-             f"The run lasted {clock(run.seconds)}."]
-
+    # **Five sentences, not seven** (issue #35). Every sentence rounds up to a
+    # whole line when it wraps, so the cheapest line in this report is the one
+    # that was only half full -- and the two shortest facts, *nobody got out*
+    # and *how it ended*, were each spending a line on a dozen words. They ride
+    # the sentences either side of them now.
+    lines = []
     out = sorted((r for r in records if r["outcome"] == OUT),
                  key=lambda r: r["out_at"])
+    header = (f"Seed {run.seed}, played by {who}, "
+              f"{clock(run.seconds)}.")
     if out:
+        lines.append(header)
         lines += _wrap(_sentence("Got out", out, rooms, "out_at", run.total))
     else:
-        lines.append("Nobody got out.")
+        lines += _wrap(f"{header} Nobody got out.")
 
     dead = sorted((r for r in records if r["died_at"] is not None),
                   key=lambda r: r["died_at"])
     if dead:
-        # **What the deaths turned into** (issue #33), said as a clause on the
-        # end of the deaths rather than as a line of its own. It is the one
-        # thing in the run a player may have heard and never seen -- a body
-        # ticks in the dark, and a nest is what happens if nobody reached it --
-        # so the user needs it in front of them when the questionnaire asks
-        # *"did anything change after somebody died?"*. It rides the sentence
-        # it belongs to because this report has a line budget and the wrapped
-        # lists of names already spend most of it.
-        lines += _wrap(_sentence("Died", dead, rooms, "died_at", run.total)
-                       + _nest_clause(run))
-        # Somebody who died while you were leading them out is a different
-        # story from somebody you never reached, and it is the one the design
-        # cares most about. Said separately so it cannot be lost in a list.
-        following = [r for r in dead if r["outcome"] == DIED_FOLLOWING]
-        if following:
-            lines += _wrap(
-                f"{_word(len(following)).capitalize()} of them died while "
-                f"following you: "
-                f"{_join(_capped(_name_them(following, rooms)))}.")
-        # A person is named by where you found them, so somebody lost in the
-        # room next door needs it said in its own clause. It is the question
-        # the user opens with: *you lost the one in the far room at about a
-        # minute -- did you know they were there?*
-        moved = [r for r in dead
-                 if r["died_in"] and r["died_in"] != r["room"]]
-        if moved and rooms > 1:
-            named = [f"{clause}, lost in {r['died_in']}"
-                     for clause, r in zip(_name_them(moved, rooms), moved)]
-            lines += _wrap("They did not all die where you found them: "
-                           + _join(_capped(named)) + ".")
+        # **Each person is described once** (issue #35). This used to be three
+        # sentences -- the deaths, then the ones who died following you, then
+        # the ones who died somewhere other than where you found them -- and a
+        # person in all three was named in full three times, at 37 characters a
+        # time. A user reading that aloud could not tell they were the same
+        # person without comparing the strings.
+        #
+        # **The emphasis is kept and moved.** The old code said the follower
+        # deaths had to be "said separately so it cannot be lost in a list",
+        # and that instinct was right about the danger and wrong about the
+        # remedy: what stops a fact being lost in a list is being attached to
+        # the person it is about, not being repeated underneath. So the two
+        # refinements are now clauses on the name they belong to -- *the far
+        # room's bottom left at about 1:30, following you, lost in the main
+        # room* -- which reads as one person's story rather than as three
+        # overlapping rosters, and costs a phrase where it cost two lines.
+        #
+        # **What the bodies became** (issue #33) rides the same sentence, for
+        # the same reason.
+        lines += _wrap(
+            _sentence("Died", dead, rooms, "died_at", run.total,
+                      notes=_death_notes(dead, rooms)))
     else:
         lines.append("Nobody died.")
 
@@ -565,7 +648,7 @@ def human(run, bot: str = "", label: str = "",
             if r["outcome"] in (STILL_WAITING, STILL_FOLLOWING)]
     if left:
         following = sum(1 for r in left if r["outcome"] == STILL_FOLLOWING)
-        tail = (f", {_word(following)} of them still following you"
+        tail = (f", {_word(following)} still following you"
                 if following else "")
         # Same rule as the other two lines: past three names it stops being a
         # sentence somebody would say and becomes a list.
@@ -581,7 +664,8 @@ def human(run, bot: str = "", label: str = "",
             who_left = _join(_name_them(left, rooms, omit=shared))
         if shared:
             who_left += f", all in {shared}"
-        lines += _wrap(f"Still in the building at the end: {who_left}{tail}.")
+        lines += _wrap(f"Still inside: {who_left}{tail}.")
 
-    lines.append(ENDING_WORDS.get(run.over, f"It ended: {run.over}."))
+    lines += _wrap(_nest_clause(run)
+                   + ENDING_WORDS.get(run.over, f"It ended: {run.over}."))
     return lines + crossing_lines(measured)

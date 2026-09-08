@@ -199,22 +199,24 @@ def test_the_event_log_is_kept_in_full():
 def test_the_human_log_is_a_handful_of_lines():
     """Five or six lines. A memory aid that has to be studied is not one.
 
-    **It is not five or six any more, and this test used to miss that.** It
-    sampled four hand-picked runs; swept across four bots and seven seeds, the
-    report ran to twelve lines on six of twenty-eight runs *before* nests were
-    ever mentioned in it. The cause is the wrapped lists of names -- "the one in
-    the main room's bottom right" is most of a line each, and three of them plus
-    a time is three lines for one sentence.
+    **Met on 2026-09-08 by issue #35**, and this test is the reason it took
+    three issues to notice it was not met: it sampled four hand-picked runs.
+    Swept across four bots and seven seeds the report ran to **thirteen** lines,
+    with sixteen of twenty-eight over six -- and it had been over since before
+    nests were ever mentioned in it.
 
-    Issue #33 added a clause about what the bodies became, and issue #34 made it
-    ride the sentence about the deaths rather than take a line of its own for
-    exactly this reason. It still costs one line on the runs where the deaths
-    sentence was already full, taking the worst case from twelve to thirteen.
+    Now: seventeen runs at four lines, nine at five, two at six, none above.
+    **The bound is the design rule from *Playtest readiness*, not a high-water
+    mark**, and it is a sweep rather than a sample so that it cannot quietly
+    stop being true again.
 
-    **The bound here is what the report actually does, not what it should do.**
-    The claim in the docstring above is the design rule and it is currently
-    unmet; shortening the names is report work and wants its own issue. This
-    fails if it gets worse, which is the most this test can honestly promise.
+    What bought the lines, in order of what each was worth: a person stopped
+    costing "the one in" on every mention; the two sentences that repeated a
+    name in order to say a second thing about somebody became clauses on the
+    name itself; the shortest facts stopped taking a line each; a room is named
+    once for as long as it stays the same room; and `NAME_LIMIT` went from three
+    to two. **No fact was dropped** -- the tests below ask for each of them
+    back.
     """
     worst = 0
     for name in ("statue", "wanderer", "listener", "oracle"):
@@ -223,7 +225,7 @@ def test_the_human_log_is_a_handful_of_lines():
             lines = report.human(run, bot=name)
             assert len(lines) >= 3, (name, seed, lines)
             worst = max(worst, len(lines))
-    assert worst <= 13, f"the human log has grown past thirteen lines: {worst}"
+    assert worst <= 6, f"the human log has grown past six lines: {worst}"
 
 
 def test_the_human_log_is_words_not_numbers():
@@ -243,7 +245,9 @@ def test_the_human_log_says_who_and_roughly_when_and_how_it_ended():
     assert "Seed 3" in lines[0]
     assert "Got out" in text
     assert "about" in text, "times are rounded, because 'roughly when' is the ask"
-    assert lines[-1] == report.ENDING_WORDS[run.over]
+    # The ending is the last thing said, and since issue #35 it shares its line
+    # with what became of the bodies rather than taking one of its own.
+    assert lines[-1].endswith(report.ENDING_WORDS[run.over])
 
 
 def test_the_human_log_names_where_somebody_was():
@@ -251,7 +255,11 @@ def test_the_human_log_names_where_somebody_was():
     the user wants to be able to ask."""
     run = driver.drive(bots.make("statue"), seed=1)
     text = " ".join(report.human(run, bot="statue"))
-    assert "the one in" in text or "all seven" in text
+    # "the one in" was twelve characters on every mention of every person and
+    # went with issue #35. What identifies somebody is *where they were found*,
+    # and that is what this test has always actually been about.
+    assert "bottom right" in text or "all seven" in text
+    assert "room's" in text or "all in" in text, "nobody was placed in a room"
 
 
 def test_the_human_log_calls_out_a_follower_who_died():
@@ -454,3 +462,70 @@ def test_the_bite_count_agrees_with_the_buckets_on_every_frame(seed):
     while run.over is None and run.frame < 4000:
         run.step(bot.intent(run))
         assert sum(run.swarm.bites_by_source) == run.tally.attachments, run.frame
+
+
+# --- the report says each person once (issue #35) ---------------------------
+
+def _sweep():
+    for name in ("statue", "wanderer", "listener", "oracle"):
+        for seed in range(1, 8):
+            run = driver.drive(bots.make(name, seed=seed), seed=seed)
+            yield name, seed, run, report.human(run, bot=name)
+
+
+def test_nobody_is_described_twice_in_one_report():
+    """**The defect issue #35 was raised on.** The same person was named in
+    full three times -- in the deaths, in the followers, and in "they did not
+    all die where you found them" -- at 37 characters a time. A user reading
+    that aloud could not tell they were the same person without comparing the
+    strings, which is the opposite of what a memory aid is for.
+
+    Checked on the phrase rather than on the person, because the phrase is what
+    the user reads out. A repeated *place* is allowed where the report says it
+    once and elides it after -- "main room's bottom right, the top middle" --
+    and that is the fix rather than the bug.
+    """
+    for name, seed, run, lines in _sweep():
+        text = " ".join(lines)
+        for record in report.people(run):
+            phrase = f"{record['room'].removeprefix('the ')}'s " \
+                     f"{record['found_in'].removeprefix('the ')}"
+            assert text.count(phrase) <= 1, \
+                f"{name} seed {seed} says {phrase!r} {text.count(phrase)} times"
+
+
+def test_no_fact_the_contract_asks_for_was_dropped():
+    """*Playtest readiness* names what the report is for: who got out, who did
+    not and roughly when, how the run ended, how long it took -- plus what
+    became of the bodies, which issue #33 added.
+
+    Shortening a report is the easiest way to lose one of those by accident, so
+    this asks for all of them back across the sweep.
+    """
+    seen = set()
+    for name, seed, run, lines in _sweep():
+        text = " ".join(lines)
+        assert f"Seed {run.seed}" in text, "the run does not say which run"
+        assert report.clock(run.seconds) in text, "how long it took"
+        assert text.rstrip().endswith(
+            report.ENDING_WORDS[run.over].rstrip()), "how it ended"
+        if run.rescued:
+            assert "Got out" in text
+            seen.add("out")
+        if run.lost:
+            assert "Died" in text
+            seen.add("died")
+            assert any(c.isdigit() for c in text), "roughly when"
+        if run.inside:
+            assert "Still inside" in text
+            seen.add("inside")
+        if any(e.kind == session.NEST_TURNED for e in run.log):
+            assert "Bodies:" in text
+            seen.add("bodies")
+        if any(p["outcome"] == report.DIED_FOLLOWING
+               for p in report.people(run)):
+            assert "following you" in text, \
+                f"{name} seed {seed} lost a follower and did not say so"
+            seen.add("following")
+    assert seen == {"out", "died", "inside", "bodies", "following"}, \
+        f"the sweep never exercised {seen}"
