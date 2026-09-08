@@ -387,6 +387,12 @@ class Session:
         #: ever been live at once. Target T13 is stated in both.
         self.valve_holds = 0
         self.most_nests = 0
+        #: The most bodies and nests one room has held at once. **Watched
+        #: rather than asserted** (issue #36): this number used to be a comment
+        #: in `building.py` quoting a sample, the sample was wrong, and the
+        #: lesson was that a count belongs in the report where it goes on being
+        #: taken. `Building.most_fixtures` is the bound it has to stay under.
+        self.peak_fixtures = 0
 
         # The room is shown once, on first entry, and then taken away. What the
         # player keeps is what they held in their head. Each room gets its own,
@@ -965,6 +971,11 @@ class Session:
         """
         live = len(self.rescue.nests())
         self.most_nests = max(self.most_nests, live)
+        for place in self.places:
+            self.peak_fixtures = max(
+                self.peak_fixtures,
+                len(self.rescue.bodies(place.index))
+                + len(self.rescue.nests(place.index)))
         for body in self.rescue.workers:
             if body.state != rescue_mod.DEAD:
                 continue

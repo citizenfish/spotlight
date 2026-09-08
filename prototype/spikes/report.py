@@ -267,6 +267,12 @@ def metrics(run) -> dict:
             [e.count for e in log if e.kind == session_mod.VALVE_HELD],
             default=None),
         "most_nests_at_once": run.most_nests,
+        # **The bodies and nests one room held at once** (issue #36). Reported
+        # rather than asserted, because the last time this number was wanted it
+        # was a comment quoting twenty runs and the answer was twice what the
+        # comment said. `Building.most_fixtures` is the bound; this is what
+        # actually happened, and the two want comparing rather than trusting.
+        "most_fixtures_at_once": run.peak_fixtures,
         "spotlight_swaps": run.kit.swaps,
         # **Did they ever find the door.** Target T10 is stated in this and in
         # nothing else, and a second room that nobody goes into bought walking

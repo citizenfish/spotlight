@@ -537,3 +537,44 @@ def test_no_frame_asks_the_port_to_draw_more_than_it_can():
                 peak = max(peak, _drawn(run))
             assert peak <= B.ENTITY_CEILING, \
                 f"{name} seed {seed} peaked at {peak} of {B.ENTITY_CEILING}"
+
+
+def test_no_run_holds_more_fixtures_than_the_bound_allows():
+    """**Watched rather than asserted** (issue #36). The last time this number
+    was wanted it was a comment quoting twenty runs, and the answer was twice
+    what the comment said -- so it is a number the report emits now, and the
+    bound is the thing it is checked against.
+    """
+    from spikes import bots, report
+    bound = scene.BUILDING.most_fixtures
+    peak = 0
+    for name in ("statue", "wanderer", "listener"):
+        for seed in (1, 2, 3):
+            bot, run = bots.make(name, seed=seed), Session(seed=seed)
+            while run.over is None and run.frame < 20000:
+                run.step(bot.intent(run))
+            got = report.metrics(run)["most_fixtures_at_once"]
+            assert got <= bound, f"{name} seed {seed} held {got} of {bound}"
+            peak = max(peak, got)
+    assert peak >= 3, "no run held enough fixtures to be testing anything"
+
+
+def test_the_worst_case_maximises_over_the_dead_rather_than_assuming_one():
+    """**Dead and following are the same people**, so the two cannot both be at
+    their maximum: every fixture on the floor is a person not in the line.
+
+    Today the worst split is one death, because a body is free and a follower is
+    not -- so the sum lands exactly where the hand-written version put it. The
+    point of maximising is that the day `FIXTURE_COST` stops being zero, the
+    worst case moves on its own instead of waiting for somebody to remember.
+    """
+    from spikes import building as B
+    b = scene.BUILDING
+    assert b.worst_case() == B.cost(
+        clegs=b.population + R.NEST_BROOD, people=1 + b.largest_tail,
+        fixtures=1), "the worst split is not one death"
+    # ...and it is genuinely a maximum, not the first thing tried.
+    for dead in range(1, b.roster + 1):
+        assert b.worst_case() >= B.cost(
+            clegs=b.population + R.NEST_BROOD,
+            people=1 + b.roster - dead, fixtures=dead)

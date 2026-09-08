@@ -89,13 +89,27 @@ CLEG_COST = 830
 #: keys, so on the port it belongs to the dirty-cell accounting rather than to
 #: this budget. A nest is the same shape: cell-sized state with a timer.
 #:
-#: **The exposure if that is wrong is bounded and was checked.** That note puts
-#: it at +2,496 T-states worst case against 480 spare in its tightest column,
-#: on the assumption of at most two bodies live at once -- and asks, in as many
-#: words, that somebody check it rather than assume it when nests are built.
-#: Measured over twenty runs, four bots and five seeds: **never more than two.**
-#: The assumption held, so this is a zero with a receipt rather than a
-#: convenience.
+#: **How many there can be is a bound, not a count** (issue #36). This used to
+#: justify itself with a receipt -- *"measured over twenty runs, four bots and
+#: five seeds: never more than two"* -- and then a Wanderer drew four in one
+#: room on a wider sweep. The receipt was false, but that is not the mistake
+#: worth remembering: **twenty runs was not too few, any number of runs would
+#: have been too few**, because a sample cannot bound a worst case. An
+#: observation was written where a bound was needed.
+#:
+#: The bound was available all along and costs nothing to take. A body is gone
+#: `rescue.GONE_FRAMES` after the death that made it, so a room holds at most
+#: the deaths that fit in fifty seconds -- and a follower dies where they fall,
+#: so any worker in the building can die in any room. See
+#: `Building.most_fixtures`, and `worst_case`, which now maximises over how
+#: many of them are dead rather than assuming one.
+#:
+#: **The zero is not falsified; its safety margin is.** The old comment quoted
+#: an exposure of +2,496 T-states if the zero turned out wrong. At the real
+#: bound it is the roster, which for the playtest building is +20,314 against a
+#: peak frame already at 83% of the entity budget. So if this ever stops being
+#: zero, the sum has to be re-taken rather than adjusted -- and it will be,
+#: because `worst_case` reads it.
 FIXTURE_COST = 0
 
 #: What a frame has left for entities, after the fixed work. From
@@ -104,10 +118,17 @@ FIXTURE_COST = 0
 ENTITY_CEILING = 32832
 
 
-def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0) -> int:
-    """What this many of each costs to draw, in T-states."""
+def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0,
+         fixtures: int = 0) -> int:
+    """What this many of each costs to draw, in T-states.
+
+    `nests`, `bodies` and `fixtures` are the same price and are three names for
+    the caller's convenience: a nest and a body are both cell-sized state that
+    does not move, and `fixtures` is for the callers that have already added
+    them up.
+    """
     return (clegs * CLEG_COST + people * PERSON_COST
-            + (nests + bodies) * FIXTURE_COST)
+            + (nests + bodies + fixtures) * FIXTURE_COST)
 
 # --- the authoring legend ---------------------------------------------------
 # A room is written as text because it has to be read by a person, not parsed
@@ -472,6 +493,11 @@ class Building:
         return sum(len(room.clegs) for room in self.rooms)
 
     @property
+    def roster(self) -> int:
+        """How many people this building has in it to lose."""
+        return sum(len(room.workers) for room in self.rooms)
+
+    @property
     def largest_tail(self) -> int:
         """The most people who can be walking behind the player at once.
 
@@ -479,25 +505,54 @@ class Building:
         *living* workers, and the worst plausible failure has a nest in it, so
         one of them is on the floor rather than in the line.
         """
-        return max(0, sum(len(room.workers) for room in self.rooms) - 1)
+        return max(0, self.roster - 1)
+
+    @property
+    def most_fixtures(self) -> int:
+        """The most bodies and nests one room can be holding at once.
+
+        **A bound, and that is the point of it** (issue #36). A body is gone
+        `rescue.GONE_FRAMES` after the death that made it, so a room holds at
+        most the deaths that fit into fifty seconds -- and since a follower dies
+        where they fall, any worker in the building can die in any room. In the
+        worst case that is the whole roster, and no measurement is needed or
+        would help: a sample cannot bound a worst case, which is the lesson the
+        receipt this replaced was bought with.
+
+        The prototype's measured peak is four in one room over 105 runs, which
+        this bound comfortably contains. That is what a bound is for.
+        """
+        return self.roster
 
     def worst_case(self) -> int:
         """What this building can come to in one room, in T-states.
 
         **The worst plausible failure, not the opening state**: the swarm the
-        level authored, one nest's full brood, the nest itself, the player, and
-        the largest tail the level can produce. Sized for the moment it all
-        goes wrong, because that is the moment the machine has to keep drawing.
+        level authored, one nest's full brood, the player, and whatever mixture
+        of dead and following the roster can be in.
 
-        **This one stays conservative and counts the building's whole swarm**,
-        where the runtime valve counts a room's -- see `Session._load`. Clegs
-        cross doorways and go to light, so a room's authored population is not
-        its worst case and a level author cannot be told that it is. The valve
-        is asked whether a frame can be drawn *now*; this is asked whether the
-        level can ever ask for one that cannot.
+        **Dead and following are the same people**, so the two cannot both be at
+        their maximum -- every fixture on the floor is a person not in the line.
+        This maximises over the split rather than assuming it, which matters
+        only if `FIXTURE_COST` ever stops being zero: today the worst is one
+        death, because a body is free and a follower is not, and the sum lands
+        in the same place the hand-written version did. **The day the zero
+        moves, this moves with it** rather than needing somebody to remember.
+
+        At least one is dead, because a level with no nest in it is not the
+        failure this is sizing for.
+
+        **This counts the building's whole swarm**, where the runtime valve
+        counts a room's -- see `Session._load`. Clegs cross doorways and go to
+        light, so a room's authored population is not its worst case and a level
+        author cannot be told that it is. The valve is asked whether a frame can
+        be drawn *now*; this is asked whether the level can ever ask for one
+        that cannot.
         """
-        return cost(clegs=self.population + NEST_BROOD,
-                    people=1 + self.largest_tail, nests=1)
+        flies = self.population + NEST_BROOD
+        return max(cost(clegs=flies, people=1 + self.roster - dead,
+                        fixtures=min(dead, self.most_fixtures))
+                   for dead in range(1, max(1, self.roster) + 1))
 
     @property
     def over_budget(self) -> int:

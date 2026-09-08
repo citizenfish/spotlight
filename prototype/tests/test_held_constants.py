@@ -162,3 +162,50 @@ def test_the_playtest_building_is_inside_the_entity_ceiling():
     # brood included.
     assert building.cost(people=1 + b.largest_tail) \
         > 2 * building.cost(clegs=b.population + rescue.NEST_BROOD)
+
+
+def test_a_fixture_costs_nothing_and_the_sum_notices_if_that_changes():
+    """**The zero, and the thing that was wrong with the way it was justified.**
+
+    A body and a nest do not move, so on the port they belong to the dirty-cell
+    accounting rather than to the per-frame entity bill. That reasoning is
+    unchanged and is not what issue #36 was about.
+
+    What was wrong was the justification: the constant carried a *receipt* --
+    "measured over twenty runs, four bots and five seeds: never more than two"
+    -- and a wider sweep found four in one room. **Twenty runs was not too few.
+    Any number of runs would have been too few**, because a sample cannot bound
+    a worst case, and the lifecycle gave the bound for nothing.
+
+    The guard the issue asks for is here, and it is a sensitivity rather than an
+    assertion about the number: **if a fixture ever costs what a person costs,
+    the playtest building goes over the ceiling.** So the zero cannot quietly
+    become something else -- `worst_case` reads it, maximises over how many of
+    the roster are dead, and this fails.
+    """
+    b = scene.BUILDING
+    assert building.FIXTURE_COST == 0
+    assert b.worst_case() <= building.ENTITY_CEILING
+
+    was = building.FIXTURE_COST
+    try:
+        building.FIXTURE_COST = building.PERSON_COST
+        assert b.worst_case() > building.ENTITY_CEILING, \
+            "a fixture priced as a person would fit, so this guard is asleep"
+    finally:
+        building.FIXTURE_COST = was
+    assert b.worst_case() == 30274, "restoring the constant did not restore it"
+
+
+def test_the_fixture_bound_comes_from_the_lifecycle_and_not_from_a_sweep():
+    """A body is gone fifty seconds after the death that made it, and a
+    follower dies where they fall -- so any worker in the building can die in
+    any room, and the most fixtures a room can hold is the roster.
+
+    **No measurement is needed and none would help.** The prototype's measured
+    peak is four in one room over 105 runs; the bound is seven. That gap is
+    what a bound is for.
+    """
+    b = scene.BUILDING
+    assert b.most_fixtures == b.roster == 7
+    assert rescue.GONE_FRAMES == rescue.BODY_FRAMES + rescue.NEST_FRAMES
