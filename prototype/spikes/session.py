@@ -1015,10 +1015,12 @@ class Session:
         *and* inaudible. To an audience with no 8-bit fluency that is a number
         going down for no reason.
 
-        It is more load-bearing than when it was written, because a follower
-        eaten in the dark turns out to be silent as well as invisible: the sonar
-        skips attached flies, so once one has landed there is nothing left to
-        hear at all.
+        It is more load-bearing than when it was written. A follower eaten in
+        the dark is invisible, so the sonar is the only channel left -- and
+        since issue #32 the sonar does report a fly feeding on somebody who is
+        not you. But it reports it **in the room you are in**, so the moment
+        that follower is the other side of a wall the click stops and this is
+        all that is left.
 
         A shout is already the right channel -- a bearing you have to be
         watching for, not a map. It lifts its own cells out of the dark, leaves

@@ -20,7 +20,7 @@ from spotlight.core.constants import CELL
 from spotlight.core.screen import Screen
 
 from spikes import (
-    clegs as clegs_mod, panel, rescue as rescue_mod, scene, session,
+    buzz, clegs as clegs_mod, panel, rescue as rescue_mod, scene, session,
 )
 from spikes.session import Intent, Session
 from spikes.spotlights import FloorLight
@@ -656,6 +656,88 @@ def test_a_lit_follower_is_bitten_and_a_dark_one_is_not():
     assert lit.swarm.victim_attachments > 0, "a lit follower was ignored"
     assert [e.who for e in lit.frame_events
             if e.kind == session.WORKER_BITTEN] == [5, 5]
+
+
+def test_a_follower_being_eaten_behind_you_in_the_dark_is_audible():
+    """Issue #32, in the loop. The whole point of the rule.
+
+    They are a couple of paces behind you and unlit, so neither they nor the
+    fly on them is drawn; and they are in your own room, so the death shout
+    through a doorway does not cover this either. The sonar is the only channel
+    left, and before #32 it deliberately said nothing about a fly that had
+    landed on anybody.
+
+    Every other fly in the room is killed, so the click can only be about this
+    one -- otherwise the test passes on whatever happens to be wandering past.
+    """
+    run = Session(seed=1)
+    worker = _turn_round(run, _walk_away(run, _free(run, 5), frames=15))
+    riders = _flies_on(run, worker, 1)
+    run.step(Intent(dx=-1))
+    assert run.swarm.victim_attachments > 0, "nothing landed on them"
+
+    swarm = run.places[worker.room].swarm
+    swarm.kill([c for c in swarm.clegs if c not in riders])
+    assert [c.state for c in swarm.clegs] == [clegs_mod.ATTACHED]
+
+    for _ in range(8):                   # off down the room; they go dark again
+        run.step(Intent(dy=1))
+    assert worker not in run._lit_people(run.place), "they are still lit"
+    assert swarm.clegs[0].state == clegs_mod.ATTACHED, "it let go too soon"
+
+    assert run.sonar.interval != buzz.NEVER, \
+        "somebody was being eaten two paces behind you and it was silent"
+    heard = run.sonar.clicks
+    for _ in range(buzz.SLOWEST):
+        run.step(Intent(dy=1))
+    assert run.sonar.clicks > heard, "the sonar never actually clicked"
+
+
+def test_a_fly_on_somebody_you_cannot_see_at_all_still_clicks():
+    """The same rule with nothing left to look at.
+
+    A follower keeps station a pace or two behind, which is inside your own
+    two-cell glow, so they are dimly drawn even unlit. A *waiting* worker four
+    cells off in the dark is not drawn at all, and neither is the fly on them:
+    there is no channel but the sonar, and it is now saying something.
+    """
+    run = Session(seed=1)
+    worker = next(w for w in run.rescue.workers if w.room == run.here)
+    lamp = FloorLight(*worker.cell(), power=9000, lit=True, room=worker.room)
+    run.kit.floor.append(lamp)
+    run.step()
+    riders = _flies_on(run, worker, 1)
+    run.step()
+    assert run.swarm.victim_attachments > 0, "nothing landed on them"
+
+    run.kit.floor.remove(lamp)           # the bait is gone; so is the light
+    swarm = run.place.swarm
+    swarm.kill([c for c in swarm.clegs if c not in riders])
+    for _ in range(4):
+        run.step()
+
+    assert not any(run.field.reveals_at(*c) for c in worker.cells()), \
+        "they were still being drawn, so hearing them proves nothing"
+    assert not run.field.reveals_at(riders[0].cx, riders[0].cy), \
+        "the fly was drawn, so the sonar was not the only channel"
+    distance = max(abs(worker.cell()[0] - run.player.cx),
+                   abs(worker.cell()[1] - run.player.cy))
+    assert run.sonar.interval == buzz.interval_for(distance), \
+        "the click is not the one being eaten"
+
+
+def test_a_fly_feeding_on_you_is_still_not_worth_a_click():
+    """The other half of the rule. Your own blood is already saying it, and a
+    click that repeats it is noise -- so a room whose only fly is on you is a
+    silent room."""
+    run = Session(seed=1)
+    swarm = run.place.swarm
+    on_you = swarm.clegs[0]
+    swarm.kill([c for c in swarm.clegs if c is not on_you])
+    on_you.cx, on_you.cy = run.player.cx, run.player.cy
+    run.step()
+    assert on_you.state == clegs_mod.ATTACHED, "it did not land on the player"
+    assert run.sonar.interval == buzz.NEVER, "the one on you was announced"
 
 
 def test_a_waiting_worker_standing_in_light_is_bitten_where_they_stand():

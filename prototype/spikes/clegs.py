@@ -898,15 +898,25 @@ class Swarm:
         return before - len(self.clegs)
 
     def nearest_distance(self, cx: int, cy: int) -> int | None:
-        """Cells to the closest Cleg that is not already on you, or None.
+        """Cells to the closest Cleg that is not on *you*, or None.
 
         Chebyshev distance -- the number of steps a Cleg needs, since they move
         on a grid and may go diagonally. It is also two subtractions and a
         comparison, which matters when the buzz asks for it every frame.
+
+        **A fly feeding on somebody else still counts** (issue #32). One on the
+        player is not news -- your blood is already saying it, and a click that
+        repeats it is noise. One on somebody trailing behind you in the dark is
+        otherwise invisible *and* silent: nothing beyond your own two-cell glow
+        is drawn at all, and the only other channel is the death shout, which
+        arrives when it is already too late. The sonar is the one channel the
+        dark has, so it reports the fly on them, at their cell -- `_ride` keeps
+        a fly on its host every frame, so the distance is right the moment it
+        stops being excluded.
         """
         best = None
         for c in self.clegs:
-            if c.state == ATTACHED:
+            if c.state == ATTACHED and c.victim is None:
                 continue
             d = max(abs(c.cx - cx), abs(c.cy - cy))
             if best is None or d < best:

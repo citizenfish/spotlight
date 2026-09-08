@@ -1023,3 +1023,48 @@ def test_the_prey_map_is_built_once_and_covers_the_whole_figure():
 
     victim = Tall(12, 10)
     assert C.Swarm.prey_cells([victim]) == {(12, 10): victim, (12, 9): victim}
+
+
+# --- the sonar counts a fly on somebody who is not you (issue #32) ----------
+#
+# The sonar is the only channel the dark has. A Cleg is not merely hard to see
+# in darkness, it is not drawn at all -- so once a fly has landed on the
+# follower two paces behind you there is nothing to see, and the only other
+# channel is the death shout, which arrives too late to be a warning.
+
+def test_the_sonar_counts_a_fly_feeding_on_a_worker():
+    """A fast rattle behind you means something is on somebody behind you."""
+    victim = Person(12, 10, blood=99)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.state == C.ATTACHED and cleg.victim is victim
+    assert swarm.nearest_distance(30, 20) == 18, "it is still worth hearing"
+
+
+def test_the_sonar_still_ignores_a_fly_feeding_on_you():
+    """Your blood is already saying it; a click that repeats it is noise."""
+    victim = Person(12, 10, blood=99)
+    on_worker = C.Cleg(12, 10, seed=1)
+    on_player = C.Cleg(30, 20, seed=2)
+    swarm = C.Swarm([on_worker, on_player])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert on_worker.state == on_player.state == C.ATTACHED
+    assert swarm.nearest_distance(30, 20) == 18, \
+        "the near one is on you, so the far one is the news"
+
+
+def test_the_sonar_follows_a_fly_onto_the_host_that_walks_off():
+    """`_ride` keeps the fly on its host, so the distance is the host's."""
+    victim = Person(12, 10, blood=99)
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1)])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    victim.cx, victim.cy = 26, 20
+    swarm.tick([], (30, 20), OPEN, 64, prey=[victim])
+    assert swarm.nearest_distance(30, 20) == 4, "it went where they went"
+
+
+def test_the_sonar_is_unchanged_when_nothing_is_attached_to_anybody():
+    """The click rate for an ordinary run does not move."""
+    swarm = C.Swarm([C.Cleg(12, 10, seed=1), C.Cleg(26, 4, seed=2)])
+    assert swarm.nearest_distance(30, 20) == 16, "the nearer of the two"

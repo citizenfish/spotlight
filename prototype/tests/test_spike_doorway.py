@@ -11,10 +11,12 @@ design's sharpest claims untestable and one of them quietly false:
   what gets them eaten -- had nowhere to happen.
 * A worker being eaten a few cells away was always visible, so nothing depended
   on hearing it. With two rooms it is invisible **and** inaudible, because the
-  sonar reports the room you are in and it skips attached flies -- once one has
-  landed there is nothing left to hear. That is a number going down for no
-  reason, which is the failure mode the playtest is most worried about, and the
-  shouts through a doorway are the whole answer to it.
+  sonar reports the nearest Cleg in the room you are in -- so the room behind
+  you falls silent the moment you leave it, whatever is feeding in it. (Since
+  issue #32 a fly on a follower *is* audible; that is the same room only, which
+  is what leaves this hole exactly one wall wide.) That is a number going down
+  for no reason, which is the failure mode the playtest is most worried about,
+  and the shouts through a doorway are the whole answer to it.
 * And a light field that stops at a wall had never been asked for.
 """
 
@@ -717,9 +719,9 @@ def test_a_call_through_a_doorway_draws_no_clegs():
 
 def test_a_death_in_the_room_behind_you_is_heard_through_the_doorway():
     """The reason this rule got sharper than when it was written. A follower
-    eaten in the dark is invisible **and** inaudible -- the sonar skips attached
-    flies -- so the death beat carried over the doorway is the only thing left
-    that says a number went down for a reason.
+    eaten in the *next room* is invisible and inaudible -- the sonar reports
+    your own room only -- so the death beat carried over the doorway is the
+    only thing left that says a number went down for a reason.
     """
     run = at_door(Session(seed=1))
     walk(run, 1, 16)
