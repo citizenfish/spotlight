@@ -483,6 +483,26 @@ def crossing_lines(measured: dict | None) -> list[str]:
     return lines
 
 
+def _nest_clause(run) -> str:
+    """What became of the bodies, as a clause to hang on the deaths.
+
+    Empty when nothing happened to any of them, which is a run in which every
+    body was still lying there when it ended -- and that is said by its absence
+    rather than by a sentence saying so.
+    """
+    turned = sum(1 for e in run.log if e.kind == session_mod.NEST_TURNED)
+    doused = sum(1 for e in run.log if e.kind == session_mod.DOUSED)
+    hatched = sum(1 for e in run.log if e.kind == session_mod.HATCHED)
+    parts = []
+    if doused:
+        parts.append(f"{_word(doused)} sprayed in time")
+    if turned:
+        parts.append(f"{_word(turned)} left "
+                     f"{'a nest' if turned == 1 else 'nests'}"
+                     + (f" and {_word(hatched)} more flies" if hatched else ""))
+    return f" Of the bodies, {_join(parts)}." if parts else ""
+
+
 def human(run, bot: str = "", label: str = "",
           measured: dict | None = None) -> list[str]:
     """The run in five or six lines of English, in the order it happened.
@@ -508,7 +528,16 @@ def human(run, bot: str = "", label: str = "",
     dead = sorted((r for r in records if r["died_at"] is not None),
                   key=lambda r: r["died_at"])
     if dead:
-        lines += _wrap(_sentence("Died", dead, rooms, "died_at", run.total))
+        # **What the deaths turned into** (issue #33), said as a clause on the
+        # end of the deaths rather than as a line of its own. It is the one
+        # thing in the run a player may have heard and never seen -- a body
+        # ticks in the dark, and a nest is what happens if nobody reached it --
+        # so the user needs it in front of them when the questionnaire asks
+        # *"did anything change after somebody died?"*. It rides the sentence
+        # it belongs to because this report has a line budget and the wrapped
+        # lists of names already spend most of it.
+        lines += _wrap(_sentence("Died", dead, rooms, "died_at", run.total)
+                       + _nest_clause(run))
         # Somebody who died while you were leading them out is a different
         # story from somebody you never reached, and it is the one the design
         # cares most about. Said separately so it cannot be lost in a list.
@@ -553,27 +582,6 @@ def human(run, bot: str = "", label: str = "",
         if shared:
             who_left += f", all in {shared}"
         lines += _wrap(f"Still in the building at the end: {who_left}{tail}.")
-
-    # **What the deaths turned into** (issue #33). Said in its own line and in
-    # English, because it is the one thing in the run the player may have heard
-    # and never seen: a body ticks in the dark, and a nest is what happens if
-    # nobody got to it. The questionnaire asks *"did anything change after
-    # somebody died?"*, open and not leading, and this is the line the user
-    # reads the answer against.
-    turned = sum(1 for e in run.log if e.kind == session_mod.NEST_TURNED)
-    doused = sum(1 for e in run.log if e.kind == session_mod.DOUSED)
-    hatched = sum(1 for e in run.log if e.kind == session_mod.HATCHED)
-    if turned or doused:
-        parts = []
-        if doused:
-            parts.append(f"{_word(doused)} of the bodies "
-                         f"{'was' if doused == 1 else 'were'} sprayed in time")
-        if turned:
-            parts.append(f"{_word(turned)} turned into "
-                         f"{'a nest' if turned == 1 else 'nests'} and hatched "
-                         f"{_word(hatched)} more "
-                         f"{'fly' if hatched == 1 else 'flies'}")
-        lines += _wrap(_join(parts).capitalize() + ".")
 
     lines.append(ENDING_WORDS.get(run.over, f"It ended: {run.over}."))
     return lines + crossing_lines(measured)

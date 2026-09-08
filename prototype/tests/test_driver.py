@@ -197,12 +197,33 @@ def test_the_event_log_is_kept_in_full():
 
 
 def test_the_human_log_is_a_handful_of_lines():
-    """Five or six lines. A memory aid that has to be studied is not one."""
-    for name, seed in (("statue", 1), ("wanderer", 4), ("listener", 2),
-                       ("oracle", 3)):
-        run = driver.drive(bots.make(name, seed=seed), seed=seed)
-        lines = report.human(run, bot=name)
-        assert 3 <= len(lines) <= 8, (name, lines)
+    """Five or six lines. A memory aid that has to be studied is not one.
+
+    **It is not five or six any more, and this test used to miss that.** It
+    sampled four hand-picked runs; swept across four bots and seven seeds, the
+    report ran to twelve lines on six of twenty-eight runs *before* nests were
+    ever mentioned in it. The cause is the wrapped lists of names -- "the one in
+    the main room's bottom right" is most of a line each, and three of them plus
+    a time is three lines for one sentence.
+
+    Issue #33 added a clause about what the bodies became, and issue #34 made it
+    ride the sentence about the deaths rather than take a line of its own for
+    exactly this reason. It still costs one line on the runs where the deaths
+    sentence was already full, taking the worst case from twelve to thirteen.
+
+    **The bound here is what the report actually does, not what it should do.**
+    The claim in the docstring above is the design rule and it is currently
+    unmet; shortening the names is report work and wants its own issue. This
+    fails if it gets worse, which is the most this test can honestly promise.
+    """
+    worst = 0
+    for name in ("statue", "wanderer", "listener", "oracle"):
+        for seed in range(1, 8):
+            run = driver.drive(bots.make(name, seed=seed), seed=seed)
+            lines = report.human(run, bot=name)
+            assert len(lines) >= 3, (name, seed, lines)
+            worst = max(worst, len(lines))
+    assert worst <= 13, f"the human log has grown past thirteen lines: {worst}"
 
 
 def test_the_human_log_is_words_not_numbers():

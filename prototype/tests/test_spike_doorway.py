@@ -772,28 +772,25 @@ def test_the_debug_switch_silences_the_doorway_too(calls_on):
 # --- the population is the building's ----------------------------------------
 
 def test_the_building_is_inside_the_entity_budget():
-    """Six flies and a tail of four in one room with the player is
-    6 + (5 x 1.75) = 14.75 Cleg-equivalents against a ceiling of eighteen,
-    which leaves the three and a quarter a hatching nest needs.
+    """Six flies and a tail of four in one room with the player, which is the
+    case issue #21 was argued on.
 
     **The count is the building's, not a room's**: Clegs cross doorways and go
     to light, so a room's authored population is not its worst case.
 
     **This is the opening state, and issue #33 says that is the wrong
-    question.** The figure is kept because it is the one issue #21 was argued
-    on and the arithmetic still holds; what it is *not* is a statement that the
-    building fits. A level's budget is sized for its worst plausible failure,
-    which is `Building.worst_case`, and the playtest building is over it -- see
-    `test_held_constants.py`, which pins the number and says what the levers
-    are. The two live side by side deliberately: this one says a tail of four
-    is affordable, and the other says a tail of six with a nest in the room is
-    not.
+    question** -- a level's budget is sized for its worst plausible failure,
+    which is `Building.worst_case`. The two live side by side deliberately: this
+    one says the room #21 designed is comfortable, and the other says what
+    happens to it when everything goes wrong at once. Both are in T-states since
+    issue #34; the 14.75 Cleg-equivalents this used to asserted is a unit the
+    port retired when Clegs became cell-aligned.
     """
     run = Session(seed=1)
     flies = len(run.swarm.clegs)
     assert flies == 6
     worst = building.cost(clegs=flies, people=1 + 4)
     assert worst <= building.ENTITY_CEILING, \
-        f"{worst / 4} Cleg-equivalents against 18"
+        f"{worst} T-states against {building.ENTITY_CEILING}"
     assert run.building.worst_case() > worst, \
         "the worst plausible failure is not worse than the opening state"

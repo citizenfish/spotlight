@@ -359,9 +359,9 @@ def test_the_swarm_is_the_buildings_and_is_split_between_the_rooms():
     #21 makes the split the vault asked for and #23 deferred: three each.
 
     The counts are the **building's**. Clegs cross doorways and go to light, so
-    a room's authored population is not its worst case: six flies and a tail of
-    four in one room is 6 + (5 x 1.75) = 14.75 Cleg-equivalents against a
-    ceiling of eighteen.
+    a room's authored population is not its worst case: the whole swarm can be
+    in the room you are standing in. What that comes to is counted in
+    `building.py`, in T-states -- see `test_held_constants.py`.
     """
     assert len(scene.CLEGS_A) == 3
     assert len(scene.CLEGS_B) == 3

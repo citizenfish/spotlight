@@ -120,37 +120,45 @@ def test_the_body_window_moved_to_the_number_the_vault_agreed():
     assert rescue.GONE_FRAMES == 50 * 50
 
 
-def test_the_playtest_building_is_over_the_entity_ceiling():
-    """**Counted here, and refused nowhere.** The number, and why it is a
-    finding rather than a bug fix.
+def test_the_playtest_building_is_inside_the_entity_ceiling():
+    """**The number, and the two ways it has been got wrong.**
 
-    Issue #33 asks that level validation be sized for a level's **worst
+    Issue #33 asked that level validation be sized for a level's **worst
     plausible failure** rather than its opening state, because a nest is the
-    first thing in the game that manufactures entities. Counted that way -- the
-    authored swarm, one nest's full brood, the nest, the player and the largest
-    tail the level can produce -- the playtest building comes to 25.25
-    Cleg-equivalents against a ceiling of eighteen.
+    first thing in the game that manufactures entities. It counted that way and
+    reported the playtest building as 25.25 Cleg-equivalents against a ceiling
+    of eighteen -- over by 40%, and over by 18.25 to 18 before a nest even
+    turned.
 
-    **And it was already over before nests existed.** Six flies, the player and
-    a tail of six is 18.25, and nobody had counted it: the figure quoted in
-    `scene.py` and in `test_spike_doorway.py` is 14.75, which assumes a tail of
-    four. Eighteen and a seven-person building have been in tension since issue
-    #21 and the tension is arithmetic, not a nest.
+    **Both figures were in the wrong unit** (issue #34). Eighteen
+    Cleg-equivalents is what *The 48K cycle budget* arrived at with
+    **pixel-positioned** flies, and cell-aligned Clegs were taken as a decision
+    on 2026-09-07 precisely because nests do not fit under it. Counted in
+    T-states, which is the currency *Nests* says to use and then did not::
 
-    Nothing is refused on it, and that is the issue's own wording rather than a
-    softening: *"the valve, which is now the budget's only guarantee"*. A nest
-    whose spawn would take the room over the ceiling holds it -- see
-    `session.Session._nests` -- so the ceiling is enforced at the moment it
-    would be exceeded rather than by refusing to start.
+        6 authored + 6 brood = 12 Clegs    9,960
+        the player and a tail of six      20,314
+        the nest itself                        0   a fixture; it does not move
+                                          ------
+                                          30,274  against 32,832 -- 92%
 
-    **What to do about it is a decision for the vault**, and there are three
-    levers, all of them authored numbers somebody argued for: the size of the
-    swarm, the number of people in the building, and the ceiling itself. This
-    test exists so that whichever one moves, it moves on purpose.
+    So the building fits, with eight per cent spare, and the tension #33
+    reported was an artefact of a retired unit rather than a fact about the
+    level.
+
+    **Held here because a ceiling denominated in one entity's cost moves
+    whenever that entity's sprite format moves, and it has now done so once.**
+    If a format changes again this fails, which is the point. The figures live
+    in `building.py` and are quoted from the vault rather than re-derived.
     """
     b = scene.BUILDING
-    assert b.worst_case() == 101, "the worst plausible failure moved"
-    assert b.over_budget == 101 - building.ENTITY_CEILING
-    # Before a single nest turns, and this is the part that is not about nests.
-    assert building.cost(clegs=b.population, people=1 + b.largest_tail) \
-        > building.ENTITY_CEILING
+    assert b.worst_case() == 30274, "the worst plausible failure moved"
+    assert b.over_budget == 0, "the playtest building no longer fits"
+    assert b.worst_case() * 100 // building.ENTITY_CEILING == 92
+
+    # And the part that is not about nests: the tail is the expensive thing in
+    # this building, which is *The 48K cycle budget*'s own warning arriving from
+    # the other direction. A tail of six costs more than twice the whole swarm,
+    # brood included.
+    assert building.cost(people=1 + b.largest_tail) \
+        > 2 * building.cost(clegs=b.population + rescue.NEST_BROOD)

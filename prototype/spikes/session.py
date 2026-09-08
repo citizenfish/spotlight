@@ -863,29 +863,48 @@ class Session:
                                  room=self.places[body.room].room.name)
 
     def _load(self, room: int) -> int:
-        """What this room may have to draw, in quarters of a Cleg-equivalent.
+        """What drawing this room costs, in T-states.
 
-        **The valve's whole input, and it is the same question `Building.
-        worst_case` asks, asked of the state instead of the level:** every Cleg
-        in the building against the people in this one room. Flies cross
-        doorways and go to light, so the room's own count is not its worst case
-        -- the whole swarm can follow the player through a door, and a valve
-        that let a brood hatch because half the swarm was next door would be
-        counting a state that lasts as long as it takes somebody to walk.
-        People are the other way round: they are where the player put them.
+        **The valve's whole input.** It asks one question -- *could the port
+        draw this room as it stands?* -- and it asks it of the room the nest is
+        in, plus the player, who is always drawn and could walk in at any
+        moment.
 
-        A body is a person, because it is drawn in a person's box; a nest is an
-        8x8 object and costs what a Cleg costs. Both are on the level's bill for
-        as long as they are drawn, which is what makes the lifecycle ending a
-        budget decision as much as a screen-clutter one.
+        **It counts the building's flies against this room's people**, which is
+        what #33 chose and #34 was raised to re-decide. It is kept, and the
+        reason is that the alternative measured better and guaranteed nothing:
+
+        * Counting **the room's own flies** reads well -- a busy room delaying a
+          brood -- and lets every spawn land. But flies cross doorways and go to
+          light, so a spawn waved through into a quiet room is a spawn that can
+          walk into the loud one ten seconds later. Measured, it lets the
+          building reach **44 flies** and peaks at 87% of the ceiling: under it,
+          but by luck rather than by construction.
+        * Counting **the building's** caps the population at 36 and peaks at
+          74%, and costs a Wanderer eighteen spawns in 168. *Nests* calls this
+          valve "the budget's only guarantee", and a guarantee that holds
+          because the swarm happened not to converge is not one.
+
+        **So what was wrong with #33 was the ceiling, not the count.** Against
+        eighteen Cleg-equivalents this same arithmetic held spawns with the room
+        at 27 to 61 per cent of the real budget and landed nine of a Statue's
+        thirty-six. Against the T-states the port actually has, it fires for one
+        bot in four and lets 89% of every brood through.
+
+        Bodies and nests cost nothing here, because neither moves and both are
+        drawn from remembered ground -- see `building.FIXTURE_COST`, which
+        carries the bound and the measurement that checked it.
         """
-        people = 1 if room == self.here else 0
-        people += sum(1 for w in self.rescue.workers
-                      if w.room == room and w.alive)
+        # The player is counted whichever room this is: they are always drawn,
+        # and a room they are not in is one they can walk into. Their tail is
+        # counted where it physically is, because that is where it is drawn.
+        people = 1 + sum(1 for w in self.rescue.workers
+                         if w.room == room and w.alive)
         return building_mod.cost(
             clegs=len(self.swarm.clegs),
-            people=people + len(self.rescue.bodies(room)),
-            nests=len(self.rescue.nests(room)))
+            people=people,
+            nests=len(self.rescue.nests(room)),
+            bodies=len(self.rescue.bodies(room)))
 
     def _hatch(self, nest) -> bool:
         """Place one of a nest's brood. Returns False if there was no room.

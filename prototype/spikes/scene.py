@@ -27,18 +27,17 @@ room you can see all of at once.
 * **Room B is the opposite of A on every dial the author has.** No searchlight,
   one authored room light, and it sits on the doorway home.
 * **Population is the building's, not the room's.** Clegs cross doorways and go
-  to light, so a room's authored count is not its worst case. Six flies and a
-  tail of four in one room is 6 + (5 x 1.75) = 14.75 Cleg-equivalents against a
-  ceiling of eighteen.
+  to light, so a room's authored count is not its worst case: the whole swarm
+  can be in the room you are standing in.
 
-  **That is the opening state, and issue #33 says it is the wrong question.** A
-  level's budget is sized for its worst plausible failure -- the swarm, one
-  nest's full brood, the nest, the player and the largest tail the level can
-  produce -- which for this building is 25.25, and it was 18.25 before nests
-  existed. See `Building.worst_case` and `test_held_constants.py`: the number is
-  counted, the valve in `session.Session._nests` is what enforces the ceiling at
-  the moment it would be broken, and which of the three levers moves is a
-  decision for the vault.
+  **The budget is sized for the worst plausible failure, not the opening state**
+  (issue #33) -- the swarm, one nest's full brood, the nest, the player and the
+  largest tail the level can produce. **In T-states, not Cleg-equivalents**
+  (issue #34): a ceiling denominated in one entity's cost moves whenever that
+  entity's sprite format does, and cell-aligned Clegs moved it. This building
+  comes to **30,274 against 32,832 -- 92%, and it fits.** See
+  `Building.worst_case`, and `session.Session._load` for the valve that enforces
+  it at the moment it would be broken.
 """
 
 from .building import (
@@ -256,8 +255,9 @@ WORKERS_B = (
 #: which is what the prototype has always had; the nine that appeared in an
 #: earlier draft of the vault note was a proposal that got quoted back as a
 #: fact. Six is what two concurrent nests cost a room that also has to hold two
-#: broods, and it leaves the three and a quarter Cleg-equivalents a hatching
-#: nest needs before the hold-the-spawn valve has to do anything.
+#: broods. What headroom that leaves is counted in `building.py`, in T-states:
+#: this building's worst plausible failure is 92% of a frame's entity budget,
+#: and the hold-the-spawn valve is what holds it there.
 #:
 #: Spread wide and none of them near the player, so a swarm has to travel and
 #: you hear it coming long before it arrives.

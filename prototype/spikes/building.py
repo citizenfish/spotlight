@@ -51,29 +51,63 @@ from .rescue import NEST_BROOD
 # question a level has to answer is no longer "what did you draw" but "what can
 # this become".
 #
-# The unit is a **Cleg-equivalent**, held in quarters so that nothing here needs
-# a fraction -- a Z80 has no floats and neither does `core`. A Cleg is one; a
-# person is one and three quarters, being 8x16 rather than 8x8 and drawn with a
-# visibility test on every cell; a nest is one, being an 8x8 object.
+# **The unit is T-states, and issue #34 is what it cost to learn that.** This
+# counted in *Cleg-equivalents* against a ceiling of eighteen, which is the
+# figure *The 48K cycle budget* arrived at **with pixel-positioned flies** --
+# and cell-aligned Clegs were taken as a decision on 2026-09-07 precisely
+# because nests do not fit under it. So the valve spent #33 guarding T-states
+# that had been bought back the day before: measured, it refused a spawn with
+# the room at **27 to 61 per cent** of the real budget, and a Statue's six nests
+# landed nine flies of the thirty-six they owe.
 #
-# **The count is the building's, not a room's, and it is compared against what
-# one room may hold.** Clegs cross doorways and go to light, so a room's
-# authored population is not its worst case -- the whole swarm can be in the
-# room you are standing in. People are the other way round: they are where the
-# player put them, so the worst case is the player and the longest tail the
-# level can produce, in whichever room they are standing in.
+# *Nests* had already written down why the unit was the trap, in the same note
+# that then used it: **"Cleg-equivalents stop being a useful currency when the
+# sprite format changes."** A ceiling denominated in one entity's cost moves
+# whenever that entity's sprite format moves, and it has now moved once. The
+# figures below are quoted from *The 48K cycle budget* rather than re-derived,
+# so there is one place to change them when the port measures a real routine.
+#
+# **Drawing is the whole cost.** That note prices the frame's fixed work --
+# the fade, the dirty attributes, the stipple -- at 19,584 T-states and leaves
+# what is below for entities. Steering is nearly free by comparison and
+# amortises to under 50 T-states a fly, which is why a room nobody is looking
+# at is not on this bill at all.
 
-CLEG_COST = 4
-PERSON_COST = 7
-NEST_COST = 4
+#: A moving 8x16 person: six cells composited with a visibility test, plus the
+#: restore. The player, a waiting worker, a follower.
+PERSON_COST = 2902
 
-#: The ceiling, in quarters. Eighteen Cleg-equivalents, from *Resource budgets*.
-ENTITY_CEILING = 18 * CLEG_COST
+#: A **cell-aligned** 8x8 Cleg. Roughly half a pixel-positioned one (1,654),
+#: because a cell-aligned sprite needs no pre-shift and no second byte column.
+#: That halving is the whole reason nests fit.
+CLEG_COST = 830
+
+#: A body, and a nest: **nothing, because neither moves.**
+#:
+#: *The 48K cycle budget* is explicit -- the per-entity figures price *movement*,
+#: and a body is a fixture drawn from remembered ground alongside walls and
+#: keys, so on the port it belongs to the dirty-cell accounting rather than to
+#: this budget. A nest is the same shape: cell-sized state with a timer.
+#:
+#: **The exposure if that is wrong is bounded and was checked.** That note puts
+#: it at +2,496 T-states worst case against 480 spare in its tightest column,
+#: on the assumption of at most two bodies live at once -- and asks, in as many
+#: words, that somebody check it rather than assume it when nests are built.
+#: Measured over twenty runs, four bots and five seeds: **never more than two.**
+#: The assumption held, so this is a zero with a receipt rather than a
+#: convenience.
+FIXTURE_COST = 0
+
+#: What a frame has left for entities, after the fixed work. From
+#: *The 48K cycle budget*: 52,416 T-states a frame, less 19,584 of fade, dirty
+#: attributes and stipple.
+ENTITY_CEILING = 32832
 
 
-def cost(clegs: int = 0, people: int = 0, nests: int = 0) -> int:
-    """What this many of each costs, in quarters of a Cleg-equivalent."""
-    return clegs * CLEG_COST + people * PERSON_COST + nests * NEST_COST
+def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0) -> int:
+    """What this many of each costs to draw, in T-states."""
+    return (clegs * CLEG_COST + people * PERSON_COST
+            + (nests + bodies) * FIXTURE_COST)
 
 # --- the authoring legend ---------------------------------------------------
 # A room is written as text because it has to be read by a person, not parsed
@@ -448,34 +482,38 @@ class Building:
         return max(0, sum(len(room.workers) for room in self.rooms) - 1)
 
     def worst_case(self) -> int:
-        """What this building can come to, in quarters of a Cleg-equivalent.
+        """What this building can come to in one room, in T-states.
 
         **The worst plausible failure, not the opening state**: the swarm the
         level authored, one nest's full brood, the nest itself, the player, and
         the largest tail the level can produce. Sized for the moment it all
         goes wrong, because that is the moment the machine has to keep drawing.
+
+        **This one stays conservative and counts the building's whole swarm**,
+        where the runtime valve counts a room's -- see `Session._load`. Clegs
+        cross doorways and go to light, so a room's authored population is not
+        its worst case and a level author cannot be told that it is. The valve
+        is asked whether a frame can be drawn *now*; this is asked whether the
+        level can ever ask for one that cannot.
         """
         return cost(clegs=self.population + NEST_BROOD,
                     people=1 + self.largest_tail, nests=1)
 
     @property
     def over_budget(self) -> int:
-        """Quarters by which the worst plausible failure beats the ceiling.
+        """T-states by which the worst plausible failure beats the ceiling.
 
-        **Counted here and refused nowhere**, and that is the issue's own
-        wording rather than a softening of it: *"the valve, which is now the
-        budget's only guarantee"*. A level whose worst case is over the ceiling
-        is a level whose nests will be held up by the valve; it is not a level
-        that cannot be drawn, because the valve is what stops the drawing ever
-        being asked for.
+        **Counted here and refused nowhere**, per *Nests*: *"the valve, which is
+        now the budget's only guarantee"*. A level over the ceiling is a level
+        whose nests the valve will hold up; it is not a level that cannot be
+        drawn, because holding the spawn is what stops the drawing ever being
+        asked for.
 
-        The playtest building is over it, and by more than nests account for --
-        see `test_held_constants.py`, which pins the arithmetic. Six Clegs, the
-        player and a tail of six is 18.25 before a single nest turns, so
-        eighteen and a seven-person building were already in tension and nobody
-        had counted. That is a decision for the vault and not for this method:
-        the levers are the swarm, the number of people, and the ceiling, and
-        all three are authored numbers somebody argued for.
+        **The playtest building is inside it**, with about five per cent spare,
+        and the reading that said otherwise was issue #34: the ceiling was the
+        pixel-positioned one. `test_held_constants.py` pins the arithmetic both
+        ways round, because a number that was wrong once in this direction is
+        worth being able to see is right now.
         """
         return max(0, self.worst_case() - ENTITY_CEILING)
 

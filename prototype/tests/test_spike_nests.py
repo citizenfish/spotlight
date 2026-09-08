@@ -454,3 +454,86 @@ def test_the_valve_holds_a_spawn_rather_than_dropping_it():
     held = [e for e in run.log if e.kind == S.VALVE_HELD]
     nest = run.rescue.workers[held[0].who]
     assert nest.owed > 0, "the valve dropped the spawn instead of holding it"
+
+
+# --- the valve counts what the port pays (issue #34) ------------------------
+
+def _drawn(run) -> int:
+    """What the port would have to draw this frame, in the room on screen."""
+    from spikes import building as B
+    here = run.here
+    people = 1 + sum(1 for w in run.rescue.workers
+                     if w.room == here and w.alive)
+    return B.cost(clegs=len(run.places[here].swarm.clegs), people=people)
+
+
+def test_the_budget_is_counted_in_t_states_not_cleg_equivalents():
+    """**A ceiling denominated in one entity's cost moves whenever that
+    entity's sprite format moves**, and it has now done so once: eighteen
+    Cleg-equivalents was the pixel-positioned figure, and cell-aligned Clegs
+    halved a fly. *Nests* wrote down that trap and then fell into it.
+
+    The figures are quoted from *The 48K cycle budget* rather than re-derived,
+    so there is one place to change them when the port measures a real routine.
+    """
+    from spikes import building as B
+    assert B.ENTITY_CEILING == 32832
+    assert B.PERSON_COST == 2902
+    assert B.CLEG_COST == 830
+    assert B.CLEG_COST * 2 < 1654 * 2, "a cell-aligned fly is not the cheap one"
+    # A body and a nest do not move, so they are drawn from remembered ground
+    # and belong to the frame's dirty-cell accounting rather than to this bill.
+    assert B.FIXTURE_COST == 0
+
+
+def test_the_valve_never_fires_while_the_room_is_inside_the_ceiling():
+    """The acceptance criterion of #34, and the thing #33 got wrong: it held
+    spawns with the room at 27 to 61 per cent of the real budget."""
+    from spikes import building as B
+    run = Session(seed=1, lives=99)
+    for _ in range(20000):
+        run.step()
+        if run.over is not None:
+            break
+        if any(e.kind == S.VALVE_HELD for e in run.frame_events):
+            held = [e for e in run.frame_events if e.kind == S.VALVE_HELD][0]
+            room = run.rescue.workers[held.who].room
+            assert run._load(room) + B.CLEG_COST > B.ENTITY_CEILING, \
+                "the valve refused a spawn the port could have drawn"
+
+
+def test_a_brood_lands_where_the_room_can_hold_it():
+    """**A busy room delays a brood; it never cancels one** -- and a room that
+    is not busy does not delay it either, which is what #33 could not manage.
+
+    Nine of a Statue's thirty-six spawns landed against the old ceiling. The
+    number is asked of the mechanic rather than of a bot here: a nest in a room
+    with space places all six.
+    """
+    run = Session(seed=1, lives=99)
+    assert _run_until(run, lambda: bool(run.rescue.nests()), 40000)
+    nest = run.rescue.nests()[0]
+    while nest.nesting and run.over is None:
+        run.step()
+    assert nest.hatched >= R.NEST_BROOD - 1, \
+        f"the first nest of the run placed {nest.hatched} of {R.NEST_BROOD}"
+
+
+def test_no_frame_asks_the_port_to_draw_more_than_it_can():
+    """The guarantee the valve exists to be, measured rather than asserted.
+
+    It counts the **building's** flies against a room's people, and that is why
+    this holds: counting only the room's lets a spawn through into a quiet room
+    that the swarm then walks into. Measured, that reading reaches 44 flies and
+    87% of the ceiling -- under it by luck. This one caps at 36 and 74%.
+    """
+    from spikes import bots, building as B
+    for name in ("statue", "wanderer", "listener"):
+        for seed in (1, 2, 3):
+            bot, run = bots.make(name, seed=seed), Session(seed=seed)
+            peak = 0
+            while run.over is None and run.frame < 20000:
+                run.step(bot.intent(run))
+                peak = max(peak, _drawn(run))
+            assert peak <= B.ENTITY_CEILING, \
+                f"{name} seed {seed} peaked at {peak} of {B.ENTITY_CEILING}"
