@@ -432,7 +432,9 @@ def test_the_patch_ahead_is_unchanged_by_the_underfoot_rule():
     cx, cy = run.player.cx, run.player.cy
     run.step(Intent(spray=True))
     laid = {cell for (room, cell) in run.spray.patches if room == run.here}
-    assert laid == set(spray.patch_cells(cx, cy, sources.RIGHT))
+    # The room is asked here too, because the burst asks it (issue #41): the
+    # patch is its own rule's answer, not a wider one.
+    assert laid == set(spray.patch_cells(cx, cy, sources.RIGHT, run.is_solid))
 
 
 def test_an_empty_sprayer_douses_nothing_underfoot():

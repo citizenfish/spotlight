@@ -38,7 +38,8 @@ REACH = 2
 HALF_WIDTH = 1
 
 
-def patch_cells(cx: int, cy: int, facing: int) -> list[tuple[int, int]]:
+def patch_cells(cx: int, cy: int, facing: int,
+                is_solid=None) -> list[tuple[int, int]]:
     """The cells a burst covers: a short block on the ground ahead of you.
 
     **The loop starts one cell ahead and must go on doing so.** The player's
@@ -55,14 +56,36 @@ def patch_cells(cx: int, cy: int, facing: int) -> list[tuple[int, int]]:
     `Session._douse_underfoot` reaches the body under the player's feet at the
     moment a charge is spent, laying no ground at all. The patch's footprint is
     exactly what it always was.
+
+    **Poison lies on floor, not on wall** (issue #41). Pass `is_solid` -- the
+    room's own `Room.is_solid`, the single authority on where anything may
+    stand -- and any cell it calls solid is dropped. Without it a burst fired
+    at a wall laid ground inside the wall and the drawing coloured it, so the
+    wall took the spray stipple and hue: from (2, 1) in the main room facing
+    **left**, four of the six cells were wall. Nothing can ever stand on those
+    cells, so they killed nothing; the charge was spent and bought only a
+    stain. Dropping them can only ever shrink a patch, never move or widen it.
+
+    The screen-bounds clip is *not* made redundant by that check and must stay
+    ahead of it. `Room.is_solid` answers for the column just past a doorway by
+    asking the room next door, so at a doorway it will happily call x = -1
+    walkable -- and a patch is keyed by room index, so a cell beyond this
+    room's wall would poison the same-numbered cell of the room you are in
+    rather than the one you sprayed into.
+
+    `is_solid` defaults to None, which asks for the geometry alone. That is for
+    callers testing the shape; anything laying real ground passes the room.
     """
     fx, fy, sx, sy = _AXES[facing]
     cells = []
     for d in range(1, REACH + 1):
         for k in range(-HALF_WIDTH, HALF_WIDTH + 1):
             x, y = cx + fx * d + sx * k, cy + fy * d + sy * k
-            if 0 <= x < COLS and 0 <= y < PLAY_ROWS:
-                cells.append((x, y))
+            if not (0 <= x < COLS and 0 <= y < PLAY_ROWS):
+                continue
+            if is_solid is not None and is_solid(x, y):
+                continue
+            cells.append((x, y))
     return cells
 
 
@@ -84,12 +107,20 @@ class Spray:
     def empty(self) -> bool:
         return self.charges <= 0
 
-    def fire(self, cx: int, cy: int, facing: int, room: int = 0) -> bool:
-        """Lay a patch ahead. Returns False if there is nothing left to fire."""
+    def fire(self, cx: int, cy: int, facing: int, room: int = 0,
+             is_solid=None) -> bool:
+        """Lay a patch ahead. Returns False if there is nothing left to fire.
+
+        `is_solid` is the room's, and the cells it rejects are never stored
+        (issue #41). **The charge is still spent** when every cell of a burst
+        fired into a wall is dropped: whether firing at a wall should refund,
+        warn, or stand as the player's mistake is a design question, and the
+        code should not settle it by accident. Today it stands as a mistake.
+        """
         if self.empty:
             return False
         self.charges -= 1
-        for cell in patch_cells(cx, cy, facing):
+        for cell in patch_cells(cx, cy, facing, is_solid):
             # Re-spraying refreshes rather than stacking; there is no such
             # thing as doubly-poisoned ground.
             self.patches[(room, cell)] = PATCH_FRAMES

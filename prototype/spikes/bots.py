@@ -650,8 +650,13 @@ class Undertaker(Oracle):
         if run.here != body.room:
             return False
         cells = body.cells()
+        # The room goes in, because a burst drops the cells that land on wall
+        # (issue #41) and a bot has to measure the burst the game lays, not an
+        # idealised one. A body never lies on solid ground, so in practice this
+        # changes no answer -- it stops the two drifting apart if that ever
+        # stops being true.
         patch = set(spray_mod.patch_cells(run.player.cx, run.player.cy,
-                                          run.player.facing))
+                                          run.player.facing, run.is_solid))
         return bool(patch & cells) or any(c in cells
                                           for c in run.player.body_cells())
 

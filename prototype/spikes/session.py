@@ -656,8 +656,12 @@ class Session:
 
         if intent.torch:
             self.kit.toggle()
+        # The room is handed to the burst so it lays no poison inside a wall
+        # (issue #41). `is_solid` is the current room's, which is the only
+        # authority on where anything can stand.
         if intent.spray and self.spray.fire(self.player.cx, self.player.cy,
-                                            self.player.facing, self.here):
+                                            self.player.facing, self.here,
+                                            self.is_solid):
             self.tally.sprays += 1
             self.panel.set("spray", self.spray.charges)
             # The charge covers the ground under the player as well as the
