@@ -13,10 +13,14 @@ these walk diagonally, which a player can do too. The baselines have to be taken
 again from this driver before any target is judged met or missed.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from spikes import bots, report, rescue as rescue_mod, scene, session
+from spikes import (bots, report, rescue as rescue_mod, scene, session,
+                    sources, spray as spray_mod)
 from spikes.session import Intent, Session
+from spotlight.core.constants import CELL
 
 LIMIT = 12000
 
@@ -471,6 +475,44 @@ def test_the_undertaker_douses_a_body_inside_its_window():
             run.step(bot.intent(run))
         reached += 1 if victim.doused else 0
     assert reached >= 3, f"the window was reached in {reached} deaths of five"
+
+
+def test_the_undertaker_measures_the_burst_the_game_actually_lays():
+    """**A bot is an instrument**, so it has to ask the spray's own rule.
+
+    It did for issue #41 -- the room goes into `patch_cells`, so the bot never
+    counts a cell that lands on wall -- and it has to for issue #44, where the
+    same room call now moves a blocked cell one step back toward the player
+    instead of losing it. A bot measuring the pre-rebound burst would refuse to
+    fire on a body a charge would now save, and every difficulty number taken
+    with it would understate what a charge buys.
+
+    Backed against the west wall facing into it: every cell ahead is wall, so
+    the pre-rebound burst covered nothing at all and the whole of what the
+    charge buys is the two cells level with the player.
+    """
+    run = Session(seed=1)
+    run.player.x, run.player.y = 1 * CELL, 12 * CELL
+    run.player.facing = sources.LEFT
+    assert (run.player.cx, run.player.cy) == (1, 13)
+
+    laid = set(spray_mod.patch_cells(run.player.cx, run.player.cy,
+                                     run.player.facing, run.is_solid))
+    assert laid == {(1, 12), (1, 14)}, "the burst is not the one #44 specifies"
+    assert set(spray_mod.patch_cells(1, 13, sources.LEFT)) & laid == set(), \
+        "these cells are the rebound, not the taper"
+
+    on_rebound = SimpleNamespace(room=run.here, cells=lambda: {(1, 14)})
+    elsewhere = SimpleNamespace(room=run.here, cells=lambda: {(5, 5)})
+    assert bots.Undertaker._would_cover(run, on_rebound), \
+        "the bot cannot see the ground the rebound lays"
+    assert not bots.Undertaker._would_cover(run, elsewhere)
+
+    # And it is still the room's answer, not an idealised burst: a cell inside
+    # the wall is covered by neither the burst nor the bot.
+    in_wall = SimpleNamespace(room=run.here, cells=lambda: {(0, 13)})
+    assert run.is_solid(0, 13), "the room changed; re-measure this test"
+    assert not bots.Undertaker._would_cover(run, in_wall)
 
 
 def test_a_bot_that_does_not_know_about_bodies_walks_past_them():

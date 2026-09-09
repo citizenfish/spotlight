@@ -651,10 +651,12 @@ class Undertaker(Oracle):
             return False
         cells = body.cells()
         # The room goes in, because a burst drops the cells that land on wall
-        # (issue #41) and a bot has to measure the burst the game lays, not an
-        # idealised one. A body never lies on solid ground, so in practice this
-        # changes no answer -- it stops the two drifting apart if that ever
-        # stops being true.
+        # (issue #41) and rebounds them one step toward the player (issue #44),
+        # and a bot has to measure the burst the game lays, not an idealised
+        # one. For #41 it changed no answer in practice, since a body never lies
+        # on solid ground; for #44 it does -- a body level with the player, that
+        # only the rebound reaches, is one this bot would otherwise walk past
+        # while a charge would have saved it.
         patch = set(spray_mod.patch_cells(run.player.cx, run.player.cy,
                                           run.player.facing, run.is_solid))
         return bool(patch & cells) or any(c in cells

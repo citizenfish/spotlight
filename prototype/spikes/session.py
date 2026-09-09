@@ -657,8 +657,9 @@ class Session:
         if intent.torch:
             self.kit.toggle()
         # The room is handed to the burst so it lays no poison inside a wall
-        # (issue #41). `is_solid` is the current room's, which is the only
-        # authority on where anything can stand.
+        # (issue #41) and so a refused cell falls back one step toward the
+        # player rather than being lost (issue #44). `is_solid` is the current
+        # room's, which is the only authority on where anything can stand.
         if intent.spray and self.spray.fire(self.player.cx, self.player.cy,
                                             self.player.facing, self.here,
                                             self.is_solid):
@@ -919,6 +920,19 @@ class Session:
         matters more since a death shout gives a direction rather than a
         position: walking that direction in the dark is precisely what puts a
         body under your feet.
+
+        **Untouched by the rebound** (issue #44), and it still has to exist. A
+        blocked cell now falls back one step toward the player, but the fallback
+        that would reach the cell the player is standing in is the one the rule
+        refuses -- the feet cell is still never sprayed, so a body underfoot is
+        still not reachable through the patch. What the rebound did change is
+        the arithmetic in the paragraph above: facing **up** is no longer the
+        only facing whose burst can land on the player's own *upper* cell, since
+        `(1, +/-1)` falling back to `(0, +/-1)` lands there facing left or right
+        as well. Measured over the playtest building that is 169 of 3,920
+        standing-cell-by-facing combinations, on top of the 980 facing up.
+        Attached Clegs are excluded from the spray (`Swarm.sprayable`), so it
+        still cannot clear a fly that is already on you.
 
         Asked only when a charge is spent, and of the player's own two cells:
         two compares on the Z80 per fresh body in the room, and nothing per

@@ -92,8 +92,10 @@ def patch_cells(cx: int, cy: int, facing: int,
     facing and no other (issue #39). Widening the patch to cover the player
     would have fixed it and turned the spray into a weapon, so instead
     `Session._douse_underfoot` reaches the body under the player's feet at the
-    moment a charge is spent, laying no ground at all. The patch's footprint is
-    exactly what it always was.
+    moment a charge is spent, laying no ground at all. That kept the footprint
+    exactly what it always was -- until issue #44, which grew it deliberately
+    and by a design decision, below. `Session._douse_underfoot` is untouched by
+    that: it does not go through the patch at all.
 
     **Poison lies on floor, not on wall** (issue #41). Pass `is_solid` -- the
     room's own `Room.is_solid`, the single authority on where anything may
@@ -102,7 +104,10 @@ def patch_cells(cx: int, cy: int, facing: int,
     wall took the spray stipple and hue: from (2, 1) in the main room facing
     **left**, four of the six cells were wall. Nothing can ever stand on those
     cells, so they killed nothing; the charge was spent and bought only a
-    stain. Dropping them can only ever shrink a patch, never move or widen it.
+    stain. Dropping them could only ever shrink a patch, never move or widen
+    it -- which held until issue #44 gave a dropped cell somewhere to fall back
+    to, below. What still holds is that a dropped cell never lands further away
+    than it was aimed.
 
     The screen-bounds clip is *not* made redundant by that check and must stay
     ahead of it. `Room.is_solid` answers for the column just past a doorway by
@@ -111,20 +116,101 @@ def patch_cells(cx: int, cy: int, facing: int,
     room's wall would poison the same-numbered cell of the room you are in
     rather than the one you sprayed into.
 
-    `is_solid` defaults to None, which asks for the geometry alone. That is for
-    callers testing the shape; anything laying real ground passes the room.
+    **A cell the room refuses rebounds one step toward you** (issue #44). The
+    burst is authored in forward-and-sideways terms -- `(d, k)`, `d` from 1 and
+    `k` bounded by `HALF_WIDTH` -- so a blocked cell falls back to `(d - 1, k)`:
+    one decrement along the axis already loaded, the sideways offset untouched,
+    one fallback per blocked cell and each decided on its own. Written that way
+    it is **one rule in all four facings** -- no new table, no per-facing case,
+    and the four shapes stay reflections of one another. Before this a charge
+    fired at a wall laid nothing at all and was still spent; it now buys the
+    ground between you and the wall instead.
+
+    Three consequences, all of them intended:
+
+    * `(2, 0)` falls back to `(1, 0)`, which is already in the near row, so it
+      dedupes rather than widening anything.
+    * `(1, +/-1)` falls back to `(0, +/-1)` -- ground **level with the player**,
+      which no burst had ever laid. That is the cost of the rule and it is why
+      it needed a design decision rather than a bug fix: the footprint may
+      shrink freely but may not grow, and laying a cell the burst has never laid
+      counts as growing.
+    * `(1, 0)` falls back to `(0, 0)`, the player's own cell, and is **refused**
+      -- that poison is lost. *Your own cell is never sprayed* is the rule that
+      keeps the spray area denial rather than a weapon, so the rebound does not
+      get to buy an exception to it. A charge therefore still does not buy
+      something in every case: over the playtest building 7.1% of bursts aim a
+      rebound at the player's own cell.
+
+    **Only a cell refused by the room rebounds.** A cell clipped by the screen
+    bounds does not, for the same reason the clip sits ahead of the solid check
+    -- past a doorway the room next door is answering, and a patch is keyed by
+    room, so a cell out of bounds is not this room's to fall back from.
+
+    **A rebound cell that is itself solid loses the poison and does not chain.**
+    There is no second fallback: one step means no per-burst worst case, poison
+    cannot be walked through a wall's thickness, and a chain from `(2, 0)` would
+    arrive at `(0, 0)` by a route the rule refuses directly.
+
+    Reach is unchanged and no cell is laid further away than before -- the
+    fallback only ever moves a cell toward the player. Measured over all 3,920
+    standing-cell-by-facing combinations in the playtest building the burst
+    never exceeds four cells and no corner stacks two rebounds onto one floor
+    cell: the fallback map is one to one, so a corner drops more and stacks
+    nothing.
+
+    **Tried and rejected: the polite rebound.** A blocked cell sliding toward
+    the burst's own centre line first -- `(d, k)` to `(d, k - sign k)`, only
+    falling back when `k` is already 0 -- looks kinder because it never lays a
+    cell level with the player. It is an **exact no-op** over the whole
+    building: not one burst in 3,920 changes, because the cell it slides into is
+    on the same row as the blocked one and a wall that blocks one blocks the
+    other. The value of this rule and its cost are the same fact, so there is no
+    version that buys anything without growing the footprint.
+
+    `is_solid` defaults to None, which asks for the geometry alone -- and with
+    no room to refuse a cell there is nothing to rebound, so the shape tests see
+    the taper unchanged. That is for callers testing the shape; anything laying
+    real ground passes the room.
     """
     fx, fy, sx, sy = _AXES[facing]
+
+    def cell(d, k):
+        return cx + fx * d + sx * k, cy + fy * d + sy * k
+
     cells = []
+    seen = set()
+
+    def lay(x, y):
+        # (2, 0) rebounds onto (1, 0), which the near row already holds, so a
+        # burst can name the same cell twice. `Spray.patches` is a dict and
+        # would swallow that, but the returned list is what "never more than
+        # four cells" is counted from, so it must not double-count.
+        #
+        # **The dedupe is a prototype convenience.** On the Z80 the patch is a
+        # table of cells with a timer and laying one is a store, so writing the
+        # same cell twice costs a second store and nothing else; there is no
+        # `seen` set to port.
+        if (x, y) not in seen:
+            seen.add((x, y))
+            cells.append((x, y))
+
     for d in range(1, REACH + 1):
         half = HALF_WIDTH[d - 1]
         for k in range(-half, half + 1):
-            x, y = cx + fx * d + sx * k, cy + fy * d + sy * k
+            x, y = cell(d, k)
             if not (0 <= x < COLS and 0 <= y < PLAY_ROWS):
-                continue
+                continue          # not this room's cell, so nothing to rebound
             if is_solid is not None and is_solid(x, y):
-                continue
-            cells.append((x, y))
+                if (d - 1, k) == (0, 0):
+                    continue      # the player's own cell: refused, poison lost
+                x, y = cell(d - 1, k)
+                # Same two checks, in the same order, and no second fallback.
+                if not (0 <= x < COLS and 0 <= y < PLAY_ROWS):
+                    continue
+                if is_solid(x, y):
+                    continue
+            lay(x, y)
     return cells
 
 
@@ -151,10 +237,17 @@ class Spray:
         """Lay a patch ahead. Returns False if there is nothing left to fire.
 
         `is_solid` is the room's, and the cells it rejects are never stored
-        (issue #41). **The charge is still spent** when every cell of a burst
-        fired into a wall is dropped: whether firing at a wall should refund,
-        warn, or stand as the player's mistake is a design question, and the
-        code should not settle it by accident. Today it stands as a mistake.
+        (issue #41) -- they fall back one step toward the player instead and
+        are stored there if that cell is floor (issue #44).
+
+        **The charge is still spent** when a burst lays nothing at all, which
+        the rebound makes rare rather than impossible: over the playtest
+        building it happens on 5 of 3,920 standing-cell-by-facing combinations,
+        all of them with the player against the building's outer wall, plus
+        every burst whose only blocked cell aims its rebound at the player's
+        own cell. There the charge is spent and the mistake is the player's --
+        whether that should refund or warn is a design question and the code
+        should not settle it by accident.
         """
         if self.empty:
             return False
