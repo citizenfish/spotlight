@@ -11,7 +11,9 @@ run for seven people in two rooms on a Z80: a body's state is where it is in its
 fifty seconds, plus one bit saying whether somebody spent a charge on it.
 """
 
-from spikes import buzz, clegs as C, rescue as R, scene, session as S, sources
+from spikes import (
+    buzz, clegs as C, rescue as R, scene, session as S, sources, spray,
+)
 from spikes.session import Intent, Session
 from spotlight.core.constants import CELL
 from spotlight.core.screen import Screen
@@ -351,7 +353,8 @@ def test_a_charge_on_a_fresh_body_saves_it_from_turning():
 
     # Stand a couple of cells west of the body, face it, and fire -- which is
     # what walking up to one and pressing the button is. The patch is laid
-    # *ahead* of the player, so standing on top of a body sprays past it.
+    # *ahead* of the player, and this is that route into a douse. Standing on
+    # the body is the other one, and has its own tests below (issue #39).
     cx, cy = body.cell()
     run.player.x, run.player.y = (cx - 2) * CELL, (cy - 1) * CELL
     run.player.facing = sources.RIGHT
@@ -363,6 +366,91 @@ def test_a_charge_on_a_fresh_body_saves_it_from_turning():
     for _ in range(R.BODY_FRAMES):
         run.step()
     assert not body.turning, "a doused body turned anyway"
+
+
+# --- a body under your feet (issue #39) ------------------------------------
+
+def _body_underfoot(facing):
+    """A run with a fresh body in the player's room, stood on, facing `facing`.
+
+    The body is made by bleeding somebody out rather than by waiting for the
+    authored clock, because four facings' worth of waiting is thousands of
+    frames per assertion and none of them are testing the clock.
+    """
+    run = Session(seed=1, lives=99)
+    victim = next(w for w in run.rescue.workers if w.room == run.here)
+    victim.blood = 1
+    assert _run_until(run, lambda: bool(run.rescue.bodies(run.here)), 500)
+    body = run.rescue.bodies(run.here)[0]
+
+    cx, cy = body.cell()
+    # Feet on the body's feet cell: the player's two cells are then exactly
+    # the body's two, which is what walking onto one in the dark leaves you in.
+    run.player.x, run.player.y = cx * CELL, (cy - 1) * CELL
+    run.player.facing = facing
+    assert run.player.cx == cx and run.player.cy == cy
+    return run, body
+
+
+def test_a_charge_douses_a_body_underfoot_whatever_the_facing():
+    """The one place you can find a body without spending light was the one
+    place you could not save it from.
+
+    `patch_cells` starts one cell ahead of the player, so a burst never covers
+    where they stand. A person is two cells tall, so facing **up** landed the
+    patch on the player's own upper cell and the douse worked -- in that one
+    facing out of four, with no facing indicator on screen once the torch is
+    off. Walking onto a body in the dark is exactly how one is found when the
+    death shout gives a direction rather than a position.
+    """
+    for facing in (sources.UP, sources.DOWN, sources.LEFT, sources.RIGHT):
+        run, body = _body_underfoot(facing)
+        charges = run.spray.charges
+        run.step(Intent(spray=True))
+        assert body.doused, f"facing {facing} did not douse a body underfoot"
+        assert run.spray.charges == charges - 1
+        assert [e for e in run.log if e.kind == S.DOUSED], \
+            f"facing {facing} doused without saying so"
+
+
+def test_dousing_underfoot_lays_no_ground_under_the_player():
+    """**The patch is not widened.** The spray is area denial, not a weapon:
+    poisoning the cell the player stands in would let them kill the fly that
+    is already on them, which is the one thing the spray must never do. The
+    body is saved and the ground the player is on is still clean."""
+    run, body = _body_underfoot(sources.RIGHT)
+    run.step(Intent(spray=True))
+    assert body.doused
+    for cx, cy in run.player.body_cells():
+        assert not run.spray.covers(cx, cy, run.here), \
+            "the burst sprayed the player's own cell"
+
+
+def test_the_patch_ahead_is_unchanged_by_the_underfoot_rule():
+    """Everywhere else the burst lands exactly where it always did."""
+    run, _ = _body_underfoot(sources.RIGHT)
+    cx, cy = run.player.cx, run.player.cy
+    run.step(Intent(spray=True))
+    laid = {cell for (room, cell) in run.spray.patches if room == run.here}
+    assert laid == set(spray.patch_cells(cx, cy, sources.RIGHT))
+
+
+def test_an_empty_sprayer_douses_nothing_underfoot():
+    """It is the charge that douses, not the standing there."""
+    run, body = _body_underfoot(sources.DOWN)
+    run.spray.charges = 0
+    run.step(Intent(spray=True))
+    assert not body.doused
+    assert not [e for e in run.log if e.kind == S.DOUSED]
+
+
+def test_a_charge_spent_beside_a_body_still_does_not_douse_it():
+    """The fix reaches the body under your feet and no further. Standing one
+    cell to the side and firing away from it is a miss, as it always was."""
+    run, body = _body_underfoot(sources.LEFT)
+    run.player.x -= 3 * CELL          # three cells west, facing further west
+    run.step(Intent(spray=True))
+    assert not body.doused
 
 
 def test_a_patch_over_a_nest_kills_what_it_hatches():

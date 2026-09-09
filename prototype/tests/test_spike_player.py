@@ -109,6 +109,22 @@ def test_the_feet_decide_which_row_the_player_is_in():
     assert p.cy == (40 + HEIGHT - 1) // CELL
 
 
+def test_the_two_cells_a_person_stands_in_are_feet_and_head():
+    """Issue #39 needed the narrower question: *where is this person standing*.
+
+    Two cells, always, from the centre column -- so a sprite straddling two
+    columns still answers for one of them, and a rule asking "am I on that" is
+    two compares rather than a six-cell box.
+    """
+    p = Player(40, 40)
+    assert p.body_cells() == ((p.cx, p.cy), (p.cx, p.cy - 1))
+
+    straddling = Player(43, 43)
+    assert len(straddling.body_cells()) == 2
+    assert set(straddling.body_cells()) <= straddling.occupied_cells(), \
+        "a cell the sprite is not in"
+
+
 def test_ahead_is_the_cell_in_front():
     p = Player(80, 80, facing=S.RIGHT)
     assert p.ahead() == (p.cx + 1, p.cy)

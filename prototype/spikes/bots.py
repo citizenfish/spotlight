@@ -638,12 +638,22 @@ class Undertaker(Oracle):
         bot never has to think about which way it is facing: it is walking
         towards the body, so the patch it lays ahead of itself arrives on the
         body as soon as it is close enough.
+
+        Both halves of the rule, since issue #39: the patch ahead, and the body
+        the player is standing on. The second half is here because routing aims
+        at the cell the body is lying in, so the bot can arrive standing on it
+        -- and asking only about the patch would then have it refuse to fire on
+        a body a charge would now save. **A bot is an instrument, and it has to
+        measure the rules the game actually has**, or every difficulty number
+        taken with it understates what a charge can do.
         """
         if run.here != body.room:
             return False
+        cells = body.cells()
         patch = set(spray_mod.patch_cells(run.player.cx, run.player.cy,
                                           run.player.facing))
-        return bool(patch & body.cells())
+        return bool(patch & cells) or any(c in cells
+                                          for c in run.player.body_cells())
 
 
 class Crosser(Walker):

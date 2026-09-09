@@ -39,7 +39,23 @@ HALF_WIDTH = 1
 
 
 def patch_cells(cx: int, cy: int, facing: int) -> list[tuple[int, int]]:
-    """The cells a burst covers: a short block on the ground ahead of you."""
+    """The cells a burst covers: a short block on the ground ahead of you.
+
+    **The loop starts one cell ahead and must go on doing so.** The player's
+    own cell is never sprayed, so a burst cannot kill the fly that is already
+    on you -- that is what keeps this area denial rather than a weapon, and
+    `test_you_do_not_spray_your_own_cell` is there to stop it being widened by
+    accident.
+
+    That deliberate gap did cost something, and the fix is not here. A person
+    is two cells tall, so facing **up** put the patch on the player's own upper
+    cell and a charge spent standing on a fresh body doused it -- in that one
+    facing and no other (issue #39). Widening the patch to cover the player
+    would have fixed it and turned the spray into a weapon, so instead
+    `Session._douse_underfoot` reaches the body under the player's feet at the
+    moment a charge is spent, laying no ground at all. The patch's footprint is
+    exactly what it always was.
+    """
     fx, fy, sx, sy = _AXES[facing]
     cells = []
     for d in range(1, REACH + 1):

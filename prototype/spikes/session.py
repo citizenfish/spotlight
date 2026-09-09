@@ -660,6 +660,10 @@ class Session:
                                             self.player.facing, self.here):
             self.tally.sprays += 1
             self.panel.set("spray", self.spray.charges)
+            # The charge covers the ground under the player as well as the
+            # patch ahead of them. See `_douse_underfoot` -- it is the moment
+            # the charge is spent that this is asked, and nowhere else.
+            self._douse_underfoot()
 
         # Input is read and acted on in the same frame. Nothing buffers,
         # smooths or accelerates -- responsiveness is a requirement.
@@ -890,9 +894,51 @@ class Session:
                 continue
             if any(self.spray.covers(cx, cy, body.room)
                    for cx, cy in body.cells()):
-                if body.douse():
-                    self._record(DOUSED, who=self._index[id(body)],
-                                 room=self.places[body.room].room.name)
+                self._douse_body(body)
+
+    def _douse_underfoot(self) -> None:
+        """A charge spent standing on a fresh body douses it, any facing.
+
+        **The patch is not widened and this lays no ground**: the spray is area
+        denial, not a weapon, and letting a burst poison the cell the player
+        stands in would let them kill the fly that is on them. What is fixed
+        here is narrower -- the charge reaches the body under their own feet
+        and nothing else.
+
+        The fault (issue #39): `patch_cells` starts its loop one cell *ahead*
+        of the player, so a burst never covers where they stand. Because a
+        person is two cells tall, facing **up** put the patch on their own
+        upper cell and the douse happened to work -- in exactly one facing out
+        of four, with no facing indicator on screen once the torch is off. So
+        the one place a body can be found without spending light, by walking
+        onto it in the dark, was the one place it could not be saved from. That
+        matters more since a death shout gives a direction rather than a
+        position: walking that direction in the dark is precisely what puts a
+        body under your feet.
+
+        Asked only when a charge is spent, and of the player's own two cells:
+        two compares on the Z80 per fresh body in the room, and nothing per
+        frame. The bodies list is the room's, because a cell reference in
+        another room is a different place with the same number.
+        """
+        under = self.player.body_cells()
+        for body in self.rescue.bodies(self.here):
+            if body.doused:
+                continue
+            cells = body.cells()
+            if any(cell in cells for cell in under):
+                self._douse_body(body)
+
+    def _douse_body(self, body) -> None:
+        """Spend the douse and say so, from either route into it.
+
+        One place, so a body saved by standing on it and a body saved by a
+        patch produce the same event -- the report counts `DOUSED` and must not
+        be able to tell which rule saved them.
+        """
+        if body.douse():
+            self._record(DOUSED, who=self._index[id(body)],
+                         room=self.places[body.room].room.name)
 
     def _load(self, room: int) -> int:
         """What drawing this room costs, in T-states.

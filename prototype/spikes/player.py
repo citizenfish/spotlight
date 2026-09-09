@@ -70,6 +70,28 @@ class Player:
         """
         return (self.y + HEIGHT - 1) // CELL
 
+    def body_cells(self) -> tuple[tuple[int, int], tuple[int, int]]:
+        """The two cells the player is standing in: their feet, and their head.
+
+        A person is 8x16 -- two cells tall, one wide when aligned -- and this
+        is that pair, taken from the centre column so a sprite straddling two
+        columns still answers for one of them.
+
+        Not the same question as `occupied_cells`, which is the honest box and
+        can be six cells while straddling both axes. That is what reaching a
+        worker and touching the exit ask, because an outstretched arm counts.
+        This is the narrower one -- *where is this person standing* -- and it
+        is what issue #39 needed: a spray charge douses a fresh body the
+        player's own two cells overlap, whichever way they are facing. On the
+        Z80 that is two compares, at the moment a charge is spent and never
+        per frame.
+
+        `cy - 1` can be -1 if the player is somehow against the top of the
+        play area. Nothing is ever at row -1, so it simply never matches and
+        needs no clamp.
+        """
+        return ((self.cx, self.cy), (self.cx, self.cy - 1))
+
     def occupied_cells(self):
         """Every cell the sprite overlaps."""
         return {
