@@ -157,11 +157,22 @@ def test_a_full_bar_is_full_and_never_overflows():
     assert panel.bar_pips(9999, 1500) == 6
 
 
-def test_the_bar_is_scaled_against_the_strongest_light_in_the_level():
-    """So a weak spotlight visibly gives you less, which is the trap."""
-    weak = panel.bar_pips(150, 1500)
-    strong = panel.bar_pips(1500, 1500)
-    assert weak < strong
+def test_whatever_is_being_measured_reads_full_at_its_own_capacity():
+    """The top of the scale has to be reachable (issue #38).
+
+    The bar used to be scaled against the strongest spotlight in the building,
+    on the argument that a weak light should visibly give you less -- so
+    `bar_pips(150, 1500)` was 1 and `bar_pips(1000, 1500)` was 4. The second of
+    those is what killed it: the carried cone starts on 1000 and read four pips
+    of six on the first frame of every run. `full` is now the capacity of the
+    thing being measured, and this pins the contract that makes that mean
+    something.
+    """
+    for full in (150, 900, 1000, 1500):
+        assert panel.bar_pips(full, full) == 6, f"{full} did not read full"
+    # And the fraction is of that capacity, not of some other light's.
+    assert panel.bar_pips(500, 1000) == 3
+    assert panel.bar_pips(750, 1500) == 3
 
 
 def test_the_bar_falls_as_power_drains():

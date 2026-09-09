@@ -38,10 +38,16 @@ def bar_pips(value: int, full: int, pips: int = 6) -> int:
 
     **Rounded up**, so the bar reads empty only when the thing itself is empty.
     Truncating instead showed a carried spotlight as flat for its last five
-    seconds while it was still burning, and showed a full one as a third full
-    because the scale is the biggest light in the level rather than the one in
-    your hand. Between them that reads as the spotlight failing rather than as
-    the spotlight draining, which is the difference between a bug and a budget.
+    seconds while it was still burning, which reads as the spotlight failing
+    rather than as the spotlight draining -- the difference between a bug and a
+    budget.
+
+    The other half of that fault was in the caller, not here: `full` used to be
+    the strongest spotlight in the *building*, so a full light in the hand read
+    four pips of six. `full` is now the capacity of the thing being measured,
+    which is what makes the top of the scale reachable and this function's
+    contract worth stating: **`value == full` must read every pip**. See
+    `Session.cone_full` (issue #38).
     """
     if value <= 0:
         return 0

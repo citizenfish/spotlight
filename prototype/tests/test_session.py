@@ -1081,6 +1081,82 @@ def test_swapping_onto_a_fresh_light_is_not_the_torch_running_out():
     assert not run.panel.flashing("light")
 
 
+# --- the bar reads the light in your hand (issue #38) ----------------------
+
+def test_a_full_light_reads_full_before_a_key_is_pressed():
+    """Four pips of six on frame one, on every run that had ever been played.
+
+    The gauge was scaled against `cone_full` = the strongest spotlight in the
+    *building* -- a 1500 pickup in the far room that the player has not seen
+    and may never reach -- while the cone in their hand holds 1000. A third of
+    the readout was missing at full charge, and a player misled by a readout
+    assumes the mistake is theirs, so no playtest was ever going to report it.
+
+    Both the value shown before the first step and the one the first step
+    computes are pinned, because the fault lived in a hard-coded 4 as well as
+    in the scale.
+    """
+    run = Session()
+    assert run.panel.values["light"] == 6, "still short before a key is pressed"
+    run.step()
+    assert run.panel.values["light"] == 6, "the first frame took a pip back"
+
+
+def test_the_bar_ignores_a_stronger_light_in_another_room():
+    run = Session()
+    strongest = max(light.power for light in run.kit.floor)
+    assert strongest > run.cone.power, \
+        "the building no longer authors a pickup stronger than the cone; " \
+        "this test stopped exercising issue #38"
+    assert run.cone_full == run.cone.power
+
+
+def test_half_a_light_reads_half_the_pips():
+    """The scale still has to move: full-reads-full is not a bar stuck on 6."""
+    run = Session()
+    run.cone.power = run.cone_full // 2
+    run.step()
+    assert run.panel.values["light"] == 3
+    run.cone.power = 0
+    run.step()
+    assert run.panel.values["light"] == 0
+
+
+def test_picking_up_a_stronger_light_rescales_the_bar_to_it():
+    """A new light in the hand is a new full, and the pips mean that one."""
+    run = Session()
+    cx, cy = run.player.cx, run.player.cy
+    run.kit.floor.append(FloorLight(cx, cy, power=1500, room=run.here))
+    run.step()
+    assert any(e.kind == session.SWAPPED for e in run.frame_events)
+    assert run.cone.power == 1500 and run.cone_full == 1500
+    assert run.panel.values["light"] == 6
+
+    run.cone.power = 750
+    run.step()
+    assert run.panel.values["light"] == 3
+
+
+def test_a_weak_light_picked_up_reads_full_and_that_is_the_price():
+    """The cost issue #38 accepted, written down so it is not read as a bug.
+
+    Scaling against the building's strongest light made a weak spotlight
+    legible *before* you picked it up: 150 power showed one pip of six. That
+    reading is gone -- a 150 light now reads six pips and empties in three
+    seconds. It was traded away because nothing has ever picked up a second
+    spotlight (`spotlight_swaps` is 0 across every run of both playtest
+    agents), so the absolute scale was buying legibility never once exercised,
+    at the price of a wrong reading in the first second of every run. If swaps
+    start happening, this test is the one to come back to.
+    """
+    run = Session()
+    cx, cy = run.player.cx, run.player.cy
+    run.kit.floor.append(FloorLight(cx, cy, power=150, room=run.here))
+    run.step()
+    assert run.cone.power == 150 and run.cone_full == 150
+    assert run.panel.values["light"] == 6
+
+
 def test_the_strip_says_in_words_how_many_are_safe():
     """Issue #31: `*3/7` left the reader to guess what was being counted."""
     run = Session()

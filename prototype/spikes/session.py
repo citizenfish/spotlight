@@ -338,12 +338,23 @@ class Session:
             [FloorLight(cx, cy, power, room=i)
              for i, room in enumerate(self.building.rooms)
              for cx, cy, power in room.spotlights])
-        # What a full light bar means on the panel: the strongest thing in the
-        # building, since that is the most the player can ever be carrying. A
-        # building may author no pickups at all -- the first three-room fixture
-        # written did -- so it falls back to what the carried cone starts on.
-        self.cone_full = max([light.power for light in self.kit.floor]
-                             or [self.cone.power])
+        #: What a full light bar means on the panel: **the capacity of the
+        #: light in the player's hand**, fixed at the moment it entered the
+        #: hand, so a full light reads full and a light drains from six pips to
+        #: none whatever its size.
+        #:
+        #: This used to be the strongest spotlight in the *building*
+        #: (`max(power for light in kit.floor)`), on the argument that an
+        #: absolute scale makes a weak spotlight legible before you pick it up.
+        #: Issue #38 removed it: the carried cone starts on 1000 and the
+        #: playtest building authors a 1500 pickup, so the gauge read four pips
+        #: of six on frame one of every run ever played -- a third of the
+        #: readout missing at full charge, and the kind of fault a playtester
+        #: reports as their own mistake. The absolute scale was buying
+        #: legibility that has never once been exercised: `spotlight_swaps` is
+        #: 0 across every run of both playtest agents. If swaps ever start
+        #: happening, this is the decision to revisit.
+        self.cone_full = self.cone.power
         self.spray = spray_mod.Spray(charges=5)
 
         # One `Place` per room. Cleg seeds run on across the building rather
@@ -413,7 +424,15 @@ class Session:
 
         self.panel = Panel()
         self.panel.set_total("rescued", len(self.rescue.workers))
-        for name, value in (("blood", 8), ("light", 4), ("lit", 1),
+        # The light bar's opening value is computed, not authored. It was the
+        # literal 4 -- which was right only for the old building-wide scale,
+        # and was the number a player actually saw before their first keypress
+        # (issue #38). A hand-written starting value is a second place for the
+        # gauge to be wrong in, so there is no longer one.
+        for name, value in (("blood", 8),
+                            ("light", bar_pips(self.cone.power,
+                                               self.cone_full)),
+                            ("lit", 1),
                             ("spray", self.spray.charges), ("keys", 0)):
             self.panel.set(name, value)
         self.panel.set("lives", self.lives)
@@ -798,6 +817,13 @@ class Session:
         was_lit = self.cone.lit
         picked = self.kit.tick(self.player, self.here)
         if picked is not None:
+            # A new light in the hand is a new full: the bar is scaled to what
+            # you are carrying (issue #38), so picking one up refills it and
+            # the six pips go back to meaning "all of this one". Taken at the
+            # moment of the swap, because a spotlight has no capacity of its
+            # own on the floor -- what it had when you took it is the most it
+            # will ever have again.
+            self.cone_full = self.cone.power
             self._record(SWAPPED, count=self.cone.power, room=room)
         elif was_lit and self.cone.power <= 0:
             self._record(TORCH_OUT, room=room)
