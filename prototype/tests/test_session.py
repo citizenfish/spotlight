@@ -1102,6 +1102,22 @@ def test_a_full_light_reads_full_before_a_key_is_pressed():
     assert run.panel.values["light"] == 6, "the first frame took a pip back"
 
 
+def test_the_panel_agrees_with_the_cone_before_the_first_step():
+    """The torch flag is seeded from the cone, not from a literal (issue #40).
+
+    It read 1 while the cone was constructed unlit. Nobody ever saw it -- the
+    panel is refreshed every frame before anything is drawn, so the first step
+    corrected it -- but it was the last hand-written opening value left after
+    issue #38 removed the other one, and the next force-draw or first-frame
+    capture would have inherited it.
+    """
+    run = Session()
+    assert run.cone.lit is False, \
+        "the cone no longer starts unlit; this test stopped exercising #40"
+    assert run.panel.values["lit"] == run.cone.lit, \
+        "the panel claims a torch state the cone does not have"
+
+
 def test_the_bar_ignores_a_stronger_light_in_another_room():
     run = Session()
     strongest = max(light.power for light in run.kit.floor)

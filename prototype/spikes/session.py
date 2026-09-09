@@ -432,7 +432,7 @@ class Session:
         for name, value in (("blood", 8),
                             ("light", bar_pips(self.cone.power,
                                                self.cone_full)),
-                            ("lit", 1),
+                            ("lit", self.cone.lit),
                             ("spray", self.spray.charges), ("keys", 0)):
             self.panel.set(name, value)
         self.panel.set("lives", self.lives)
