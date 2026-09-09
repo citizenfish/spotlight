@@ -33,14 +33,52 @@ STIPPLE = (
 #: Frames a patch stays active. 50 is one second.
 PATCH_FRAMES = 250
 
-#: How far ahead of the player the patch is laid, and how wide.
-REACH = 2
-HALF_WIDTH = 1
+#: How wide the patch is at each distance ahead: index 0 is one cell ahead,
+#: index 1 the cell beyond that. Half-widths, so 1 means three cells across
+#: and 0 means one.
+#:
+#: **A table indexed by distance, never a formula** (issue #42). The patch used
+#: to be a constant half-width at every distance, which made it a 3x2 block
+#: with square corners; a per-distance width drops the far corners and costs a
+#: `LD A,(HL)` on the Z80, where anything wanting a square root or a multiply
+#: would not port at all. The table only ever shrinks with distance, which is
+#: what makes the shape taper away from the player rather than end square.
+HALF_WIDTH = (1, 0)
+
+#: How far ahead of the player the patch reaches. Read off the table so the
+#: two cannot disagree.
+REACH = len(HALF_WIDTH)
 
 
 def patch_cells(cx: int, cy: int, facing: int,
                 is_solid=None) -> list[tuple[int, int]]:
-    """The cells a burst covers: a short block on the ground ahead of you.
+    """The cells a burst covers: a short taper on the ground ahead of you.
+
+    Facing down from `@`, on open floor::
+
+        . @ .
+        X X X
+        . X .
+
+    Four cells: three across one step ahead, one beyond that. It used to be a
+    3x2 block of six with square corners, which read as a stamped rectangle
+    rather than something sprayed (issue #42). The corners are dropped by
+    `HALF_WIDTH` being a table indexed by distance instead of one constant, so
+    the four facings stay reflections of each other -- the shape is written
+    once in forward-and-sideways terms and `_AXES` turns it, and there is no
+    per-facing case anywhere.
+
+    At eight-pixel cells, four cells is not going to read as a circle. What it
+    reads as is **not a rectangle**, and that was the whole of the ask.
+
+    **The patch got smaller, and only smaller.** The new shape is a strict
+    subset of the old block: same reach, same three-wide near row, two far
+    corners gone. Widening it to round it off was available -- a five-cell
+    diamond one step deeper reads rounder still -- and was rejected, because
+    reaching a cell further is a power change dressed as a shape change. The
+    two uses the design leans on both survive the trim: the near row is three
+    across, so it still plugs the three-row connecting doorway in one burst,
+    and a body's two cells still fall inside the patch in every facing.
 
     **The loop starts one cell ahead and must go on doing so.** The player's
     own cell is never sprayed, so a burst cannot kill the fly that is already
@@ -79,7 +117,8 @@ def patch_cells(cx: int, cy: int, facing: int,
     fx, fy, sx, sy = _AXES[facing]
     cells = []
     for d in range(1, REACH + 1):
-        for k in range(-HALF_WIDTH, HALF_WIDTH + 1):
+        half = HALF_WIDTH[d - 1]
+        for k in range(-half, half + 1):
             x, y = cx + fx * d + sx * k, cy + fy * d + sy * k
             if not (0 <= x < COLS and 0 <= y < PLAY_ROWS):
                 continue

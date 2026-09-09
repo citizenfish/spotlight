@@ -171,14 +171,19 @@ def test_no_burst_anywhere_in_the_building_lands_on_wall():
 
 
 def test_the_reported_wall_case_is_now_clean():
-    """Main room, (2, 1), facing left: four of six cells were wall."""
+    """Main room, (2, 1), facing left: four of the six cells were wall.
+
+    The six are written out because they are the block the fault was reported
+    against, and the patch is no longer that shape (issue #42) -- the reported
+    number has to stay checkable against the thing that was measured.
+    """
     room = scene.BUILDING.rooms[0]
-    before = patch_cells(2, 1, S.LEFT)
-    assert sum(room.is_solid(*c) for c in before) == 4, \
-        "the fault this fixes has moved; re-measure before trusting the test"
-    after = patch_cells(2, 1, S.LEFT, room.is_solid)
-    assert len(after) == 2
-    assert set(after) < set(before), "the patch grew or moved"
+    reported = {(1, 0), (1, 1), (1, 2), (0, 0), (0, 1), (0, 2)}
+    assert sum(room.is_solid(*c) for c in reported) == 4, \
+        "the room changed; re-measure before trusting this test"
+    laid = set(patch_cells(2, 1, S.LEFT, room.is_solid))
+    assert not any(room.is_solid(*c) for c in laid)
+    assert laid <= set(patch_cells(2, 1, S.LEFT)), "the patch grew or moved"
 
 
 def test_a_charge_fired_at_a_wall_lays_nothing_and_is_still_spent():
@@ -210,3 +215,82 @@ def test_a_patch_laid_in_a_room_never_covers_a_solid_cell():
                        run.is_solid)
         for cell in run.spray.cells_in(run.here):
             assert not room.is_solid(*cell), f"({cx},{cy}) {facing}: {cell}"
+
+
+# --- shape: a cloud, not a stamped block (issue #42) ------------------------
+
+def _old_block(cx, cy, facing, reach=2, half=1):
+    """The 3x2 rectangle the patch used to be, corners and all."""
+    fx, fy, sx, sy = S._AXES[facing]
+    return {(cx + fx * d + sx * k, cy + fy * d + sy * k)
+            for d in range(1, reach + 1)
+            for k in range(-half, half + 1)}
+
+
+def _offsets(cx, cy, facing):
+    """The patch in forward/sideways terms, which is how it is authored."""
+    fx, fy, sx, sy = S._AXES[facing]
+    out = set()
+    for x, y in patch_cells(cx, cy, facing):
+        dx, dy = x - cx, y - cy
+        out.add((dx * fx + dy * fy, dx * sx + dy * sy))
+    return out
+
+
+def test_the_patch_has_no_square_corners():
+    """It used to be `REACH=2, HALF_WIDTH=1` with every combination filled --
+    a 3x2 block that read as a stamp rather than something sprayed."""
+    for facing in (S.UP, S.DOWN, S.LEFT, S.RIGHT):
+        offs = _offsets(10, 10, facing)
+        assert (2, -1) not in offs and (2, 1) not in offs, \
+            f"facing {facing} still has square far corners"
+        assert offs == {(1, -1), (1, 0), (1, 1), (2, 0)}
+
+
+def test_the_patch_never_grew():
+    """A shape change, not a power change: the new patch is a **strict subset**
+    of the old block. Same reach, same near row, two far corners gone."""
+    for facing in (S.UP, S.DOWN, S.LEFT, S.RIGHT):
+        cells = set(patch_cells(10, 10, facing))
+        assert cells < _old_block(10, 10, facing), f"facing {facing} widened"
+        assert len(cells) == 4
+
+
+def test_the_width_only_ever_shrinks_with_distance():
+    """The taper is the shape. A width table that grew with distance would put
+    the corners back one row further out."""
+    from spikes.spray import HALF_WIDTH
+    assert list(HALF_WIDTH) == sorted(HALF_WIDTH, reverse=True)
+    assert HALF_WIDTH[0] >= 1, "no width at all one cell ahead"
+
+
+def test_the_four_facings_are_reflections_of_one_another():
+    """One shape, turned by `_AXES` -- not four hand-authored blobs."""
+    shapes = {facing: _offsets(10, 10, facing)
+              for facing in (S.UP, S.DOWN, S.LEFT, S.RIGHT)}
+    one = shapes[S.UP]
+    for facing, offs in shapes.items():
+        assert offs == one, f"facing {facing} is a different shape"
+    assert one == {(d, -k) for d, k in one}, "not symmetric about the facing"
+
+
+def test_the_patch_still_plugs_the_connecting_doorway():
+    """**Protect a doorway** is one of the two uses the design leans on. The
+    doorway is three rows and the near row is three across, so one burst still
+    covers all of it -- the trim came off the far row, which nothing has to
+    pass through."""
+    door_rows = (10, 11, 12)
+    cells = set(patch_cells(30, 11, S.RIGHT))
+    for row in door_rows:
+        assert (31, row) in cells, f"doorway row {row} left open"
+
+
+def test_a_body_one_step_ahead_is_still_wholly_covered():
+    """**Douse a fresh body** is the other. A person is two cells tall, so a
+    body ahead of you occupies two cells and both must be poisoned."""
+    for facing, body in ((S.RIGHT, ((11, 10), (11, 9))),
+                         (S.LEFT, ((9, 10), (9, 9))),
+                         (S.DOWN, ((10, 12), (10, 11))),
+                         (S.UP, ((10, 9), (10, 8)))):
+        cells = set(patch_cells(10, 10, facing))
+        assert set(body) <= cells, f"facing {facing} missed part of the body"
