@@ -43,9 +43,11 @@ Touching the exit hands over whoever is following you and the run continues;
 
 ## Working on it
 
+Carrying on from where *Playing it* left you: still inside `prototype/`, with
+the venv active. The dev pins live at the repo root, hence the `../`.
+
 ```sh
-pip install -r requirements-dev.txt
-cd prototype
+pip install -r ../requirements-dev.txt
 pytest                                        # headless, no window needed
 python -m spikes.spike_driver --bot listener --seeds 5     # play it without hands
 ```
@@ -53,7 +55,8 @@ python -m spikes.spike_driver --bot listener --seeds 5     # play it without han
 The driver runs the real game loop with no window and writes two reports per
 run: a JSON of every measurement, and five or six lines of English for talking
 a playtest through afterwards. `--bot` takes `statue`, `wanderer`, `listener`,
-`scout`, `crosser` or `oracle`; `--script "300R 100D T 600."` presses keys.
+`scout`, `crosser`, `oracle` or `undertaker`; `--script "300R 100D T 600."`
+presses keys.
 
 ## How it is built
 
