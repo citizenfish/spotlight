@@ -36,7 +36,7 @@ from spotlight.core.screen import Screen, attr_byte
 from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
     moments as moments_mod, player as player_mod, rescue as rescue_mod,
-    scene, sources, spray as spray_mod, sprites, surge as surge_mod,
+    scene, sounds, sources, spray as spray_mod, sprites, surge as surge_mod,
     tally as tally_mod, tiles,
 )
 from .layout import PLAY_BOTTOM, PLAY_TOP
@@ -348,7 +348,8 @@ class Session:
     def __init__(self, seed: int = DEFAULT_SEED,
                  blood: int = BLOOD_FULL, lives: int = LIVES,
                  metrics: bool = False,
-                 surge_frames: int = surge_mod.SURGE_FRAMES) -> None:
+                 surge_frames: int = surge_mod.SURGE_FRAMES,
+                 sound: bool = True) -> None:
         self.seed = seed
         scene.validate()
         self.building = scene.BUILDING
@@ -419,15 +420,30 @@ class Session:
         self.blood_full = blood
         self.lives = lives
         self.sonar = buzz.Sonar()
-        #: Set by `step` when the sonar wants a click. The host makes the noise;
-        #: deciding how urgent it is stays portable and integer (see buzz).
+        #: **What the speaker actually did this frame, not what was wanted**
+        #: (issue #54). It used to mean *the sonar's counter came due*, and the
+        #: host played a click on it; since the fourteen effects arrived there
+        #: is one voice for all of them and a click that lands inside a running
+        #: effect is dropped. The counters are still the only thing that
+        #: decides *when* -- see `sounds.Voice.update` -- and they are never
+        #: told the answer, because a counter that restarted on a drop would
+        #: make the sonar's rate mean something other than distance.
         self.click = False
-        #: The body's tick, and the body it is about (issue #33). Two speakers
-        #: and one beeper: `step` sets at most one of `click` and `tick` on any
-        #: frame, and the sonar is the one that wins.
+        #: The body's tick, and the body it is about (issue #33). Two clicking
+        #: voices and one beeper: at most one of `click` and `tick` is ever
+        #: true on a frame, and neither is true while an effect is sounding.
         self.ticker = buzz.Ticker()
         self.tick = False
         self.ticking = None
+        #: The one speaker (issue #54): the sonar, the body's tick and the
+        #: fourteen effects, arbitrated in one place. **It decides nothing
+        #: about the run** -- no rule reads it, no counter is reset by it, and
+        #: the event log of a run is byte-identical with it and without it,
+        #: which is what `sound=False` exists to prove rather than to offer as
+        #: a setting anybody should want. With no voice the game is silent: the
+        #: alternative would be a second copy of the arbitration order living
+        #: in the session, which is the drift this slice exists to end.
+        self.voice = sounds.Voice() if sound else None
         #: Where the next hatchling's temperament comes from. Its own chain,
         #: run on from the starting swarm's, so no fly in the building shares a
         #: seed with another and a brood is as varied as an authored swarm.
@@ -967,7 +983,7 @@ class Session:
         # boundary means nothing, so the room behind you falls silent the
         # moment you leave it -- which is exactly the hole the shouts through a
         # doorway exist to fill.
-        self.click = self.sonar.update(
+        wants_click = self.sonar.update(
             self.place.swarm.nearest_distance(self.player.cx, self.player.cy))
 
         # **A body is found by ear or it is not found at all**, so the tick is
@@ -983,13 +999,31 @@ class Session:
         rooms = {self.here}
         rooms.update(door.to for door in self.place.room.doorways)
         self.ticking = self.rescue.ticking(rooms)
-        self.tick = self.ticker.update(
+        wants_tick = self.ticker.update(
             buzz.NEVER if self.ticking is None else self.ticking.tick_period)
-        # **The sonar wins the speaker**, per *Clegs*: one beeper, and the fly
-        # about to land on you outranks the body twenty cells away. The tick
-        # drops the beat and the player still hears that something is wrong.
-        if self.click:
-            self.tick = False
+        # **The speaker is asked once, here, and by nobody else** (issue #54).
+        # *The sonar wins the speaker* used to be a line of session code; it is
+        # now one clause of `sounds.Voice`, alongside the body's tick and the
+        # fourteen effects, because a Spectrum has one beeper and an
+        # arbitration order split across two files is an order that drifts.
+        #
+        # **Last thing in the frame, after every moment has been raised**, so
+        # that a click and an effect arriving on the same frame really are on
+        # the same frame -- which is the boundary the ruling left open and this
+        # slice settles deliberately: the click wins and the effect never
+        # starts. The two counters have already been advanced above and are
+        # never told what became of what they asked for.
+        if self.voice is not None:
+            # The two intervals decide nothing and are only for the
+            # starvation figures: a sonar with no Cleg in reach is meant to be
+            # silent, and a click lost at contact is not the same event as one
+            # lost at the edge of hearing.
+            self.voice.update(wants_click, wants_tick, self.moments.sounds(),
+                              self.sonar.interval, self.ticker.interval)
+            self.click = self.voice.kind == sounds.CLICK
+            self.tick = self.voice.kind == sounds.TICK
+        else:
+            self.click = self.tick = False
 
         self._light()
         if self.repaint is not None:

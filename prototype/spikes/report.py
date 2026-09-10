@@ -27,7 +27,8 @@ counts rather than people, which is exactly why a run could report four workers
 from spotlight.core.constants import COLS
 
 from . import (
-    lighting, rescue as rescue_mod, session as session_mod, sources, surge,
+    lighting, rescue as rescue_mod, session as session_mod, sounds, sources,
+    surge,
 )
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
@@ -242,6 +243,17 @@ def metrics(run) -> dict:
     # whole-screen repaints per surge: one on the frame the plan appears, one
     # on the frame the play area comes back. Both are counted here rather than
     # inferred, and priced in `surge.py` against the port's frame budget.
+    # **What the one speaker cost the two clicking voices** (issue #54), and
+    # the figure the closed ruling asked this slice to take rather than assume:
+    # an effect owns the voice for its length, so a click landing inside one is
+    # dropped, and nobody had measured whether a *run* of effects can starve
+    # the sonar. `sonar_quiet_frames` is the one to read -- frames from a
+    # dropped click to the next one heard -- against `sounds.QUIET_LIMIT`. The
+    # keys are always present, `None` when the run had no voice, for the same
+    # reason the repaint columns are.
+    voice = (run.voice.stats() if run.voice is not None
+             else {key: None for key in sounds.SOUND_METRICS})
+
     surges = {
         "surges": run.surge.count,
         "surge_repaint_frames": SURGE_REPAINT_FRAMES * run.surge.count,
@@ -253,6 +265,7 @@ def metrics(run) -> dict:
         **by_lure,
         **changes,
         **surges,
+        **voice,
         "frames": run.frame,
         "seconds": run.seconds,
         "workers_total": run.total,
@@ -672,6 +685,46 @@ def surge_lines(run) -> list[str]:
         f"overrun a room entry already has and is not this slice's to fix.")
 
 
+def sound_lines(run) -> list[str]:
+    """What the one speaker cost the sonar and the body. Issue #54.
+
+    **The measurement the closed ruling asked for**, in the report of every
+    run rather than in a one-off experiment. *When the sonar lands inside an
+    effect* ruled that an effect owns the voice for its whole length and a
+    click inside it is dropped, and it left exactly one thing open: whether a
+    run of effects can starve the sonar, because a bite is five frames and
+    bites arrive fastest when the sonar does.
+
+    The number that answers it is the *unasked-for* silence -- from a click
+    that was dropped to the next one that was heard -- and not the gap between
+    clicks, which is 46 frames at the edge of hearing by design. Past
+    `sounds.QUIET_LIMIT` this says so in the note as well as on stderr, because
+    at that point the answer is a design decision and not a constant to tune.
+    """
+    if run.voice is None:
+        return []
+    voice = run.voice
+    clicks, ticks = voice.clicks, voice.ticks
+    lines = _wrap(
+        f"Speaker: {clicks.sounded} clicks sounded and {clicks.dropped} "
+        f"dropped, {ticks.sounded} body ticks sounded and {ticks.dropped} "
+        f"dropped, {voice.effects_sounded} effects played "
+        f"({voice.effects_dropped} dropped, {voice.effects_cut} cut off by a "
+        f"louder one). The longest the sonar went quiet without asking to was "
+        f"{clicks.quiet} frames at an interval of {clicks.quiet_interval}, the "
+        f"body {ticks.quiet}; the ruling allows {sounds.QUIET_LIMIT}.")
+    if voice.starved():
+        lines += _wrap(
+            f"** That is past the quarter of a second *When the sonar lands "
+            f"inside an effect* closed on, so the ruling reopens as *let the "
+            f"effect finish, with a cap*. Read the interval with it: a click "
+            f"lost at 46 frames costs 46 frames of silence by arithmetic, "
+            f"while {clicks.longest_run} lost in a row at 8 is the warning "
+            f"going out with a fly on you. That is a design decision and this "
+            f"build has deliberately not tuned anything to hide it.")
+    return lines
+
+
 def note(run, bot: str = "", label: str = "",
          measured: dict | None = None) -> list[str]:
     """The whole `.txt`: the five sentences, then what was measured.
@@ -681,7 +734,7 @@ def note(run, bot: str = "", label: str = "",
     this; whoever wants a number reads the JSON.
     """
     return human(run, bot=bot, label=label, measured=measured) \
-        + surge_lines(run)
+        + surge_lines(run) + sound_lines(run)
 
 
 def human(run, bot: str = "", label: str = "",

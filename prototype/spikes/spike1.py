@@ -81,7 +81,7 @@ from spotlight.core.screen import Screen
 from spotlight.frontend.display import Display
 
 from . import (
-    lighting, session as session_mod, screens, sources, spike_buzz, surge,
+    lighting, session as session_mod, screens, sources, spike_sound, surge,
 )
 from .session import Intent, Session
 
@@ -269,7 +269,7 @@ class Shell:
     clear, and the list is wrong the first time somebody adds a field.
     """
 
-    def __init__(self, screen: Screen, on_click=None, on_tick=None,
+    def __init__(self, screen: Screen, speaker=None,
                  debug: bool = False,
                  surge_frames: int = surge.SURGE_FRAMES) -> None:
         self.screen = screen
@@ -279,11 +279,14 @@ class Shell:
         #: locked there is nothing for a stray key to reach.
         self.debug: Debug | None = None
         self.debug_enabled = debug
-        #: The host makes the noise; the session only says when. Two of them
-        #: now (issue #33) -- the sonar's click and a body's tick -- and the
-        #: session never asks for both on the same frame.
-        self.on_click = on_click
-        self.on_tick = on_tick
+        #: The host makes the noise; the game says what the noise is. **One
+        #: speaker and one path to it** (issue #54): the sonar's click, a
+        #: body's tick and the fourteen effects are arbitrated in
+        #: `sounds.Voice` inside the session, and this hands whatever won to
+        #: `spike_sound.Speaker`. It used to be two callbacks wired to the two
+        #: clicking voices, which is what let the effects be silent for a whole
+        #: slice without anything noticing.
+        self.speaker = speaker
         self._torch = False
         self._spray = False
         #: Frames the shell is holding for, because a moment asked it to
@@ -393,10 +396,11 @@ class Shell:
         self.run.step(Intent(dx=dx, dy=dy, torch=self._torch,
                              spray=self._spray))
         self._torch = self._spray = False
-        if self.run.click and self.on_click is not None:
-            self.on_click()
-        if self.run.tick and self.on_tick is not None:
-            self.on_tick()
+        if self.speaker is not None:
+            # Every frame, and it does nothing on most of them: a click, a tick
+            # and the frame an effect begins on are the only three things that
+            # start a sound. See `spike_sound.Speaker.play`.
+            self.speaker.play(self.run.voice)
         self.run.draw(self.screen)
         # Taken after the frame is drawn, so what the pause holds on screen is
         # the frame the moment happened on.
@@ -462,9 +466,9 @@ def main(argv: list[str] | None = None) -> int:
         display = Display(scale=scale, title="Spotlight")
         clock = pygame.time.Clock()
         screen = Screen()
-        speaker = spike_buzz.Speaker()
+        speaker = spike_sound.Speaker()
         speaker.open()
-        shell = Shell(screen, on_click=speaker.click, on_tick=speaker.tick,
+        shell = Shell(screen, speaker=speaker,
                       debug=debug, surge_frames=surge_frames)
 
         running = True

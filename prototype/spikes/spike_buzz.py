@@ -1,4 +1,4 @@
-"""The speaker behind the sonar. Pygame, and it does not port.
+"""The two built voices: the sonar's click and a body's tick, as samples.
 
 This is the host layer, exactly as `frontend/display.py` is: it takes the
 portable decision in `buzz.Sonar` -- click, or do not click -- and makes a
@@ -7,6 +7,27 @@ nothing else changes, which is the point of keeping the decision elsewhere.
 
 A click here is a short burst that decays to nothing, so it reads as a tick
 rather than a beep. There is no numpy, so it is packed by hand.
+
+**These two waves are tuned and they do not move** (issue #54). 180 samples at
+a four-sample half-cycle for the click; a doubled 120-sample burst at nine
+samples with a ninety-sample gap for the tick. They were settled by ear against
+`buzz.interval_for`'s rates, they are quoted in *Music and Sound* as figures the
+sound table was built around rather than decided by, and `test_spike_sounds.py`
+pins them byte for byte against the commit before the one speaker arrived. A
+slice that wants a different click is arguing with the note, not with this file.
+
+**The speaker that used to live here has gone** (issue #54). It played these
+two and nothing else, straight from the session, while the fourteen effects had
+no voice at all -- two audio paths, of which one obeyed the design's
+arbitration order and the other did not exist. There is now one:
+`sounds.Voice` decides and `spike_sound.Speaker` plays. What changed is who
+owns the speaker; the waves below are byte for byte what they were.
+
+One known infidelity is inherited and stays: `click_wave` decays its burst to
+nothing, which is a Pygame convenience. **A beeper has no amplitude** -- on the
+machine a click is a flat burst that stops dead -- and the sound table's own
+account of the audio sketch says the same. Left alone deliberately, because the
+rates were tuned by ear against exactly this click.
 """
 
 import struct
@@ -63,59 +84,3 @@ def tick_wave(samples: int = _BODY_SAMPLES, half: int = _BODY_HALF,
     beat = click_wave(samples, half, stereo)
     silence = bytes(2 * (2 if stereo else 1) * gap)
     return beat + silence + beat
-
-
-class Speaker:
-    """Plays a click or a tick when asked. Silent and harmless with no device.
-
-    **One channel, because a Spectrum has one beeper.** The session never asks
-    for both on a frame -- the sonar wins the speaker and the body's tick drops
-    the beat -- and playing them down the same channel is what keeps that
-    honest rather than merely intended.
-    """
-
-    def __init__(self, volume: float = 0.35) -> None:
-        self.volume = volume
-        self.available = False
-        self._click = None
-        self._tick = None
-        self._channel = None
-
-    def open(self) -> bool:
-        """Prepare the voice. Returns whether there is anything to hear."""
-        try:
-            import pygame
-            if pygame.mixer.get_init() is None:
-                pygame.mixer.init()
-            init = pygame.mixer.get_init()
-            if init is None:
-                return False
-            self._click = pygame.mixer.Sound(
-                buffer=click_wave(stereo=init[2] > 1))
-            self._click.set_volume(self.volume)
-            self._tick = pygame.mixer.Sound(
-                buffer=tick_wave(stereo=init[2] > 1))
-            self._tick.set_volume(self.volume)
-            self._channel = pygame.mixer.Channel(0)
-            self.available = True
-        except Exception:
-            # No device, no mixer, no problem. Sound is the first thing to go
-            # on a machine that cannot make a noise.
-            self.available = False
-        return self.available
-
-    def click(self) -> None:
-        """One tick. Cuts off any click still sounding, so a fast rattle stays
-        a rattle rather than smearing into a tone."""
-        if self.available:
-            self._channel.play(self._click)
-
-    def tick(self) -> None:
-        """One body tick. The same channel as the click, deliberately: there is
-        one speaker, and the sonar has already been given first refusal."""
-        if self.available:
-            self._channel.play(self._tick)
-
-    def close(self) -> None:
-        if self.available and self._channel is not None:
-            self._channel.stop()

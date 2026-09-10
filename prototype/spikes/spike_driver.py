@@ -5,6 +5,8 @@
     python -m spikes.spike_driver --script "300R 100D T 600."
     python -m spikes.spike_driver --bot listener --snap 0,300,900
     python -m spikes.spike_driver --gallery runs/gallery
+    python -m spikes.spike_driver --bot listener --wav runs/listener.wav
+    python -m spikes.spike_driver --bank runs/sounds
 
 Issue #17, and it is the enabling issue for the whole of phase 2. **Every number
 in the phase-0 review came from monkey-patching the loop to fake a headless
@@ -55,7 +57,7 @@ import time
 
 from spotlight.core.screen import Screen
 
-from . import bots, report, session as session_mod
+from . import bots, report, session as session_mod, sounds
 
 #: Frames a run is allowed before the driver stops it. 9000 is three minutes at
 #: 50Hz, comfortably past the 144 seconds it currently takes for the last
@@ -70,7 +72,7 @@ DEFAULT_OUT = "runs"
 def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           frames: int = DEFAULT_FRAMES, draw: bool = False,
           screen: Screen | None = None, on_frame=None,
-          metrics: bool = True) -> session_mod.Session:
+          metrics: bool = True, on_sound=None) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -114,6 +116,16 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
             on_frame(run, screen)
     while run.over is None and run.frame < frames:
         run.step(bot.intent(run) if bot is not None else session_mod.IDLE)
+        # **What the speaker did on this frame, taken as the frame happens**
+        # (issue #54). A run's WAV is a recording of the performance the game
+        # gave, so the decisions are collected here, in order, rather than
+        # re-derived from the event log afterwards -- a re-derivation is a
+        # second performance and is not evidence about the first. It hangs off
+        # the same hook discipline as `on_frame`: a window onto the loop, never
+        # a hand in it, and it is not tied to `--draw` because audio and
+        # drawing are different questions.
+        if on_sound is not None:
+            on_sound(run)
         if draw:
             run.draw(screen)
             # **The driver schedules and counts surges and never waits for
@@ -275,6 +287,16 @@ SUMMARY = (
     # not move by one when it lands; what it costs instead is two whole-screen
     # repaints apiece, and this is how many times a run paid them.
     ("surges", "surges", 6),
+    # **What the one speaker costs the sonar** (issue #54). `quiet` is the
+    # figure the closed ruling named: frames from a click that was dropped to
+    # the next one that was heard, which is silence the sonar did not ask for
+    # rather than the 46-frame gap it asks for at the edge of hearing. Past
+    # twelve -- a quarter of a second -- the ruling reopens, and the driver
+    # says so on stderr as well as here.
+    ("clicks", "sonar_clicks", 6),
+    ("clkdrop", "sonar_clicks_dropped", 7),
+    ("quiet", "sonar_quiet_frames", 5),
+    ("sfx", "effects_sounded", 4),
 )
 
 
@@ -334,6 +356,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scales", default=None,
                         help="scales the PNGs are written at (default 1,3): "
                              "1:1 is the honest view, x3 is a readable one")
+    parser.add_argument("--wav", default=None,
+                        help="render this run's audio to a WAV, from the "
+                             "decisions the speaker actually made; with "
+                             "--seeds N the seed is added to the name")
+    parser.add_argument("--bank", default=None,
+                        help="write one WAV per sound into this directory and "
+                             "stop; runs no seeds")
     parser.add_argument("--gallery", default=None,
                         help="write the look-and-feel sheets into this "
                              "directory and stop; runs no seeds")
@@ -349,6 +378,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.gallery is not None:
         return gallery(args.gallery, scales)
 
+    if args.bank is not None:
+        return bank(args.bank)
+
     # A snapshot is of a drawn frame, so asking for one turns the drawing on.
     # Making the user pass both would only ever produce an empty directory and
     # a puzzled tester.
@@ -362,8 +394,9 @@ def main(argv: list[str] | None = None) -> int:
         bot = _bot(args, seed)
         snapper = (Snapper(base_name(name, seed, args.out, when), snap_at,
                            scales) if snap_at else None)
+        recorder = _recorder() if args.wav else None
         run = drive(bot, seed=seed, frames=args.frames, draw=draw,
-                    on_frame=snapper)
+                    on_frame=snapper, on_sound=recorder)
         extra = measured(bot)
         if args.repeat:
             again = drive(_bot(args, seed), seed=seed, frames=args.frames)
@@ -380,6 +413,20 @@ def main(argv: list[str] | None = None) -> int:
         if not args.no_files:
             paths = write(run, name, args.out, when, extra)
             print(f"\n  -> {paths[0]}\n  -> {paths[1]}")
+        if recorder is not None:
+            print(f"  -> {render(recorder, args.wav, seed, args.seeds)}")
+        if run.voice is not None and run.voice.starved():
+            # **Reported and not tuned** (issue #54). The ruling that lets an
+            # effect own the voice was closed on the understanding that slice F
+            # would measure whether a run of effects can starve the sonar. Past
+            # a quarter of a second the answer is a design decision -- let the
+            # effect finish, with a cap -- and this tool's whole job at that
+            # point is to say so loudly rather than to quietly move a number.
+            print(f"  ** the sonar went quiet for {run.voice.clicks.quiet} "
+                  f"frames at an interval of "
+                  f"{run.voice.clicks.quiet_interval}, and the body's tick for "
+                  f"{run.voice.ticks.quiet}, past the {sounds.QUIET_LIMIT} "
+                  f"frames the ruling allows", file=sys.stderr)
         if snapper is not None:
             for path in snapper.paths:
                 print(f"  -> {path}")
@@ -394,6 +441,46 @@ def main(argv: list[str] | None = None) -> int:
         print()
         for line in summary_lines(rows):
             print(line)
+    return 0
+
+
+def _recorder():
+    """The run's speaker, recorded. Imported here and not at the top.
+
+    Same rule as `Snapper`: everything the driver does not always need is
+    loaded by the runs that ask for it. `spike_sound` needs no pygame to write
+    a file, but it is host code, and the driver's first claim is that it needs
+    no host at all.
+    """
+    from . import spike_sound
+    return spike_sound.Recorder()
+
+
+def render(recorder, path: str, seed: int, seeds: int) -> str:
+    """Write one run's audio. With more than one seed the name carries it."""
+    from . import spike_sound
+
+    if seeds > 1:
+        stem, dot, ext = path.rpartition(".")
+        path = f"{stem or ext}_seed{seed}{dot}{ext if stem else ''}"
+    return spike_sound.write_wav(path, recorder.render())
+
+
+def bank(out_dir: str) -> int:
+    """Write every sound in the game as a WAV and stop.
+
+    **The thing this round has owed somebody since phase 1**: nobody reviewing
+    this game can open a window, and until this slice nobody could listen to it
+    either. It runs no seeds -- a bank is not a measurement of a run, it is the
+    game's voice laid out so it can be judged by ear, exactly as `--gallery` is
+    its screens laid out so they can be judged by eye.
+    """
+    from . import spike_sound
+
+    paths = spike_sound.bank_files(out_dir)
+    print(f"\nsound bank: {len(paths)} files in {out_dir}")
+    for path in paths:
+        print(f"  -> {path}")
     return 0
 
 

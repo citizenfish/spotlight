@@ -90,6 +90,29 @@ Scaling is nearest-neighbour at whole numbers only — a smoothed screenshot of 
 1-bit display invents colours the Spectrum does not have. The colour comes from
 the window's own resolver, so a PNG cannot disagree with what a player sees.
 
+## Hearing it without a speaker
+
+The same problem, and the same answer (issue #54). Everything the game can say
+goes down one channel — the proximity sonar, a body's tick and fourteen effects,
+because a Spectrum has one beeper — and these two flags write it to disk so it
+can be judged by ear rather than described.
+
+```sh
+cd prototype
+python -m spikes.spike_driver --bank runs/sounds
+python -m spikes.spike_driver --bot listener --seed 1 --wav runs/listener.wav
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--bank DIR` | One WAV per effect, plus the sonar at its three rates and a body's tick from fresh to about to turn, and an `effects.wav` of all fourteen in order. Runs no seeds and writes no report. |
+| `--wav FILE` | Renders that run's audio alongside its two reports, from the decisions the speaker actually made frame by frame. With `--seeds N` the seed goes in the name. |
+
+Both work with no audio device at all: the files are written and nothing is
+played. The run render is a *recording* — it comes from what the arbiter decided
+as the run went past, not from a second pass over the event log, because a
+re-derived performance is not evidence about the one that happened.
+
 ## Test
 
 ```sh

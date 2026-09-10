@@ -180,18 +180,24 @@ def test_the_fourteen_sound_ids_are_the_list_the_next_slice_gets():
     assert sorted(m.sound for m in M.MOMENTS.values()) == list(range(14))
 
 
-def test_nothing_reads_a_sound_id_yet_and_that_is_the_seam():
-    """The moments are silent in this slice, deliberately.
+def test_the_voice_reads_the_sound_ids_and_the_seam_is_closed():
+    """The seam slice D left open, closed by slice F (issue #54).
 
-    `sounds()` is where the voice will read them from and nothing calls it, so
-    a run can raise every one of these and the speaker stays quiet. If this
-    test ever fails because something started playing them, the slice that did
-    it owns this seam and should delete the test.
+    This test used to say the opposite: *nothing reads a sound id yet, and that
+    is the seam* -- the ids and the priorities were argued next to the events
+    they belong to, before there was a waveform to argue them next to, so the
+    events could be raised while the game was still silent. `sounds.Voice` now
+    reads exactly this list, and the ids and priorities it was handed are the
+    ones that were written down here a slice earlier and have not moved.
     """
+    from spikes import sounds
+
     run = _settle(Session(seed=1))
     _free_somebody(run)
     assert run.moments.sounds() == [(M.SFX_FREED, 0)]
-    assert not run.click and not run.tick
+    # Raised on this frame, and the speaker takes it: the moment is the only
+    # thing asking, so nothing is in its way.
+    assert run.voice.kind == sounds.EFFECT and run.voice.sound == M.SFX_FREED
 
 
 # --- one test per moment ----------------------------------------------------
