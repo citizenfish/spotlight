@@ -5,7 +5,13 @@ from play on 2026-09-07 -- the Cleg is an 8x8 bug seen from overhead and it
 reads; the player and the workers were front-facing standing figures in a world
 seen from the ceiling, and they were the only things in the room that were. See
 the vault's *People are drawn from above* for the argument and *Screen Layout*
-for the bytes, which are authored there and mirrored in `assets/sprites/`.
+for the bytes.
+
+**The bytes are not here.** Every figure is authored as a grid of `#` and `.`
+in `assets/sprites/` and generated into `bitmaps_gen.py` by `tools/bitmaps.py`
+(issue #48). They used to be declared here as hex *and* drawn in `assets/`, with
+a test comparing the two -- which could say they disagreed but never which was
+right. One source now, and the Z80 gets the same bytes from the same file.
 
 What that means for anything drawn later: a head at the top with nothing above
 it and no neck, shoulders as the widest part immediately under it, arms outside
@@ -47,6 +53,7 @@ issue #11.
 
 from spotlight.core.constants import CELL, SCREEN_H, SCREEN_W
 
+from .bitmaps_gen import BITMAPS
 from .layout import PLAY_ROWS
 
 PLAY_BOTTOM_PX = PLAY_ROWS * CELL
@@ -57,48 +64,14 @@ PLAY_BOTTOM_PX = PLAY_ROWS * CELL
 #: arms held clear of the body, a wide planted stance. **The only figure that
 #: touches both edges of its column at the shoulders** -- the widest thing in
 #: the room is you.
-PLAYER = (
-    0x00,  # ........
-    0x00,  # ........
-    0x3C,  # ..####..   head, seen from above - no hat, no face
-    0x3C,  # ..####..
-    0x3C,  # ..####..
-    0xFF,  # ########   shoulders, full width - the kit
-    0xFF,  # ########
-    0xDB,  # ##.##.##   arms clear of the body
-    0xDB,  # ##.##.##
-    0xDB,  # ##.##.##
-    0x7E,  # .######.   hips
-    0x66,  # .##..##.   legs, planted wide
-    0x66,  # .##..##.
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
-)
+PLAYER = BITMAPS["PLAYER"]
 
 #: A trapped worker, waiting: arms up and out, which is the silhouette of
 #: somebody calling for help and exactly what they are doing. Narrower
 #: shoulders than the player, because no kit. **The only figure that touches
 #: both edges above the head**, which is the near-inverse of the player and a
 #: much larger difference than the helmet it replaces.
-WORKER = (
-    0x00,  # ........
-    0x00,  # ........
-    0xC3,  # ##....##   hands, raised clear of the shoulders
-    0xC3,  # ##....##
-    0x99,  # #..##..#   arms, and the crown of the head between them
-    0xBD,  # #.####.#   head
-    0x7E,  # .######.   shoulders - narrower than the player's
-    0x7E,  # .######.
-    0x3C,  # ..####..   trunk
-    0x3C,  # ..####..
-    0x24,  # ..#..#..   legs, foreshortened
-    0x24,  # ..#..#..
-    0x24,  # ..#..#..
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
-)
+WORKER = BITMAPS["WORKER"]
 
 #: The same person, freed and walking behind you: arms down. Only the arms
 #: move, so it reads as the same body having stopped signalling.
@@ -108,24 +81,7 @@ WORKER = (
 #: It costs nothing to keep true: a worker is drawn from their state, so
 #: somebody released by the player's death goes back to arms up on the frame
 #: they are dropped.
-FOLLOWER = (
-    0x00,  # ........
-    0x00,  # ........
-    0x3C,  # ..####..   head
-    0x3C,  # ..####..
-    0x3C,  # ..####..
-    0x7E,  # .######.   shoulders
-    0x7E,  # .######.
-    0x5A,  # .#.##.#.   arms down at the sides
-    0x5A,  # .#.##.#.
-    0x5A,  # .#.##.#.
-    0x3C,  # ..####..   hips
-    0x24,  # ..#..#..   legs
-    0x24,  # ..#..#..
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
-)
+FOLLOWER = BITMAPS["FOLLOWER"]
 
 #: Somebody who died. **8x16, because it is a person**: seen from directly
 #: above, somebody lying down has the same plan as somebody standing up, so the
@@ -138,74 +94,21 @@ FOLLOWER = (
 #: and that issue #31 said read as debris. It is also drawn at the person's own
 #: position now: the old sprite was offset down a cell to sit at their feet, and
 #: that offset went with it.
-BODY = (
-    0x00,  # ........
-    0x00,  # ........
-    0x60,  # .##.....   the head, rolled off the centre line
-    0xF0,  # ####....
-    0x70,  # .###....
-    0x38,  # ..###...   shoulders
-    0x3F,  # ..######   one arm flung out
-    0x38,  # ..###...   trunk
-    0xF8,  # #####...   the other arm, lower and bent
-    0x38,  # ..###...
-    0x38,  # ..###...
-    0x38,  # ..###...
-    0x7C,  # .#####..   hips
-    0xC6,  # ##...##.   legs, splayed unevenly
-    0x83,  # #.....##
-    0x00,  # ........
-)
+BODY = BITMAPS["BODY"]
 
 # --- everything else, 8x8 --------------------------------------------------
 
 #: A Cleg: fat body, splayed legs.
-CLEG = (
-    0x00,
-    0x42,  # .#....#.   legs out
-    0x24,  # ..#..#..
-    0x7E,  # .######.   body
-    0xFF,  # ########
-    0x7E,  # .######.
-    0x24,  # ..#..#..   legs
-    0x42,  # .#....#.
-)
+CLEG = BITMAPS["CLEG"]
 
 #: A nest: a bounded mass, deliberately angular so it cannot be mistaken for a
 #: Cleg. An organic blob read too much like the thing it spawns.
-NEST = (
-    0x00,
-    0xFF,  # ########   rim
-    0x81,  # #......#
-    0xBD,  # #.####.#   something inside
-    0xBD,  # #.####.#
-    0x81,  # #......#
-    0xFF,  # ########
-    0x00,
-)
+NEST = BITMAPS["NEST"]
 
 #: A spotlight lying on the floor: a lamp with its beam spreading below.
-LAMP = (
-    0x00,
-    0x18,  # ...##...   handle
-    0x3C,  # ..####..
-    0x7E,  # .######.   dome
-    0xFF,  # ########   lens
-    0x66,  # .##..##.   beam
-    0x24,  # ..#..#..
-    0x00,
-)
+LAMP = BITMAPS["LAMP"]
 
-KEY = (
-    0x00,
-    0x1C,  # ...###..   ring
-    0x22,  # ..#...#.
-    0x22,  # ..#...#.
-    0x1C,  # ...###..
-    0x08,  # ....#...   shaft
-    0x0E,  # ....###.   teeth
-    0x00,
-)
+KEY = BITMAPS["KEY"]
 
 #: Every drawable, for tests and the sprite sheet.
 SPRITES = {

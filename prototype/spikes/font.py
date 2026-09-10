@@ -92,6 +92,33 @@ def draw_glyph(screen: Screen, cx: int, cy: int, rows: tuple[int, ...]) -> None:
             screen.pixels[base + dx] = 1 if bits & (0x80 >> dx) else 0
 
 
+def paint_glyph(screen: Screen, cx: int, cy: int, rows: tuple[int, ...]) -> None:
+    """Draw one glyph **over** what is already in the cell, clearing nothing.
+
+    `draw_glyph` clears the pixels it does not set, which is right for the
+    status strip -- a readout writes over the last value of itself -- and wrong
+    everywhere in the play area, where it made every sign eat the wall it was
+    written on. Measured before issue #48 at row 15 of room A: three 64-pixel
+    wall cells came back at 10 to 17.
+
+    The rule this keeps is the one the tiles keep as well: **paint hides
+    texture and never shape.** A sign cell draws the dim variant of its wall
+    tile and then the glyph on top, so the outline runs unbroken through the
+    word; on floor the glyph simply composites over the stipple.
+
+    Attributes are untouched, as ever. The word's colour comes from the frame's
+    ink map, where every other colour on screen comes from.
+    """
+    x0, y0 = cx * CELL, cy * CELL
+    for dy, bits in enumerate(rows):
+        if not bits:
+            continue
+        base = (y0 + dy) * SCREEN_W + x0
+        for dx in range(CELL):
+            if bits & (0x80 >> dx):
+                screen.pixels[base + dx] = 1
+
+
 def draw_text(screen: Screen, cx: int, cy: int, text: str) -> int:
     """Draw text from cell (cx, cy). Returns the column after the last glyph."""
     for i, ch in enumerate(text.upper()):

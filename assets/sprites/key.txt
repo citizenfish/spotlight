@@ -1,18 +1,21 @@
-; key
+; key.txt
 ;
-; A key.
+; A key. It takes the hue of the door it opens, which is level data
+; and not something a bitmap may say.
 ;
-; 8x8, one row per line, '#' set and '.' clear.
-; Comments start with ';' -- a row of pixels can start with '#'.
-;
-; This is the source; the hex in prototype/spikes/sprites.py is the
-; copy, and tests/test_spike_sprites.py fails if the two disagree.
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
 
+name: KEY
+size: 8x8
 ........
-...###..
+...###..   ring
 ..#...#.
 ..#...#.
 ...###..
-....#...
-....###.
+....#...   shaft
+....###.   teeth
 ........

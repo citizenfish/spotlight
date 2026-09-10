@@ -261,7 +261,7 @@ def test_no_test_means_drawn_everywhere_as_before():
     assert bytes(lit.pixels) == bytes(masked.pixels)
 
 
-# --- the art is in assets/ too (issue #31) ---------------------------------
+# --- the art is in assets/, and only there (issues #31, #48) ---------------
 
 def _assets():
     """`assets/sprites/`, which is the source-of-truth art in editable form."""
@@ -269,33 +269,44 @@ def _assets():
     return Path(__file__).resolve().parents[2] / "assets" / "sprites"
 
 
-def _read_asset(path):
-    rows = [line for line in path.read_text().splitlines()
-            if line and not line.startswith(";")]
-    return tuple(sum(1 << (7 - i) for i, ch in enumerate(row) if ch == "#")
-                 for row in rows)
+def test_every_sprite_is_authored_in_assets_and_generated_from_there():
+    """**One source, not two agreeing copies** (issue #48).
 
+    This used to compare the hex in `sprites.py` against the grid in
+    `assets/sprites/` and fail if they disagreed -- which could say they had
+    drifted but never which of them was right. The bytes are now generated from
+    the grid by `tools/bitmaps.py`, so `sprites.py` declares none of its own and
+    the question cannot be asked. What is left to check is that the module the
+    game imports really is the generated one, and that every sprite the game
+    draws has a file behind it.
 
-def test_every_sprite_is_in_the_assets_directory_as_well_as_in_code():
-    """`assets/` is the source of truth for art and it was empty.
-
-    A grid of `#` and `.` rather than hex, because it is the form the next
-    person can edit -- and because the two representations having to agree is
-    the only thing that stops them drifting. The Spectrum's converter reads
-    this, not the Python.
-
-    Comments start with `;` rather than `#`, which is what a row of eight set
-    pixels starts with. That is not a style choice: the first version of this
-    used `#` and silently ate the player's shoulders.
+    The file names are still `player.txt` and the block names are `PLAYER`,
+    because the file name is documentation and `name:` is the identity.
     """
+    from spikes import bitmaps_gen
     for name, sprite in SP.SPRITES.items():
         path = _assets() / f"{name}.txt"
         assert path.exists(), f"{name} is drawn in code and nowhere else"
-        assert _read_asset(path) == tuple(sprite), \
-            f"{name}.txt and sprites.py disagree"
+        assert tuple(sprite) == bitmaps_gen.BITMAPS[name.upper()], \
+            f"{name} is not the generated bitmap"
 
 
 def test_the_assets_directory_holds_nothing_the_game_does_not_draw():
     drawn = {f"{name}.txt" for name in SP.SPRITES}
     on_disk = {p.name for p in _assets().glob("*.txt")}
     assert on_disk == drawn, "art nobody draws, or a sprite with no source"
+
+
+def test_sprites_py_declares_no_bytes_of_its_own():
+    """The rule the pipeline rests on, checked mechanically.
+
+    A hex tuple creeping back into this module would be a second copy of a
+    picture, and second copies drift. If a new sprite needs adding, it is added
+    to `assets/sprites/` and regenerated.
+    """
+    import re
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "spikes"
+              / "sprites.py").read_text()
+    assert not re.search(r"0x[0-9A-Fa-f]{2},", source), \
+        "sprites.py has bytes in it again; they belong in assets/sprites/"

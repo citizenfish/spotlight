@@ -1,0 +1,190 @@
+; wall_dim.txt
+;
+; A remembered wall: the outline alone, with no masonry in it. Same sixteen
+; masks, same edge rule, an empty interior instead of the brick courses.
+;
+;   Pattern is a property of light. Shape is a property of the building.
+;
+; A wall you can see is made of something; a wall you are only remembering is a
+; line you once saw. Mask 15 -- a cell deep inside a wall mass, with no outline
+; to remember -- draws NOTHING, and that is deliberate.
+;
+; It is 8 to 28 pixels against a person's 44 and the player's 84, where the
+; solid block this replaces was 64 against 64 to 68. That is the whole point of
+; the slice: a figure standing against a wall reads again.
+
+name: WALL_DIM_00
+size: 8x8
+########   mask  0, -
+########
+##....##
+##....##
+##....##
+##....##
+########
+########
+
+name: WALL_DIM_01
+size: 8x8
+#......#   mask  1, N
+#......#
+#......#
+#......#
+#......#
+#......#
+########
+########
+
+name: WALL_DIM_02
+size: 8x8
+########   mask  2, E
+##......
+##......
+##......
+##......
+##......
+##......
+########
+
+name: WALL_DIM_03
+size: 8x8
+#.......   mask  3, NE
+#.......
+#.......
+#.......
+#.......
+#.......
+#.......
+########
+
+name: WALL_DIM_04
+size: 8x8
+########   mask  4, S
+########
+#......#
+#......#
+#......#
+#......#
+#......#
+#......#
+
+name: WALL_DIM_05
+size: 8x8
+#......#   mask  5, NS
+#......#
+#......#
+#......#
+#......#
+#......#
+#......#
+#......#
+
+name: WALL_DIM_06
+size: 8x8
+########   mask  6, ES
+#.......
+#.......
+#.......
+#.......
+#.......
+#.......
+#.......
+
+name: WALL_DIM_07
+size: 8x8
+#.......   mask  7, NES
+#.......
+#.......
+#.......
+#.......
+#.......
+#.......
+#.......
+
+name: WALL_DIM_08
+size: 8x8
+########   mask  8, W
+......##
+......##
+......##
+......##
+......##
+......##
+########
+
+name: WALL_DIM_09
+size: 8x8
+.......#   mask  9, NW
+.......#
+.......#
+.......#
+.......#
+.......#
+.......#
+########
+
+name: WALL_DIM_10
+size: 8x8
+########   mask 10, EW
+........
+........
+........
+........
+........
+........
+########
+
+name: WALL_DIM_11
+size: 8x8
+........   mask 11, NEW
+........
+........
+........
+........
+........
+........
+########
+
+name: WALL_DIM_12
+size: 8x8
+########   mask 12, SW
+.......#
+.......#
+.......#
+.......#
+.......#
+.......#
+.......#
+
+name: WALL_DIM_13
+size: 8x8
+.......#   mask 13, NSW
+.......#
+.......#
+.......#
+.......#
+.......#
+.......#
+.......#
+
+name: WALL_DIM_14
+size: 8x8
+########   mask 14, ESW
+........
+........
+........
+........
+........
+........
+........
+
+name: WALL_DIM_15
+size: 8x8
+........   mask 15, NESW
+........
+........
+........
+........
+........
+........
+........

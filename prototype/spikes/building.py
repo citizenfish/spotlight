@@ -137,10 +137,26 @@ def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0,
 
 WALL, FLOOR, DOOR, KEY, ROOM_LIGHT = "#", ".", "D", "K", "L"
 
+#: A gap in a wall (issue #48). **Floor in every mechanical respect -- walkable,
+#: stippled, remembered, and not solid** -- and a drawing character and nothing
+#: else. It exists because a one-cell doorway drawn as plain floor is an
+#: *absence*, and an absence in a dark room is indistinguishable from a room
+#: that stops there; a `d` cell draws returns instead, short ticks continuing
+#: each wall it touches into the opening. See `tiles.DOORWAY`.
+#:
+#: **Authored rather than inferred**, per *Art Direction* section 3: the author
+#: knows where the doorways are, and deriving it would mean every floor cell in
+#: the room asking a question that only a dozen of them can answer differently.
+#: One character of level data, no runtime inference.
+#:
+#: Lower case because it is not a `DOOR`. A `D` is the way out of the building,
+#: it is 8x16, it can be locked and it carries a key's hue; a `d` is a hole.
+DOORWAY = "d"
+
 #: Every cell kind a room may be written with. A room's palette has to name all
 #: of them, because a glyph with no ink is a cell that would be drawn in
 #: whatever the last one wore.
-CELL_KINDS = (WALL, FLOOR, DOOR, KEY, ROOM_LIGHT)
+CELL_KINDS = (WALL, FLOOR, DOOR, KEY, ROOM_LIGHT, DOORWAY)
 
 #: The hues that mean a **thing** rather than a **place**, so they are the same
 #: in every room of the building (issue #47, *Art Direction* section 2).
@@ -157,10 +173,17 @@ CELL_KINDS = (WALL, FLOOR, DOOR, KEY, ROOM_LIGHT)
 #: BLUE appears nowhere in this table and nowhere in a room's, deliberately:
 #: non-bright blue on black is the least legible pair the machine sells, and
 #: this game is played in the dark.
+#: A doorway is WHITE for the same reason a wall is: what it draws is the ends
+#: of the walls either side of it, and those are white in every room of every
+#: building. It is the one non-solid cell that takes a solid cell's hue, and it
+#: takes it because of what is drawn there rather than because of what it is --
+#: you can walk through it, and *Art Direction*'s per-room colour table says
+#: WHITE in both rooms.
 CONSTANT_INK = {
     WALL: WHITE,
     DOOR: MAGENTA,
     KEY: MAGENTA,
+    DOORWAY: WHITE,
 }
 
 
@@ -358,6 +381,32 @@ class Room:
             return True
         room, ncx, ncy = beyond
         return room.rows[ncy][ncx] in SOLID
+
+    # --- what a cell is made of, for drawing only ---------------------------
+    #
+    # Neither of these is an authority on anything a player can do. `is_solid`
+    # is, and it stays the only one -- see its docstring. These two answer a
+    # *drawing* question, about this room's own grid, and the difference
+    # matters at exactly one place: the column past a doorway. `is_solid`
+    # delegates it to the room next door, because walking through is ordinary
+    # movement; the tile mask must not, because **off the room counts as
+    # wall**, which is what makes the outer wall show one face -- inward -- and
+    # nothing get drawn against the screen edge. A mask that reached across a
+    # threshold would also cost the Z80 a door-table lookup per wall cell per
+    # frame, to change what a handful of cells at the very edge of the screen
+    # look like.
+
+    def is_wall(self, cx: int, cy: int) -> bool:
+        """Is this cell solid **in this room's own grid**? Drawing only."""
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return self.rows[cy][cx] in SOLID
+
+    def is_doorway(self, cx: int, cy: int) -> bool:
+        """Is this cell an authored gap in a wall? Drawing only."""
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return False
+        return self.rows[cy][cx] == DOORWAY
 
     def across(self, cx: int, cy: int) -> "tuple[Room, int, int] | None":
         """What is at (cx, cy) when it is past one of this room's walls.

@@ -186,14 +186,40 @@ def test_the_connecting_doorway_is_a_gap_and_not_a_coloured_door():
     """The hue rule is for *locked* doors, which have to announce that a key
     exists. This one is unlocked and announces itself through the shouts.
 
-    Floor or lit floor -- the far room authors its room light over its side of
-    the threshold, which is the level's centrepiece. What it must never be is a
-    `D`: that is the way *out of the building* and it carries the exit's hue.
+    Floor, lit floor, or the `d` that draws returns into it (issue #48) -- the
+    far room authors its room light over its side of the threshold, which is
+    the level's centrepiece. What it must never be is a `D`: that is the way
+    *out of the building* and it carries the exit's hue.
     """
+    allowed = (scene.FLOOR, scene.ROOM_LIGHT, B.DOORWAY)
     for r in ROOMS:
         for door in r.doorways:
             for cx, cy in door.cells():
-                assert r.rows[cy][cx] in (scene.FLOOR, scene.ROOM_LIGHT)
+                assert r.rows[cy][cx] in allowed
+
+
+def test_a_doorway_cell_is_floor_in_every_mechanical_respect():
+    """**`d` is a drawing character and nothing else** (issue #48).
+
+    It was added so that a one-cell gap reads as a doorway rather than as a
+    room that stops there, and the whole of the rest of the game must go on
+    treating it as floor: not solid, walkable, and reachable by the swarm. If
+    any of those three moved, the slice would have changed the level while
+    claiming to have changed only the picture -- and the next slice's repaint
+    comparison would have nothing to compare against.
+    """
+    from spikes import swarming
+    found = 0
+    for r in ROOMS:
+        for cx, cy in r.cells_of(B.DOORWAY):
+            found += 1
+            assert not r.is_solid(cx, cy), f"{r.name}: d at {(cx, cy)} is solid"
+            assert B.DOORWAY not in B.SOLID
+        assert not swarming.unswarmable(r), \
+            f"{r.name}: the swarm cannot reach every floor cell"
+    assert found == 4, (
+        "the playtest building authors four doorway cells: room A's inner "
+        f"door and the three at column 31, and this found {found}")
 
 
 def test_the_cell_past_a_doorway_is_the_next_rooms_first_cell():

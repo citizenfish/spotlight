@@ -15,7 +15,7 @@ pinned below.
 
 import pygame
 
-from spikes import scene, sources, sprites, spike_gallery as gallery
+from spikes import scene, sources, sprites, spike_gallery as gallery, tiles
 from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import CELL, COLS, SCREEN_H, SCREEN_W
 from spotlight.core.screen import Screen
@@ -27,6 +27,14 @@ def cell_is_full(screen: Screen, cx: int, cy: int) -> bool:
     """Are all 64 pixels of this cell set? That is how a wall is drawn."""
     return all(screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx]
                for dy in range(CELL) for dx in range(CELL))
+
+
+def cell_holds(screen: Screen, cx: int, cy: int, rows) -> bool:
+    """Is every pixel of `rows` set in this cell? Extra pixels are allowed."""
+    return all(
+        screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx]
+        for dy, bits in enumerate(rows)
+        for dx in range(CELL) if bits & (0x80 >> dx))
 
 
 def lit_cells(screen: Screen) -> int:
@@ -45,13 +53,13 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     who has to ask for a second command will review whatever they were sent."""
     paths = gallery.write(str(tmp_path))
     names = {p.rsplit("/", 1)[-1] for p in paths}
-    for sheet in ("title", "title-flashed", "ending", "sprites"):
+    for sheet in ("title", "title-flashed", "ending", "sprites", "tiles"):
         assert f"{sheet}_x1.png" in names and f"{sheet}_x3.png" in names
     for room in scene.BUILDING.rooms:
         stem = f"room-{gallery.slug(room.name)}"
         assert f"{stem}-lit_x1.png" in names
         assert f"{stem}-played_x1.png" in names
-    assert len(paths) == len(names) == 8 + 4 * len(scene.BUILDING.rooms)
+    assert len(paths) == len(names) == 10 + 4 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -104,6 +112,69 @@ def test_the_people_get_twice_the_height_of_the_objects():
     most has to get right."""
     for name, sprite in sprites.SPRITES.items():
         assert len(sprite) == (16 if name in sprites.PEOPLE else 8), name
+
+
+# --- the tile sheet ---------------------------------------------------------
+
+def test_the_tile_sheet_shows_all_sixteen_masks_in_both_variants():
+    """Every tile in the game, in mask order, read back off the screen.
+
+    Issue #48. The sheet is how a reviewer sees the two things the slice is
+    about: that a lit wall is made of something and a remembered one is a line,
+    and that all sixteen masks are distinct. Read back rather than trusted,
+    because a sheet drawn from a second copy of the tables could agree with
+    itself and disagree with the game.
+    """
+    screen = Screen()
+    gallery.draw_tile_sheet(screen)
+    for n, table in enumerate((tiles.WALL_LIT, tiles.WALL_DIM,
+                               tiles.DOORWAY)):
+        top = gallery._TILE_TOP + n * gallery._TILE_BLOCK
+        for mask, rows in enumerate(table):
+            cx = mask * gallery._TILE_STEP
+            for dy, bits in enumerate(rows):
+                for dx in range(CELL):
+                    want = 1 if bits & (0x80 >> dx) else 0
+                    got = screen.pixels[((top + 1) * CELL + dy) * SCREEN_W
+                                        + cx * CELL + dx]
+                    assert got == want, \
+                        f"variant {n}, mask {mask}, row {dy}"
+
+
+def test_the_tile_sheet_plan_is_drawn_by_the_games_own_mask_arithmetic():
+    """The joined-up plan at the bottom. It exists to show the seams, so it has
+    to be built the way the game builds a room -- `tiles.mask_at` over a
+    solidity test with off-the-plan counting as wall -- and not by hand."""
+    screen = Screen()
+    gallery.draw_tile_sheet(screen)
+    for cy, row in enumerate(gallery.PLAN):
+        for cx, char in enumerate(row):
+            if char != "#":
+                continue
+            mask = tiles.mask_at(gallery.plan_is_wall, cx, cy)
+            for top, table in ((gallery._PLAN_LIT_TOP, tiles.WALL_LIT),
+                               (gallery._PLAN_DIM_TOP, tiles.WALL_DIM)):
+                for dy, bits in enumerate(table[mask]):
+                    for dx in range(CELL):
+                        want = 1 if bits & (0x80 >> dx) else 0
+                        got = screen.pixels[((top + cy) * CELL + dy)
+                                            * SCREEN_W + cx * CELL + dx]
+                        assert got == want, f"plan {(cx, cy)} row {dy}"
+
+
+def test_the_tile_sheet_plan_has_a_doorway_in_it():
+    """Room A's inner door is the case `d` was added for, so the sheet has to
+    show one: a one-cell gap in a partition, with its returns."""
+    assert any("d" in row for row in gallery.PLAN)
+    screen = Screen()
+    gallery.draw_tile_sheet(screen)
+    for cy, row in enumerate(gallery.PLAN):
+        for cx, char in enumerate(row):
+            if char != "d":
+                continue
+            mask = tiles.mask_at(gallery.plan_is_wall, cx, cy)
+            assert tiles.DOORWAY[mask] != (0,) * 8, \
+                "the plan's doorway draws nothing, so it shows nothing"
 
 
 # --- the rooms --------------------------------------------------------------
@@ -165,25 +236,48 @@ def test_each_lit_room_is_the_room_it_is_named_after():
     photograph of the near one -- which is exactly what teleporting `here`
     would have produced, silently and with a plausible picture.
 
-    A filled cell is only ever a wall, so that direction is exact. The other
-    direction has a known exception and it is worth writing down: **the game's
-    words blank the cells they are written in.** `font.draw_glyph` sets the
-    glyph's pixels and clears the rest of the cell, so HELP written across a
-    doorway or EXIT beside one punches its own letterbox through the wall
-    behind it. Three cells of the main room's wall go that way, which is why
-    this asks for nearly all of them rather than all.
+    **It used to ask whether the cell was full**, because a wall was 64 pixels
+    of ink. Issue #48 took that away: a lit wall is now the masonry tile its
+    4-neighbour mask chooses, so the check is that every wall cell contains the
+    tile its own mask asks for. That is a stronger claim than the old one -- it
+    depends on the room's geometry cell by cell rather than merely on something
+    being drawn -- and it is why it can be exact where the old one had to allow
+    for three cells that the words punched through.
+
+    A cell with a word painted on it draws the dim variant, and extra pixels
+    are allowed on top of any of them: a person standing against a wall
+    composites into it.
     """
     for index, room in enumerate(scene.BUILDING.rooms):
-        screen = gallery.room_screen(index, lit=True)
-        solid = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
-                 if room.is_solid(cx, cy)}
-        full = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
-                if cell_is_full(screen, cx, cy)}
-        assert not full - solid, \
-            f"{room.name}: solid cells drawn where the room has floor"
-        missing = solid - full
-        assert len(missing) <= len(solid) // 20, \
-            f"{room.name}: {len(missing)} walls missing, more than words explain"
+        run, screen = gallery.lit_room(index)
+        painted = set(run.place.sign_cells) | set(run.call_cells)
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                if not room.is_wall(cx, cy):
+                    continue
+                mask = tiles.mask_at(room.is_wall, cx, cy)
+                want = (tiles.WALL_DIM if (cx, cy) in painted
+                        else tiles.WALL_LIT)[mask]
+                assert cell_holds(screen, cx, cy, want), (
+                    f"{room.name}: the wall at {(cx, cy)} is not the tile "
+                    f"mask {mask} asks for")
+
+
+def test_a_lit_room_draws_no_wall_where_it_has_floor():
+    """The other direction, and it is what catches a picture of another room.
+
+    A floor cell may hold stipple, a sprite, a word or a doorway's returns --
+    all of them sparse. What it may never hold is a wall tile's outline, so
+    this asks that no floor cell is anywhere near full.
+    """
+    for index, room in enumerate(scene.BUILDING.rooms):
+        _run, screen = gallery.lit_room(index)
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                if room.is_wall(cx, cy):
+                    continue
+                assert not cell_is_full(screen, cx, cy), \
+                    f"{room.name}: {(cx, cy)} is floor and is drawn solid"
 
 
 def test_the_two_rooms_do_not_photograph_the_same():

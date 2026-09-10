@@ -1,27 +1,32 @@
-; body
+; body.txt
 ;
-; Somebody who died. A person, so 8x16. The tell is pose, not outline:
-; nothing about it is symmetric about its centre column.
+; Somebody who died. 8x16, because it is a person: seen from directly
+; above, somebody lying down has the same plan as somebody standing
+; up, so the tell cannot be the outline and it is the pose. Every
+; living figure is symmetric about its centre column; this one is not,
+; anywhere.
 ;
-; 8x16, one row per line, '#' set and '.' clear.
-; Comments start with ';' -- a row of pixels can start with '#'.
-;
-; This is the source; the hex in prototype/spikes/sprites.py is the
-; copy, and tests/test_spike_sprites.py fails if the two disagree.
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
 
+name: BODY
+size: 8x16
 ........
 ........
-.##.....
+.##.....   the head, rolled off the centre line
 ####....
 .###....
+..###...   shoulders
+..######   one arm flung out
+..###...   trunk
+#####...   the other arm, lower and bent
 ..###...
-..######
-..###...
-#####...
 ..###...
 ..###...
-..###...
-.#####..
-##...##.
+.#####..   hips
+##...##.   legs, splayed unevenly
 #.....##
 ........

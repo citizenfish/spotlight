@@ -36,9 +36,9 @@ from spotlight.core.screen import Screen, attr_byte
 from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
     rescue as rescue_mod, scene, sources, spray as spray_mod, sprites,
-    tally as tally_mod,
+    tally as tally_mod, tiles,
 )
-from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
+from .layout import PLAY_BOTTOM, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
 from .player import Player
@@ -1414,10 +1414,21 @@ class Session:
         place = self.place
         field, is_solid = place.field, place.room.is_solid
 
-        for cy in range(PLAY_ROWS):
-            for cx in range(COLS):
-                if is_solid(cx, cy):
-                    screen.fill_cell_pixels(cx, cy, on=True)
+        # **Where a sign or a shout is written** (issue #48). Those cells draw
+        # the *dim* wall tile whatever their light level, so the word is
+        # painted onto the wall instead of punched through it: the outline runs
+        # unbroken through it and only the masonry is lost, where the paint is.
+        # Collected before anything is drawn because the wall goes down first
+        # and the word goes on top of it.
+        painted = set(place.sign_cells) | set(self.call_cells)
+
+        # A wall is made of something when you can see it and is a line on a
+        # plan when you are only remembering it, and a `d` cell draws the
+        # returns that make a gap read as a doorway. This used to be
+        # `fill_cell_pixels(on=True)` -- 64 pixels of white per cell, lit or
+        # remembered, which is what a figure standing against a wall used to
+        # disappear into.
+        tiles.draw(screen, place.room, field, painted)
 
         # Lit floor is stippled, denser when fully lit. Without this the light
         # has no visible shape -- it only reveals what it falls on.
@@ -1464,20 +1475,25 @@ class Session:
                          visible=field.reveals_at)
         sprites.draw(screen, sprites.PLAYER, self.player.x, self.player.y)
 
+        # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
+        # clears none, so the wall tile under the word survives and the sign
+        # composites onto the stipple when it is written on floor.
         for i, (cx, cy) in enumerate(place.sign_cells):
-            font.draw_glyph(screen, cx, cy, font.GLYPHS[scene.EXIT_SIGN[i]])
+            font.paint_glyph(screen, cx, cy, font.GLYPHS[scene.EXIT_SIGN[i]])
 
         # "HELP", above the head of anybody shouting. Drawn whatever the light
         # is doing, because it is a voice and not a sighting.
         for worker in self.shouting:
             for i, (cx, cy) in enumerate(worker.call_cells()):
-                font.draw_glyph(screen, cx, cy, font.GLYPHS[rescue_mod.CALL[i]])
+                font.paint_glyph(screen, cx, cy,
+                                 font.GLYPHS[rescue_mod.CALL[i]])
         # ...and over the doorway, for anybody shouting in the room the other
         # side of it. The same word, in the same green, saying **the door and
         # not the person**.
         for run in self.door_calls:
             for i, (cx, cy) in enumerate(run):
-                font.draw_glyph(screen, cx, cy, font.GLYPHS[rescue_mod.CALL[i]])
+                font.paint_glyph(screen, cx, cy,
+                                 font.GLYPHS[rescue_mod.CALL[i]])
 
         # Sprayed ground gets its own droplet pattern and its own hue. Hue is
         # per-cell, so this does not disturb the clash guarantee.

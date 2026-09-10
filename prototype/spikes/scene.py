@@ -7,6 +7,7 @@ legend lives in `building.py`:
     #  wall        D  the way out of the building (its own hue)
     .  floor       K  key (the hue of the door it opens)
     L  room light zone (floor, but authored as always lit)
+    d  doorway (floor, drawn with returns -- issue #48)
 
 **There is no key.** Doors and keys are not built, so a `K` would be a magenta
 glyph that could not be picked up and opened nothing. The legend and the hue
@@ -47,8 +48,8 @@ room you can see all of at once.
 from spotlight.core.constants import CYAN, YELLOW
 
 from .building import (
-    Building, CONSTANT_INK, DOOR, Doorway, EAST, EXIT, FLOOR, KEY, Room,
-    ROOM_LIGHT, Searchlight, SOLID, WALL, WEST, palette,
+    Building, CONSTANT_INK, DOOR, DOORWAY, Doorway, EAST, EXIT, FLOOR, KEY,
+    Room, ROOM_LIGHT, Searchlight, SOLID, WALL, WEST, palette,
 )
 
 #: **The floor carries the room and the walls carry the building** (issue #47).
@@ -99,10 +100,14 @@ DOOR_ROWS = (10, 11, 12)
 #:    across is passable") was written when the only doorway in the prototype
 #:    was in a horizontal wall, and it does not carry over.
 #: 2. **The connecting doorway is the gap in the east wall** at rows 10-12. It
-#:    is plain floor rather than a `D`: `D` is the way *out of the building* and
+#:    is `d` rather than a `D`: `D` is the way *out of the building* and
 #:    carries the exit's hue, and the vault is explicit that the hue rule is for
 #:    *locked* doors, which have to announce that a key exists. This one is
-#:    unlocked and announces itself another way -- see the shouts.
+#:    unlocked and announces itself another way -- see the shouts. `d` is floor
+#:    in every mechanical respect and changes only the picture (issue #48): it
+#:    draws returns, so the gap reads as a doorway rather than as a room that
+#:    stops there. The inner box's one-cell door at (15, 7) is the other one,
+#:    and it is the case the character was added for.
 #: 3. **The wall across row 18 is gone**, and a short wall at column 24 stands
 #:    in its place. The old wall sealed the bottom-right corner: Clegs steer and
 #:    slide rather than pathfind, so they piled against it and never arrived,
@@ -122,12 +127,12 @@ ROOM_A = (
     "#......#....#......#...........#",
     "#......#....#......#...........#",
     "#...........#......#...........#",
-    "#...........###.####...........#",
+    "#...........###d####...........#",
     "#..............................#",
     "#####.#####....................#",
-    "D...............................",
-    "D.........#####.................",
-    "#...............................",
+    "D..............................d",
+    "D.........#####................d",
+    "#..............................d",
     "#..............................#",
     "#..............................#",
     "#..........########............#",
@@ -155,6 +160,17 @@ ROOM_A = (
 #: * B is never wholly black on re-entry, which is what makes "the opening flash
 #:   fires on first entry and not on re-entry" cost curiosity rather than
 #:   progress.
+#:
+#: **B's side of the connecting doorway is `L` and not `d`, and that is not an
+#: oversight** (issue #48). The room light block sits exactly on those three
+#: cells, one character per cell, and marking them `d` would take three cells
+#: out of the zone and move the lure's origin -- which is a change to what a
+#: light reaches and where the swarm gathers, and the slice that added `d` is
+#: forbidden from making one. The jambs above and below the gap still get their
+#: inward faces from their own mask, so the opening reads; what it does not get
+#: is the returns. **It needs a design ruling** -- either the block moves a
+#: column, or `d` and `L` have to be able to occupy one cell -- and it is the
+#: only part of *Art Direction* section 3 this slice did not build.
 #:
 #: What it does **not** do is make your tail prey while it files through. The
 #: vault's worked example says it should; *Light and Darkness* says room lights
@@ -392,7 +408,8 @@ __all__ = [
     "EXIT",
     "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",
     "INK_B", "INNER_DOOR", "KEY",
-    "DOOR", "MOVERS", "NEAR", "NEAR_NAME", "PLAYER_START", "ROOM_A",
+    "DOOR", "DOORWAY", "MOVERS", "NEAR", "NEAR_NAME", "PLAYER_START",
+    "ROOM_A",
     "ROOM_B",
     "ROOM_FAR", "ROOM_LIGHT", "ROOM_NEAR", "SEARCHLIGHT_RADIUS",
     "SEARCHLIGHT_VARY", "SOLID", "SPOTLIGHTS_A", "SPOTLIGHTS_B", "WALL",

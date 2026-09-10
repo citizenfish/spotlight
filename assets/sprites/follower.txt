@@ -1,26 +1,29 @@
-; follower
+; follower.txt
 ;
-; A worker you have freed, walking behind you: the same person
-; with their arms down, no longer signalling.
+; The same person, freed and walking behind you: arms down. Only
+; the arms move, so it reads as the same body having stopped
+; signalling -- raised arms mean 'I still need reaching'.
 ;
-; 8x16, one row per line, '#' set and '.' clear.
-; Comments start with ';' -- a row of pixels can start with '#'.
-;
-; This is the source; the hex in prototype/spikes/sprites.py is the
-; copy, and tests/test_spike_sprites.py fails if the two disagree.
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
 
+name: FOLLOWER
+size: 8x16
 ........
 ........
+..####..   head
 ..####..
 ..####..
-..####..
+.######.   shoulders
 .######.
-.######.
+.#.##.#.   arms down at the sides
 .#.##.#.
 .#.##.#.
-.#.##.#.
-..####..
-..#..#..
+..####..   hips
+..#..#..   legs
 ..#..#..
 ........
 ........

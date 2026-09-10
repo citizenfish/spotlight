@@ -30,8 +30,10 @@ rather than merely correct:
 Host-side, named `spike_*` so the portability suite exempts it: it exists to
 make PNGs for people, and nothing on a Spectrum will ever run it.
 
-Later slices of this round add a tile sheet here -- the floor, wall and doorway
-patterns at each light level, which is the other thing the round has to look at.
+The tile sheet arrived with issue #48: every wall and doorway tile at both
+light levels, and a joined-up plan drawn through the real mask arithmetic, so
+that a seam in the masonry is visible in a picture rather than only findable by
+somebody counting pixels.
 """
 
 import os
@@ -41,7 +43,7 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, screens, scene, session as session_mod, sprites
+from . import bots, screens, scene, session as session_mod, sprites, tiles
 from . import spike_snap
 from .building import EAST
 
@@ -119,6 +121,103 @@ def draw_sprite_sheet(screen: Screen) -> None:
                       bright=True)
 
 
+# --- the tile sheet ---------------------------------------------------------
+
+#: The plan at the bottom of the tile sheet, drawn once lit and once dim.
+#:
+#: **It is there to show the seams**, and it is chosen so that every one of them
+#: is in the picture: borders four cells deep so that there are interior cells
+#: with masonry on all four sides and joints that have to line up across a cell
+#: boundary in both axes, a void so that faces and end caps are drawn, and a
+#: one-cell-thick partition with a `d` gap in it, which is the case the doorway
+#: character was added for -- room A's inner door. If the masonry ever stops
+#: tiling, it shows here as a broken course or a doubled joint.
+PLAN = (
+    "################################",
+    "####.........d..............####",
+    "####.........#..............####",
+    "################################",
+)
+
+#: Where the plan is drawn: lit first, then the same plan remembered.
+_PLAN_LIT_TOP = ROWS - 8
+_PLAN_DIM_TOP = ROWS - 4
+
+#: The tile rows: a label, the sixteen tiles two columns apart, and the mask
+#: number under each in hexadecimal -- one character, because a tile is one
+#: cell wide and a two-digit label would not sit under it.
+_TILE_TOP = 3
+_TILE_BLOCK = 4
+_TILE_STEP = 2
+
+
+def plan_is_wall(cx: int, cy: int) -> bool:
+    """`PLAN`'s solidity, with **off the plan counting as wall**.
+
+    The same rule a room follows, written out here rather than borrowed, so
+    that the sheet is drawn by the same mask arithmetic the game uses and can
+    disagree with it if it ever breaks.
+    """
+    if not (0 <= cy < len(PLAN) and 0 <= cx < len(PLAN[0])):
+        return True
+    return PLAN[cy][cx] == "#"
+
+
+def draw_plan(screen: Screen, top: int, table, doorways: bool = True) -> None:
+    """One copy of the plan, drawn with `table` for its walls."""
+    for cy, row in enumerate(PLAN):
+        for cx, char in enumerate(row):
+            mask = tiles.mask_at(plan_is_wall, cx, cy)
+            if char == "#":
+                rows = table[mask]
+            elif char == "d" and doorways:
+                rows = tiles.DOORWAY[mask]
+            else:
+                continue
+            tiles.blit(screen, cx, top + cy, rows)
+            screen.set_attr(cx, top + cy,
+                            _attr(WHITE, bright=table is tiles.WALL_LIT))
+
+
+def draw_tile_sheet(screen: Screen) -> None:
+    """Every wall and doorway tile, and a plan built out of them.
+
+    Three things a reviewer has to be able to see and could not before:
+
+    * **that all sixteen masks are distinct in both variants** -- an earlier
+      masonry interior put a mortar course on row 7, which made *south open*
+      invisible and collapsed four pairs of masks onto each other;
+    * **that a remembered wall is a line and a lit one is made of something**,
+      which is the whole of the slice, side by side and at the same size; and
+    * **that the masonry has no seam in either axis**, which no table of bytes
+      will ever show anybody.
+    """
+    screen.clear(_attr(WHITE))
+    heading = "TILE SHEET"
+    screens.write(screen, screens.centre(heading), 1, heading, YELLOW,
+                  bright=True)
+
+    variants = (("WALL, LIT - OUTLINE AND MASONRY", tiles.WALL_LIT, True),
+                ("WALL, DIM - THE OUTLINE ALONE", tiles.WALL_DIM, False),
+                ("DOORWAY - RETURNS INTO A GAP", tiles.DOORWAY, True))
+    for n, (label, table, bright) in enumerate(variants):
+        top = _TILE_TOP + n * _TILE_BLOCK
+        screens.write(screen, 0, top, label, CYAN, bright=True)
+        for mask in range(len(table)):
+            cx = mask * _TILE_STEP
+            tiles.blit(screen, cx, top + 1, table[mask])
+            screen.set_attr(cx, top + 1, _attr(WHITE, bright=bright))
+            # The mask in hexadecimal, so it is one character and sits under
+            # its own tile. The tiles are in mask order, which is the whole
+            # reason the game needs no lookup, and the labels say so.
+            screens.write(screen, cx, top + 2, f"{mask:X}", YELLOW)
+
+    label = "JOINED UP: LIT, THEN REMEMBERED"
+    screens.write(screen, 0, _PLAN_LIT_TOP - 1, label, CYAN, bright=True)
+    draw_plan(screen, _PLAN_LIT_TOP, tiles.WALL_LIT)
+    draw_plan(screen, _PLAN_DIM_TOP, tiles.WALL_DIM)
+
+
 # --- the rooms --------------------------------------------------------------
 
 def enter(run, index: int):
@@ -152,6 +251,26 @@ def enter(run, index: int):
     raise RuntimeError(f"the player would not walk into room {index}")
 
 
+def lit_room(index: int) -> tuple:
+    """One room fully revealed, as `(run, screen)`.
+
+    The run comes back as well as the picture because what is *painted* on a
+    wall -- the exit sign, and anybody shouting -- is a property of the frame
+    and not of the room, and a caller checking the walls has to know which
+    cells were painted over. Nothing else needs it, which is why `room_screen`
+    keeps the simpler signature.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    enter(run, index)
+    screen = Screen()
+    # The debug reveal, held: the room and everybody in it, which is what a
+    # reviewer needs and what the player is deliberately never given.
+    run.place.opening.hold(True)
+    run.step()
+    run.draw(screen)
+    return run, screen
+
+
 def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
     """One room, drawn: fully revealed, or as it looks after `frames` of play.
 
@@ -160,16 +279,11 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
     labelled "the far room" would quietly be a shot of the far room *after the
     near one had gone wrong*.
     """
+    if lit:
+        return lit_room(index)[1]
     run = session_mod.Session(seed=GALLERY_SEED)
     enter(run, index)
     screen = Screen()
-    if lit:
-        # The debug reveal, held: the room and everybody in it, which is what a
-        # reviewer needs and what the player is deliberately never given.
-        run.place.opening.hold(True)
-        run.step()
-        run.draw(screen)
-        return screen
 
     bot = bots.make("listener", seed=GALLERY_SEED, light=True)
     kept = None
@@ -250,6 +364,10 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     sheet_screen = Screen()
     draw_sprite_sheet(sheet_screen)
     sheet("sprites", sheet_screen)
+
+    tile_screen = Screen()
+    draw_tile_sheet(tile_screen)
+    sheet("tiles", tile_screen)
 
     for index, room in enumerate(scene.BUILDING.rooms):
         sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))

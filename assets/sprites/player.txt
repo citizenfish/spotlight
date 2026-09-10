@@ -1,26 +1,30 @@
-; player
+; player.txt
 ;
-; The player: the one in kit, seen from above.
-; The only figure that touches both edges of its column at the shoulders.
+; The player: the one in kit, seen from above. Full-width square
+; shoulders, arms held clear of the body, a wide planted stance.
+; The only figure that touches both edges of its column at the
+; shoulders -- the widest thing in the room is you.
 ;
-; 8x16, one row per line, '#' set and '.' clear.
-; Comments start with ';' -- a row of pixels can start with '#'.
-;
-; This is the source; the hex in prototype/spikes/sprites.py is the
-; copy, and tests/test_spike_sprites.py fails if the two disagree.
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
 
+name: PLAYER
+size: 8x16
 ........
 ........
+..####..   head, seen from above - no hat, no face
 ..####..
 ..####..
-..####..
+########   shoulders, full width - the kit
 ########
-########
+##.##.##   arms clear of the body
 ##.##.##
 ##.##.##
-##.##.##
-.######.
-.##..##.
+.######.   hips
+.##..##.   legs, planted wide
 .##..##.
 ........
 ........

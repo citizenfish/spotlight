@@ -1,25 +1,29 @@
-; worker
+; worker.txt
 ;
-; A trapped worker, waiting: arms up and out, the silhouette of
-; somebody calling for help. Narrower shoulders than the player - no kit.
+; A trapped worker, waiting: arms up and out, which is the
+; silhouette of somebody calling for help and exactly what they are
+; doing. Narrower shoulders than the player, because no kit. The
+; only figure that touches both edges above the head.
 ;
-; 8x16, one row per line, '#' set and '.' clear.
-; Comments start with ';' -- a row of pixels can start with '#'.
-;
-; This is the source; the hex in prototype/spikes/sprites.py is the
-; copy, and tests/test_spike_sprites.py fails if the two disagree.
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
 
+name: WORKER
+size: 8x16
 ........
 ........
+##....##   hands, raised clear of the shoulders
 ##....##
-##....##
-#..##..#
-#.####.#
+#..##..#   arms, and the crown of the head between them
+#.####.#   head
+.######.   shoulders - narrower than the player's
 .######.
-.######.
+..####..   trunk
 ..####..
-..####..
-..#..#..
+..#..#..   legs, foreshortened
 ..#..#..
 ..#..#..
 ........

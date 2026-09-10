@@ -1,0 +1,200 @@
+; wall_lit.txt
+;
+; A lit wall: outline plus masonry. Sixteen tiles, one per 4-neighbour mask --
+; bit 1 north, 2 east, 4 south, 8 west, set when that neighbour is also wall,
+; and off the room counts as wall. Stored in mask order, so the game indexes
+; the table with the mask and needs no lookup at all.
+;
+; Derived from one masonry interior and four edge elements, and the derivation
+; is written down so a tile can be checked rather than merely believed:
+;
+;   interior     0x10, 0xFF, 0x01, 0x01, 0x01, 0xFF, 0x10, 0x10
+;                two mortar courses four pixels apart, the vertical joint
+;                staggered half a brick between them; tiles in both axes
+;
+;   north open   row 0 |= 0xFF          south open   row 7 |= 0xFF
+;   west open    col 0 set, all rows    east open    col 7 set, all rows
+;
+;   and the line is TWO pixels, not one, when the two sides perpendicular to
+;   it are both open -- that is an end cap, and it is what makes a wall run
+;   END rather than merely stop.
+;
+; These files are the source. The derivation is kept as a check on them (see
+; tests/test_spike_tiles.py), not as their author: a rule in code must not
+; become the source of what a wall looks like.
+
+name: WALL_LIT_00
+size: 8x8
+########   mask  0, -
+########
+##....##
+##....##
+##....##
+########
+########
+########
+
+name: WALL_LIT_01
+size: 8x8
+#..#...#   mask  1, N
+########
+#......#
+#......#
+#......#
+########
+########
+########
+
+name: WALL_LIT_02
+size: 8x8
+########   mask  2, E
+########
+##.....#
+##.....#
+##.....#
+########
+##.#....
+########
+
+name: WALL_LIT_03
+size: 8x8
+#..#....   mask  3, NE
+########
+#......#
+#......#
+#......#
+########
+#..#....
+########
+
+name: WALL_LIT_04
+size: 8x8
+########   mask  4, S
+########
+#......#
+#......#
+#......#
+########
+#..#...#
+#..#...#
+
+name: WALL_LIT_05
+size: 8x8
+#..#...#   mask  5, NS
+########
+#......#
+#......#
+#......#
+########
+#..#...#
+#..#...#
+
+name: WALL_LIT_06
+size: 8x8
+########   mask  6, ES
+########
+#......#
+#......#
+#......#
+########
+#..#....
+#..#....
+
+name: WALL_LIT_07
+size: 8x8
+#..#....   mask  7, NES
+########
+#......#
+#......#
+#......#
+########
+#..#....
+#..#....
+
+name: WALL_LIT_08
+size: 8x8
+########   mask  8, W
+########
+......##
+......##
+......##
+########
+...#..##
+########
+
+name: WALL_LIT_09
+size: 8x8
+...#...#   mask  9, NW
+########
+.......#
+.......#
+.......#
+########
+...#...#
+########
+
+name: WALL_LIT_10
+size: 8x8
+########   mask 10, EW
+########
+.......#
+.......#
+.......#
+########
+...#....
+########
+
+name: WALL_LIT_11
+size: 8x8
+...#....   mask 11, NEW
+########
+.......#
+.......#
+.......#
+########
+...#....
+########
+
+name: WALL_LIT_12
+size: 8x8
+########   mask 12, SW
+########
+.......#
+.......#
+.......#
+########
+...#...#
+...#...#
+
+name: WALL_LIT_13
+size: 8x8
+...#...#   mask 13, NSW
+########
+.......#
+.......#
+.......#
+########
+...#...#
+...#...#
+
+name: WALL_LIT_14
+size: 8x8
+########   mask 14, ESW
+########
+.......#
+.......#
+.......#
+########
+...#....
+...#....
+
+name: WALL_LIT_15
+size: 8x8
+...#....   mask 15, NESW
+########
+.......#
+.......#
+.......#
+########
+...#....
+...#....
