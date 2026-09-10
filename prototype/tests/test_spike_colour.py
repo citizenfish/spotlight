@@ -122,18 +122,41 @@ def test_every_wall_in_the_building_is_drawn_white():
                 f"{run.place.room.name} has a wall at {cx},{cy} that is not white"
 
 
-def test_the_room_light_zone_is_the_rooms_own_colour():
+def test_the_room_light_zone_is_drawn_as_the_ground_it_stands_on():
     """Room B's emergency lighting is floor that is always lit, not a
-    different place. It is the one room-light zone in the building."""
+    different place -- so its cells wear whatever they are made of.
+
+    Since issue #50 that is two things rather than one, because the zone's
+    west column is the doorway home: **floor in the zone is the room's cyan,
+    and the three doorway cells in it are white**, like every other doorway in
+    the building. That recolouring is deliberate and it is 40 of the 54 pixels
+    the ruling predicted would move. A doorway is a hole in a wall rather than
+    a piece of floor, and what is drawn there is the ends of the walls either
+    side.
+
+    The zone is read from `light_zones` and not from the map, because a light
+    is no longer a character in it -- which is the whole of what #50 changed.
+    """
     run, screen = lit_room(scene.FAR)
-    zone = cells_of(run, scene.ROOM_LIGHT)
+    room = run.place.room
+    zone = [c for z in room.light_zones() for c in zone_cells(z)]
     assert zone, "room B authors the only room light in the building"
     written_on = spoken_for(run)
+    assert sum(1 for c in zone if room.is_doorway(*c)) == 3, \
+        "the zone should cover the three cells of the way home"
     for cx, cy in zone:
         if (cx, cy) in written_on:
             continue              # the zone sits on the doorway, where a
-            # shout from the room next door is written
-        assert ink_at(screen, cx, cy) == CYAN
+            # shout from the room next door is written, and a shout is drawn
+            # in its own hue over whatever it lands on
+        want = WHITE if room.is_doorway(cx, cy) else CYAN
+        assert ink_at(screen, cx, cy) == want, f"{(cx, cy)}"
+
+
+def zone_cells(zone):
+    left, top, width, height = zone
+    return [(left + dx, top + dy)
+            for dy in range(height) for dx in range(width)]
 
 
 def test_a_sprite_takes_the_hue_of_the_cell_it_stands_in():

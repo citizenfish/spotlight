@@ -134,8 +134,32 @@ def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0,
 # A room is written as text because it has to be read by a person, not parsed
 # quickly. It is converted once, at start-up, into the two things the game
 # actually uses: a solidity test and a per-cell ink map.
+#
+# **A map character says what a cell is made of** (issue #50, and the vault
+# decision of 2026-09-10). Anything *put* in a room -- a light, an object, an
+# entity -- is placed beside the map with a position of its own and is never
+# painted into it. That is not a style rule, it is what stops the map being
+# asked a question it cannot answer: a cell holds one character, so two things
+# that share a cell need one of them to be somewhere else.
+#
+# The collision that settled it: room B's three doorway cells at column 0 were
+# also the west column of its room light, drawn as `LLL`. Marking them `d` for
+# their returns would have taken three cells out of the zone and moved the
+# light's origin from (1, 11) to (2, 11) -- a change to what a light reaches
+# and where the swarm gathers, made in order to get a picture right. The four
+# characters below all say what a cell is *made of* and no cell is ever two of
+# them at once, so none of them can ever collide. `L` was not one of them: a
+# light is not a substance, it is shone on whatever the substance is. `K` was
+# the other one and would have gone the same way, in a lit zone or a doorway;
+# when keys are built they are placed, not painted.
+#
+# The question to ask of the next character somebody wants: **is this what the
+# cell is made of, or what has been put in it?** Made of -- a character. Put in
+# it -- a placement, with a position of its own. The corollary, so this is not
+# over-read: if two *substances* ever want one cell, that is a real format
+# question and a second plane is a fair answer to it. This was not that.
 
-WALL, FLOOR, DOOR, KEY, ROOM_LIGHT = "#", ".", "D", "K", "L"
+WALL, FLOOR, DOOR, KEY = "#", ".", "D", "K"
 
 #: A gap in a wall (issue #48). **Floor in every mechanical respect -- walkable,
 #: stippled, remembered, and not solid** -- and a drawing character and nothing
@@ -156,7 +180,7 @@ DOORWAY = "d"
 #: Every cell kind a room may be written with. A room's palette has to name all
 #: of them, because a glyph with no ink is a cell that would be drawn in
 #: whatever the last one wore.
-CELL_KINDS = (WALL, FLOOR, DOOR, KEY, ROOM_LIGHT, DOORWAY)
+CELL_KINDS = (WALL, FLOOR, DOOR, KEY, DOORWAY)
 
 #: The hues that mean a **thing** rather than a **place**, so they are the same
 #: in every room of the building (issue #47, *Art Direction* section 2).
@@ -195,15 +219,18 @@ def palette(floor: int) -> dict:
     tester has made about this game is that they could not hold the building's
     geography, and a global ink map cannot answer it.
 
-    **The room light zone takes the floor's hue** and not one of its own: it is
-    floor that happens to be lit, and giving it a hue would make the emergency
-    lighting a different *place* rather than the same place lit.
+    **A room light zone wears the floor's hue**, and since issue #50 that is
+    structural rather than a table entry: the cells under a room light are
+    floor, so they are drawn as floor. It used to be an `L` entry in this dict
+    pointed at the same colour, which was one more thing to keep in step and
+    said, wrongly, that being lit made a cell a different kind of place. It is
+    the same place lit.
 
-    Cheap on the Z80 as well as here: five bytes per room in ROM, and an
+    Cheap on the Z80 as well as here: four bytes per room in ROM, and an
     attribute byte costs exactly the same whatever colour it holds, so the
     per-frame cost of a palette is nothing at all.
     """
-    return dict(CONSTANT_INK, **{FLOOR: floor, ROOM_LIGHT: floor})
+    return dict(CONSTANT_INK, **{FLOOR: floor})
 
 
 #: What a room gets when it authors no palette of its own: the all-white
@@ -298,7 +325,7 @@ class Room:
 
     def __init__(self, name: str, rows, *, ink=None, workers=(), clegs=(),
                  spotlights=(), searchlight: Searchlight | None = None,
-                 player_start: tuple[int, int] | None = None,
+                 lights=(), player_start: tuple[int, int] | None = None,
                  doorways=()) -> None:
         self.name = name
         self.rows = tuple(rows)
@@ -315,6 +342,11 @@ class Room:
         #: (cx, cy, power).
         self.spotlights = tuple(tuple(s) for s in spotlights)
         self.searchlight = searchlight
+        #: The room's emergency lights, as (left, top, width, height) cell
+        #: rectangles. **Authored beside the map rather than painted into it**
+        #: (issue #50): a light is not what a cell is made of. See
+        #: `light_zones`, which is now a reader rather than a reconstruction.
+        self.lights = tuple(tuple(z) for z in lights)
         self.player_start = player_start
         self.doorways = tuple(doorways)
         #: Set by `Building`. A room does not exist on its own -- it needs to
@@ -350,6 +382,23 @@ class Room:
                     f"{self.name}: worker {i} is {worker}, need (x, y, blood)")
             if worker[2] <= 0:
                 raise ValueError(f"{self.name}: worker {i} starts dead")
+        for zone in self.lights:
+            # **The map used to make a bad light impossible and now it does
+            # not** (issue #50). Painted `L` cells could not fall outside the
+            # room or have zero extent, because they were cells; four authored
+            # numbers can do both, and a zone off the edge would emit into a
+            # light field that has nowhere to put it. So the check the format
+            # used to give away for free is bought back here, once, at load.
+            if len(zone) != 4:
+                raise ValueError(
+                    f"{self.name}: light {zone} is not (left, top, width, "
+                    f"height)")
+            left, top, width, height = zone
+            if width < 1 or height < 1:
+                raise ValueError(f"{self.name}: light {zone} has no extent")
+            if not (0 <= left and left + width <= COLS
+                    and 0 <= top and top + height <= PLAY_ROWS):
+                raise ValueError(f"{self.name}: light {zone} is off the room")
         for door in self.doorways:
             if len(door.rows) < 2:
                 # A person is two cells tall and one wide, so a doorway in a
@@ -461,34 +510,25 @@ class Room:
                 for cx, c in enumerate(row) if c == kind]
 
     def light_zones(self) -> list[tuple[int, int, int, int]]:
-        """The authored room lights, as (left, top, width, height) rectangles.
+        """The room's authored room lights, as (left, top, width, height).
 
-        Runs on a row are joined, and **rows are merged downward when they line
-        up**, so a block of `L` cells is one light rather than one per row.
-        That matters more than it looks: a room light is a lure as well as an
-        illumination, and three stacked one-row zones would put three lures a
-        cell apart, which is not what the author drew. Room B's light over the
-        doorway home is the first block-shaped one any room has authored.
+        **It reads what the author wrote.** Until issue #50 it reconstructed a
+        rectangle from `L` characters in the map -- joining runs on a row, then
+        merging rows that lined up -- and the reconstruction is what went away
+        along with the character. That is worth spelling out, because deleting
+        working code looks like a cost and this was a gain: a rectangle that
+        has to be recovered can be recovered wrongly. Its own docstring worried
+        that three stacked one-row zones would come back as three lures a cell
+        apart rather than the one light somebody drew, and an L-shaped or
+        stepped block still came back as several zones with several origins --
+        several lures, and a lure is a gameplay object. None of that can happen
+        to four authored numbers.
+
+        The Z80 gets the same deal: four bytes in the level data instead of a
+        scan of 704 cells, a run-join and a row-merge, all of it to recover
+        something the author already knew. `emit` walks a rectangle either way.
         """
-        zones: list[list[int]] = []
-        for cy, row in enumerate(self.rows):
-            run_start = None
-            for cx in range(COLS + 1):
-                lit = cx < COLS and row[cx] == ROOM_LIGHT
-                if lit and run_start is None:
-                    run_start = cx
-                elif not lit and run_start is not None:
-                    width = cx - run_start
-                    grown = next(
-                        (z for z in zones
-                         if z[0] == run_start and z[2] == width
-                         and z[1] + z[3] == cy), None)
-                    if grown is not None:
-                        grown[3] += 1
-                    else:
-                        zones.append([run_start, cy, width, 1])
-                    run_start = None
-        return [tuple(z) for z in zones]
+        return list(self.lights)
 
     @property
     def has_exit(self) -> bool:

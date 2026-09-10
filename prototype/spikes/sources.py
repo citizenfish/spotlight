@@ -273,6 +273,15 @@ class RoomLight(Source):
     rather than as information and takes the room out of the dark for good.
     Emergency lighting tells you the shape of the place; finding the people in
     it is the player's job (issue #12).
+
+    **The zone comes from `Room.lights`, which the author writes beside the
+    map** (issue #50). It used to be recovered from `L` characters painted into
+    the map, and the recovery is what went wrong: a light is not what a cell is
+    made of, so it wanted a cell that was already a doorway and one of the two
+    had to give. Nothing here changed -- this class has always been handed four
+    numbers -- but where they come from is now the author rather than a scan,
+    and that is what lets a lit cell also be an opening, a key, or anything else
+    that is put in a room rather than made of something.
     """
 
     lure_kind = LURE_ROOM

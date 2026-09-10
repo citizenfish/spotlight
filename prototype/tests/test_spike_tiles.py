@@ -24,7 +24,7 @@ ever changed:
     **Pattern is a property of light. Shape is a property of the building.**
 """
 
-from spikes import font, lighting, scene, sprites, tiles
+from spikes import building, font, lighting, scene, sprites, tiles
 from spikes.layout import PLAY_ROWS
 from spikes.session import Intent, Session
 from spotlight.core.constants import CELL, COLS, SCREEN_W
@@ -536,23 +536,26 @@ def test_no_cell_changed_from_wall_to_floor_or_back():
 
 
 def test_the_far_rooms_light_still_covers_its_side_of_the_doorway():
-    """**The one place `d` was asked for and refused, pinned so it stays a
-    decision rather than a slip.**
+    """**The light did not move when the doorway was finally drawn.**
 
-    *Art Direction* asks for room B's three cells at column 0 to be `d`. They
-    are `L`: the room light block sits exactly on them, a cell holds one
-    character, and marking them `d` would take three cells out of the zone and
-    move the lure's origin -- which is a change to what a light reaches and
-    where the swarm gathers, and issue #48 is forbidden from making one. The
-    jambs above and below still outline the opening; what it does not get is
-    the returns.
+    This test was written by issue #48, which built every doorway in the
+    building except this one and stopped: room B's three cells at column 0 were
+    the west column of its room light, a cell holds one character, and making
+    them `d` would have taken three cells out of the zone and moved the lure's
+    origin from (1, 11) to (2, 11). It was left here so that the ruling could
+    not be made by accident by somebody editing a map to make a picture work.
 
-    If the vault rules that the block moves a column, this test moves with it.
-    Until then it is what stops the ruling being made by accident.
+    Issue #50 made the ruling on purpose, and the answer was that the map was
+    being asked the wrong question: a character says what a cell is made of,
+    and a light is put in a room rather than made of anything. So the first
+    line of this test is unchanged -- **the same rectangle, from an authored
+    (0, 10, 3, 3) rather than from a scan for `L`** -- and only the second one
+    moves, from room light to doorway. Both assertions together are the whole
+    claim: the cells read as an opening, and the light is exactly where it was.
     """
     zones = scene.ROOM_FAR.light_zones()
     assert zones == [(0, 10, 3, 3)], zones
-    assert all(scene.ROOM_FAR.rows[cy][0] == scene.ROOM_LIGHT
+    assert all(scene.ROOM_FAR.rows[cy][0] == building.DOORWAY
                for cy in scene.DOOR_ROWS)
 
 

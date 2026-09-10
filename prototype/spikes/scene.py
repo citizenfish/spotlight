@@ -6,8 +6,15 @@ legend lives in `building.py`:
 
     #  wall        D  the way out of the building (its own hue)
     .  floor       K  key (the hue of the door it opens)
-    L  room light zone (floor, but authored as always lit)
     d  doorway (floor, drawn with returns -- issue #48)
+
+**Four characters, and every one of them says what a cell is made of** (issue
+#50). Room lights are not in the map and never were properly: they are
+authored beside it, as rectangles -- see `LIGHTS_B`. The cost of that is real
+and worth naming here rather than in a commit message: you can no longer read
+this file and see the light sitting on the doorway, and you have to look in two
+places. The map used to be the whole picture of a room. What it bought is that
+a light and a doorway can share a cell, which they do, and neither has to move.
 
 **There is no key.** Doors and keys are not built, so a `K` would be a magenta
 glyph that could not be picked up and opened nothing. The legend and the hue
@@ -49,7 +56,7 @@ from spotlight.core.constants import CYAN, YELLOW
 
 from .building import (
     Building, CONSTANT_INK, DOOR, DOORWAY, Doorway, EAST, EXIT, FLOOR, KEY,
-    Room, ROOM_LIGHT, Searchlight, SOLID, WALL, WEST, palette,
+    Room, Searchlight, SOLID, WALL, WEST, palette,
 )
 
 #: **The floor carries the room and the walls carry the building** (issue #47).
@@ -146,40 +153,22 @@ ROOM_A = (
 
 #: Room B's shape: the dark room.
 #:
-#: The `L` block at the far left is **the room light, and it sits on the doorway
-#: back to A**. *Light and Darkness* calls the room light the level author's
-#: sharpest tool and no room in the prototype had ever authored one, so this is
-#: the least-exercised path in the lighting code and the centrepiece of the
-#: level at the same time. It does three things:
+#: **The room light is not in this picture and it used to be** -- it is
+#: `LIGHTS_B`, the three cells at column 0, rows 10 to 12, and it covers the
+#: three `d` cells at the far left, which are B's side of the doorway home. Read
+#: the two together; that is the price issue #50 paid to let one cell be both a
+#: doorway and lit. What the light does for the level is under `LIGHTS_B`.
 #:
-#: * From anywhere in B you can see the way home, so B is navigable without
-#:   being safe. Room lights show the building and never the people in it, so
-#:   finding the four workers is still entirely your problem.
-#: * **A permanent light is a permanent lure**, so the one route you have to use
-#:   is the one place the swarm reliably gathers.
-#: * B is never wholly black on re-entry, which is what makes "the opening flash
-#:   fires on first entry and not on re-entry" cost curiosity rather than
-#:   progress.
-#:
-#: **B's side of the connecting doorway is `L` and not `d`, and that is not an
-#: oversight** (issue #48). The room light block sits exactly on those three
-#: cells, one character per cell, and marking them `d` would take three cells
-#: out of the zone and move the lure's origin -- which is a change to what a
-#: light reaches and where the swarm gathers, and the slice that added `d` is
-#: forbidden from making one. The jambs above and below the gap still get their
-#: inward faces from their own mask, so the opening reads; what it does not get
-#: is the returns. **It needs a design ruling** -- either the block moves a
-#: column, or `d` and `L` have to be able to occupy one cell -- and it is the
-#: only part of *Art Direction* section 3 this slice did not build.
-#:
-#: What it does **not** do is make your tail prey while it files through. The
-#: vault's worked example says it should; *Light and Darkness* says room lights
-#: reveal nobody, to Clegs exactly as to the player, and that rule is agreed,
-#: argued at length and enforced by `LightField.prey_at`. The agreed rule wins
-#: here and the contradiction is the designer's to settle. What the level gets
-#: instead is nearly as sharp: the swarm gathers at the door, and the moment you
-#: light your own tail to see it across, the whole line is prey with the flies
-#: already standing there.
+#: **The three cells at column 0 are `d`, and getting them there is what issue
+#: #50 was for.** Issue #48 built every doorway in the building except this one
+#: and stopped here: the cells were `LLL`, a cell holds one character, and
+#: marking them `d` would have taken three cells out of the light's zone and
+#: moved its origin from (1, 11) to (2, 11) -- a lure moved to make a picture
+#: right, which that slice was forbidden to do. The refusal was correct and the
+#: fix was to stop asking the map where the light is. **Nothing about the light
+#: moved: the zone is the same rectangle, the origin is the same cell.** The
+#: opening now draws its returns, so the way home reads as a doorway from both
+#: sides instead of looking like a room that stops there from one of them.
 #:
 #: The furniture is partitions and machinery blocks, all of them open at both
 #: ends. That is not taste. Concave shapes -- an alcove, a recess whose mouth
@@ -200,9 +189,9 @@ ROOM_B = (
     "#..............................#",
     "#..............................#",
     "#........####........####......#",
-    "LLL......####........####......#",
-    "LLL............................#",
-    "LLL......####........####......#",
+    "d........####........####......#",
+    "d..............................#",
+    "d........####........####......#",
     "#........####........####......#",
     "#..............................#",
     "#..............................#",
@@ -213,6 +202,44 @@ ROOM_B = (
     "#..............................#",
     "################################",
 )
+
+#: Room B's room lights: one, at (left, top, width, height) = (0, 10, 3, 3).
+#:
+#: **Authored beside the map rather than painted into it** (issue #50). Until
+#: then it was an `LLL` block in `ROOM_B` and this rectangle was reconstructed
+#: from it at load; the rectangle is identical, and that it is identical is the
+#: point -- what a light reaches and where the swarm gathers did not move, and
+#: it is the acceptance criterion of the issue that let the doorway be drawn.
+#:
+#: **It sits on the doorway back to A.** *Light and Darkness* calls the room
+#: light the level author's sharpest tool and no room in the prototype had ever
+#: authored one, so this is the least-exercised path in the lighting code and
+#: the centrepiece of the level at the same time. It does three things:
+#:
+#: * From anywhere in B you can see the way home, so B is navigable without
+#:   being safe. Room lights show the building and never the people in it, so
+#:   finding the four workers is still entirely your problem.
+#: * **A permanent light is a permanent lure**, so the one route you have to use
+#:   is the one place the swarm reliably gathers. The lure is the middle of the
+#:   zone -- (1, 11), which is what a Cleg steers at -- and it is why nothing
+#:   was allowed to move this rectangle by a column to make a picture work.
+#: * B is never wholly black on re-entry, which is what makes "the opening flash
+#:   fires on first entry and not on re-entry" cost curiosity rather than
+#:   progress.
+#:
+#: What it does **not** do is make your tail prey while it files through. The
+#: vault's worked example says it should; *Light and Darkness* says room lights
+#: reveal nobody, to Clegs exactly as to the player, and that rule is agreed,
+#: argued at length and enforced by `LightField.prey_at`. The agreed rule wins
+#: here and the contradiction is the designer's to settle. What the level gets
+#: instead is nearly as sharp: the swarm gathers at the door, and the moment you
+#: light your own tail to see it across, the whole line is prey with the flies
+#: already standing there.
+#:
+#: **Room A authors none**, which is why there is no `LIGHTS_A`: A is the room
+#: with the searchlight, and the two rooms are opposites on every dial the
+#: author has.
+LIGHTS_B = ((0, 10, 3, 3),)
 
 #: What each room is called when a report has to say where somebody was lost.
 #: Words a person would use, because the user reads them out to a playtester who
@@ -387,7 +414,7 @@ def _rooms() -> Building:
     far = Room(
         FAR_NAME, ROOM_B, ink=INK_B,
         workers=WORKERS_B, clegs=CLEGS_B, spotlights=SPOTLIGHTS_B,
-        searchlight=None,
+        searchlight=None, lights=LIGHTS_B,
         doorways=(Doorway(WEST, DOOR_ROWS, to=NEAR),))
     return Building((near, far))
 
@@ -416,7 +443,7 @@ __all__ = [
     "DOOR", "DOORWAY", "MOVERS", "NEAR", "NEAR_NAME", "PLAYER_START",
     "ROOM_A",
     "ROOM_B",
-    "ROOM_FAR", "ROOM_LIGHT", "ROOM_NEAR", "SEARCHLIGHT_RADIUS",
+    "LIGHTS_B", "ROOM_FAR", "ROOM_NEAR", "SEARCHLIGHT_RADIUS",
     "SEARCHLIGHT_VARY", "SOLID", "SPOTLIGHTS_A", "SPOTLIGHTS_B", "WALL",
     "WORKERS_A", "WORKERS_B", "validate",
 ]

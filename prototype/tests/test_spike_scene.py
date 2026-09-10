@@ -71,13 +71,23 @@ def test_the_two_rooms_differ_in_floor_hue_and_in_nothing_else():
     """
     a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
     differ = {k for k in set(a) | set(b) if a[k] != b[k]}
-    assert differ == {scene.FLOOR, scene.ROOM_LIGHT}
+    assert differ == {scene.FLOOR}
     assert a[scene.FLOOR] == YELLOW and b[scene.FLOOR] == CYAN
 
 
-def test_the_room_light_zone_wears_the_floors_hue(room):
-    """It is floor that happens to be lit, not a different place."""
-    assert room.ink[scene.ROOM_LIGHT] == room.ink[scene.FLOOR]
+def test_a_room_light_has_no_hue_of_its_own(room):
+    """**A lit cell is the same place lit, and since issue #50 that is
+    structural rather than a table entry.**
+
+    The palette used to carry an `L` entry pointed at the floor's colour, and a
+    rule in a comment saying to keep the two the same. Now the cells under a
+    room light are simply floor -- or a doorway, where B's zone crosses the way
+    home -- so they are drawn as what they are made of and there is nothing
+    left to keep in step. A palette that grew a light back would be the map
+    being asked what is shining on a cell again.
+    """
+    assert set(room.ink) == set(B.CELL_KINDS)
+    assert "L" not in room.ink
 
 
 def test_every_wall_in_the_building_is_white(room):
@@ -103,8 +113,7 @@ def test_cyan_is_the_sprays_alone_except_where_it_is_room_bs_floor():
     everywhere else in the building."""
     a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
     assert CYAN not in a.values()
-    assert [k for k, v in b.items() if v == CYAN] == \
-        [scene.FLOOR, scene.ROOM_LIGHT]
+    assert [k for k, v in b.items() if v == CYAN] == [scene.FLOOR]
 
 
 def test_no_room_uses_blue():
@@ -186,16 +195,22 @@ def test_the_connecting_doorway_is_a_gap_and_not_a_coloured_door():
     """The hue rule is for *locked* doors, which have to announce that a key
     exists. This one is unlocked and announces itself through the shouts.
 
-    Floor, lit floor, or the `d` that draws returns into it (issue #48) -- the
-    far room authors its room light over its side of the threshold, which is
-    the level's centrepiece. What it must never be is a `D`: that is the way
-    *out of the building* and it carries the exit's hue.
+    **Both sides of it are `d`, and that is what issue #50 finished.** Room B's
+    three cells were `L` -- the room light was painted into the map and a cell
+    holds one character -- so the way home was the one opening in the building
+    that did not draw its returns, and the same doorway looked different
+    depending on which side you stood on. A player reads that as a bug in the
+    game rather than as a decision about a room. The light is authored beside
+    the map now and the cells say what they are made of.
+
+    What a doorway must never be is a `D`: that is the way *out of the
+    building* and it carries the exit's hue.
     """
-    allowed = (scene.FLOOR, scene.ROOM_LIGHT, B.DOORWAY)
     for r in ROOMS:
         for door in r.doorways:
             for cx, cy in door.cells():
-                assert r.rows[cy][cx] in allowed
+                assert r.rows[cy][cx] == B.DOORWAY, \
+                    f"{r.name}: the threshold at {(cx, cy)} does not read as one"
 
 
 def test_a_doorway_cell_is_floor_in_every_mechanical_respect():
@@ -217,9 +232,10 @@ def test_a_doorway_cell_is_floor_in_every_mechanical_respect():
             assert B.DOORWAY not in B.SOLID
         assert not swarming.unswarmable(r), \
             f"{r.name}: the swarm cannot reach every floor cell"
-    assert found == 4, (
-        "the playtest building authors four doorway cells: room A's inner "
-        f"door and the three at column 31, and this found {found}")
+    assert found == 7, (
+        "the playtest building authors seven doorway cells: room A's inner "
+        "door, the three at column 31, and -- since issue #50 -- the three at "
+        f"room B's column 0 that used to be the room light. This found {found}")
 
 
 def test_the_cell_past_a_doorway_is_the_next_rooms_first_cell():
@@ -372,24 +388,44 @@ def test_the_far_rooms_light_sits_on_the_doorway_home():
     navigable without being safe -- and because Clegs go to lit ground, the one
     route you have to use is the one place the swarm reliably gathers."""
     far = _room(scene.FAR_NAME)
-    lit = set(far.cells_of(scene.ROOM_LIGHT))
+    lit = {c for z in far.light_zones() for c in _zone_cells(z)}
     door = set(far.doorways[0].cells())
     assert door <= lit, "the room light is not on the doorway"
 
 
 def test_the_room_light_is_one_zone_and_not_one_per_row():
-    """A block of `L` cells is one light. Three stacked one-row zones would put
-    three lures a cell apart, which is not what the author drew."""
+    """A room light is one light, and one lure.
+
+    It used to be a block of `L` cells that `light_zones` reassembled, and the
+    fear this test was written against was three stacked one-row zones: three
+    lures a cell apart rather than the one light the author drew. Since issue
+    #50 the rectangle is authored, so the reassembly cannot get it wrong -- but
+    an author can still write three rectangles where they meant one, and that
+    would move the swarm just as effectively. The check is worth keeping for
+    the reason it was written, against a different way of being wrong.
+    """
     assert len(_room(scene.FAR_NAME).light_zones()) == 1
 
 
-def test_light_zones_cover_every_authored_light_cell(room):
-    covered = set()
-    for left, top, width, height in room.light_zones():
-        for cy in range(top, top + height):
-            for cx in range(left, left + width):
-                covered.add((cx, cy))
-    assert covered == set(room.cells_of(scene.ROOM_LIGHT))
+def _zone_cells(zone):
+    left, top, width, height = zone
+    return [(left + dx, top + dy)
+            for dy in range(height) for dx in range(width)]
+
+
+def test_a_room_light_shines_on_ground_somebody_could_stand_on(room):
+    """A light is put in a room, so it can be put somewhere silly.
+
+    While zones were painted as `L` cells they were floor by construction: the
+    character *was* the ground. Authored coordinates can name a wall, and a
+    light inside masonry is a lure nobody can reach and a level fault that
+    would only show up as flies pressing against a partition. Nothing in the
+    game refuses it, so this asks the question of the building instead.
+    """
+    for zone in room.light_zones():
+        for cx, cy in _zone_cells(zone):
+            assert not room.is_solid(cx, cy), \
+                f"{room.name}: the room light at {zone} covers solid {(cx, cy)}"
 
 
 def test_the_player_starts_in_the_near_room():
@@ -874,3 +910,104 @@ def test_different_seeds_start_the_beam_in_different_places():
     from spikes.session import Session
     starts = {Session(seed=s).roaming.origin() for s in range(1, 40)}
     assert len(starts) > 4, f"the beam starts in only {len(starts)} places"
+
+
+# --- a map cell says what it is made of (issue #50) --------------------------
+#
+# The rule, and the fault it was ruled on. Room B's room light was painted into
+# its map as `LLL`, on the same three cells that are its side of the doorway
+# home -- so the way home was the one opening in the building that could not be
+# drawn as one, and the map could not hold both facts. The ruling was not to
+# add a second layer but to notice that a light is not something a cell is made
+# of: substance is a character, and anything *put* in a room is a placement.
+#
+# These pin the rule rather than the one collision, because the collision is
+# already fixed and the rule is what stops the next one. `K` is the next
+# character in line: a key lying in a lit zone, or in a doorway, is the same
+# argument again.
+
+def test_every_character_in_the_legend_says_what_a_cell_is_made_of():
+    """Four characters, and no two of them can ever describe one cell.
+
+    A wall is not floor, a doorway is not the way out of the building. That is
+    what makes one character per cell a sound format and it is why `L` had to
+    go: it said what was *shining on* a cell, so it could -- and did -- want
+    the same cell as something else.
+    """
+    assert set(B.CELL_KINDS) == {B.WALL, B.FLOOR, B.DOOR, B.KEY, B.DOORWAY}
+    assert not hasattr(B, "ROOM_LIGHT")
+    assert not hasattr(scene, "ROOM_LIGHT")
+
+
+def test_no_room_paints_a_light_into_its_map(room):
+    """The character is gone from the maps as well as from the legend.
+
+    `validate` would refuse an unknown character now, so this is belt and
+    braces -- but it is the assertion somebody would reach for first if a
+    future room tried to draw its lighting again, and it names the reason.
+    """
+    assert "L" not in "".join(room.rows)
+
+
+def test_a_light_and_a_doorway_share_the_three_cells_that_collided():
+    """**The exact collision, pinned from both sides.**
+
+    Room B's three cells at column 0 are a doorway *and* they are inside the
+    room light, at the same time, and neither had to move to allow it. Before
+    issue #50 one of those two facts could be true at a time, and the picture
+    lost: the way home drew no returns.
+    """
+    far = _room(scene.FAR_NAME)
+    lit = {c for z in far.light_zones() for c in _zone_cells(z)}
+    for cy in scene.DOOR_ROWS:
+        assert far.is_doorway(0, cy), "the way home does not read as a doorway"
+        assert (0, cy) in lit, "the way home is not lit"
+        assert not far.is_solid(0, cy), "the way home is walled up"
+
+
+def test_the_far_rooms_lure_is_where_it_has_always_been():
+    """**The number the whole ruling turns on.** A room light is a permanent
+    lure and a Cleg steers at the middle of the zone, so the origin is a
+    gameplay constant that a drawing change is not allowed to move. It was
+    (1, 11) when the zone was reconstructed from `L` cells and it is (1, 11)
+    now that it is authored. If it ever reads (2, 11), somebody has taken the
+    doorway column out of the light to make a picture work."""
+    zones = _room(scene.FAR_NAME).light_zones()
+    assert zones == [(0, 10, 3, 3)]
+    assert S.RoomLight(*zones[0]).origin() == (1, 11)
+
+
+def test_a_room_light_is_whatever_the_room_authored():
+    """`light_zones` reads; it no longer reconstructs.
+
+    The routine it replaced joined runs of `L` on a row and merged rows that
+    lined up, and its own docstring worried about the shapes it would get
+    wrong -- an L-shaped or stepped block came back as several zones with
+    several origins, and several origins are several lures. A reader cannot be
+    wrong about a rectangle nobody had to recover.
+    """
+    stepped = B.Room("stepped", scene.ROOM_B, ink=scene.INK_B,
+                     lights=((4, 4, 2, 2), (6, 6, 3, 1)))
+    assert stepped.light_zones() == [(4, 4, 2, 2), (6, 6, 3, 1)]
+    assert B.Room("dark", scene.ROOM_B, ink=scene.INK_B).light_zones() == []
+
+
+@pytest.mark.parametrize("zone", [
+    (30, 10, 3, 3),                       # off the east edge
+    (0, 20, 1, 4),                        # off the bottom
+    (-1, 10, 2, 2),                       # off the west edge
+    (5, 5, 0, 2),                         # no width
+    (5, 5, 2, 0),                         # no height
+])
+def test_a_light_off_the_room_is_refused_at_load(zone):
+    """**The map used to make this impossible and now it does not.**
+
+    Painted `L` cells could not fall outside the room or have no extent,
+    because they were cells; four authored numbers can do both. A zone off the
+    edge would emit into a light field with nowhere to put it, so the check the
+    old format gave away for free is bought back in `validate`, once, at load
+    -- which on the Z80 is a handful of compares against constants.
+    """
+    room = B.Room("bad", scene.ROOM_B, ink=scene.INK_B, lights=(zone,))
+    with pytest.raises(ValueError, match="light"):
+        room.validate()
