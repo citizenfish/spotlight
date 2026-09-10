@@ -26,7 +26,7 @@ counts rather than people, which is exactly why a run could report four workers
 
 from spotlight.core.constants import COLS
 
-from . import rescue as rescue_mod, session as session_mod, sources
+from . import lighting, rescue as rescue_mod, session as session_mod, sources
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
 
@@ -202,8 +202,21 @@ def metrics(run) -> dict:
         by_lure[f"blood_by_{lure}"] = run.swarm.blood_by_source[kind]
         by_lure[f"bites_by_{lure}"] = run.swarm.bites_by_source[kind]
 
+    # **What the frame cost to draw** (issue #46): how many cells changed light
+    # level, which is the work a dirty-cell port does, and how many of those
+    # were wall, which is what prices wall texture. The keys are always here so
+    # that the across-seeds table has its columns; they are `None` when the run
+    # was played rather than measured, because the counter is off in the game
+    # and a zero would read as "nothing ever changed".
+    #
+    # The mean is per hundred frames, keeping this block all-integer: 306 is
+    # 3.06 cells a frame. See `lighting.Repaint`.
+    changes = (run.repaint.stats() if run.repaint is not None
+               else {key: None for key in lighting.REPAINT_METRICS})
+
     return {
         **by_lure,
+        **changes,
         "frames": run.frame,
         "seconds": run.seconds,
         "workers_total": run.total,

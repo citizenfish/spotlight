@@ -69,7 +69,8 @@ DEFAULT_OUT = "runs"
 
 def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           frames: int = DEFAULT_FRAMES, draw: bool = False,
-          screen: Screen | None = None, on_frame=None) -> session_mod.Session:
+          screen: Screen | None = None, on_frame=None,
+          metrics: bool = True) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -92,7 +93,11 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     frame** -- the host loop steps and then draws -- so frame 1 is the first
     picture a player sees, and the opening flash is frames 1 to 12.
     """
-    run = session_mod.Session(seed=seed)
+    # **The driver is where the repaint counter is on** (issue #46). The game
+    # is played, not measured, and carries none of it; this is the thing that
+    # measures, so every run it drives is priced. It costs a 704-byte compare
+    # a frame, which three frames in four settle on the first instruction.
+    run = session_mod.Session(seed=seed, metrics=metrics)
     if draw and screen is None:
         screen = Screen()
     if draw:
@@ -239,6 +244,15 @@ SUMMARY = (
     ("beam", "blood_by_beam", 5),
     ("torch", "blood_by_torch", 5),
     ("glow", "blood_by_glow", 5),
+    # What each frame costs to draw (issue #46), which is what every slice of
+    # the look-and-feel round has to be priced against. The first column is the
+    # mean per hundred frames -- 306 is 3.06 cells a frame -- kept integer like
+    # everything else here. `chgmax` is 704 in any run that entered a room,
+    # because the opening flash changes the whole field at once.
+    ("chg/100f", "cells_changed_per_100f", 8),
+    ("chgp99", "cells_changed_p99", 6),
+    ("chgmax", "cells_changed_max", 6),
+    ("wall/100f", "wall_cells_changed_per_100f", 9),
 )
 
 

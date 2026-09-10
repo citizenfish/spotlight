@@ -310,7 +310,8 @@ class Session:
     """A run: the building, the people in it, the swarm, and how it ended."""
 
     def __init__(self, seed: int = DEFAULT_SEED,
-                 blood: int = BLOOD_FULL, lives: int = LIVES) -> None:
+                 blood: int = BLOOD_FULL, lives: int = LIVES,
+                 metrics: bool = False) -> None:
         self.seed = seed
         scene.validate()
         self.building = scene.BUILDING
@@ -421,6 +422,19 @@ class Session:
         #: having to search a list to find out.
         self._index = {id(w): i for i, w in enumerate(self.rescue.workers)}
         self.tally = tally_mod.Tally()
+
+        #: How many cells change light level per frame, or `None` when nobody
+        #: asked (issue #46). **Off in the game and on in the driver**, and off
+        #: means off: the counter is not built, the wall maps are not built,
+        #: and `step` never enters the counting path. A port carries no metrics
+        #: counter, so neither does a run that is being played rather than
+        #: measured.
+        self.repaint = lighting.Repaint() if metrics else None
+        #: A wall map per room, for splitting those changes into wall and
+        #: floor. Built here rather than per frame because the rooms are ROM
+        #: and a wall never moves -- and built only when something is counting.
+        self._wall_maps = ([place.room.solid_map() for place in self.places]
+                           if metrics else None)
 
         self.panel = Panel()
         self.panel.set_total("rescued", len(self.rescue.workers))
@@ -874,6 +888,13 @@ class Session:
             self.tick = False
 
         self._light()
+        if self.repaint is not None:
+            # After the light is rebuilt and before the run can end, so the
+            # last frame of a run is priced like every other one. The room the
+            # player is standing in and no other: the screen shows one room, so
+            # that is the only field whose cells anything has to redraw.
+            self.repaint.frame(self.place.field.display,
+                               self._wall_maps[self.here])
         ending = self._ending()
         if ending is not None:
             self.finish(ending)

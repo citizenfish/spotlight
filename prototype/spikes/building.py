@@ -337,6 +337,22 @@ class Room:
         """Per-cell hue for the whole play area."""
         return bytearray(INK[c] for row in self.rows for c in row)
 
+    def solid_map(self) -> bytes:
+        """One byte per cell, 1 where a wall is. Built on request, not held.
+
+        For the repaint counter (issue #46), which has to split the cells that
+        changed light level into walls and floor and cannot afford a method
+        call per cell to do it. Nothing in the game asks for this, so nothing
+        in the game builds it -- it is made once by a run that is measuring
+        itself and by no other.
+
+        It goes through `is_solid` rather than reading `rows` a second time,
+        because `is_solid` is the only authority on what is walkable and a
+        second definition of a wall is a second thing to keep in step.
+        """
+        return bytes(1 if self.is_solid(cx, cy) else 0
+                     for cy in range(PLAY_ROWS) for cx in range(COLS))
+
     def cells_of(self, kind: str) -> list[tuple[int, int]]:
         return [(cx, cy) for cy, row in enumerate(self.rows)
                 for cx, c in enumerate(row) if c == kind]

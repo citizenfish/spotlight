@@ -350,3 +350,169 @@ class LightField:
             if self.hue_memory or levels[idx] == LIT:
                 out[idx] = self.hue[idx]
         return bytes(out)
+
+
+# --- pricing what gets redrawn (issue #46) ---------------------------------
+
+#: The metrics `Repaint.stats` produces, in the order they read best. Named
+#: here so that a report can lay out the columns without a run to ask, and so
+#: that a run with the counter switched off still has the keys.
+REPAINT_METRICS = (
+    "cells_changed_per_100f",
+    "cells_changed_p95",
+    "cells_changed_p99",
+    "cells_changed_max",
+    "frames_unchanged_percent",
+    "wall_cells_changed_per_100f",
+    "wall_cells_changed_p95",
+    "wall_cells_changed_p99",
+    "wall_cells_changed_max",
+)
+
+
+class Repaint:
+    """How many cells change light level from one frame to the next.
+
+    **Instrumentation and nothing else.** It changes no rule and no constant,
+    it is off in the game, and a port carries none of it. It exists because the
+    look-and-feel round changes what is drawn in eight slices and each one has
+    to be priced against the port model before the next starts -- and the
+    number that prices them is how many cells change level in a frame, because
+    that is the class of work a dirty-cell port actually does. Before this the
+    only way to get the figure was to difference frames from outside the game,
+    which cost about four minutes of Python a suite and produced a number that
+    could not be compared slice to slice without re-running everything.
+
+    **It counts against what was last on screen, not against what a field last
+    held.** One `LightField` per room and one screen: walking through a doorway
+    replaces every cell of the picture, so the cells the port would have to
+    repaint on that frame are the ones where the new room's levels differ from
+    the old room's. A per-field counter cannot see that frame at all -- it
+    would price room A's quiet decay while room B is being looked at -- so the
+    previous levels are kept here, beside the screen, rather than in the field.
+    Issue #46 suggested the field; this is the one place the implementation
+    departs from it, and the crossing frames are the reason.
+
+    Two counts per frame, because they price different work:
+
+    * **cells whose level changed**, which is the dirty-cell list; and
+    * **how many of those are solid**, which prices wall texture, since a
+      wall's pixels only need redrawing when its tile variant changes.
+
+    Kept as a histogram -- one counter per possible count -- so that mean, p95,
+    p99 and max come out of integer arithmetic with nothing sorted and nothing
+    stored per frame. That is what a Z80 would do if it ever wanted this. It
+    would use 256 counters and clamp; here there is one per possible count,
+    because clamping at 255 would throw away exactly the whole-field frames the
+    number was wanted for -- the opening flash lights all 704 cells to the same
+    charge, so they cross both fade thresholds in lockstep and three frames per
+    room entry change everything at once.
+
+    The mean is reported per hundred frames rather than per frame, because the
+    metrics block is all-integer by design and 3.06 cells a frame is a number
+    with two decimal places in it. `blood_per_worker` keeps tenths for the same
+    reason.
+
+    **What it does not count**, checked rather than assumed: a cell's attribute
+    can also change without its light level moving, because the contents choose
+    the hue -- a shout appearing over a doorway, the exit sign, a key coming
+    into view. Differencing the drawn attributes of a whole listener run against
+    this counter, the two agreed on 4,712 frames of 4,725 and the thirteen that
+    differed were those, at two to four cells each. So the light term is very
+    nearly the whole bill, and the hue term is small enough to leave out of a
+    number that is about light. If a slice ever makes contents change hue often
+    -- animation would -- that stops being true and this needs saying again.
+    """
+
+    __slots__ = ("frames", "total", "wall_total", "_hist", "_wall_hist",
+                 "_shown")
+
+    def __init__(self) -> None:
+        self.frames = 0
+        self.total = 0
+        self.wall_total = 0
+        self._hist = [0] * (_CELLS + 1)
+        self._wall_hist = [0] * (_CELLS + 1)
+        #: What the screen is showing. Starts all-dark because that is what a
+        #: display holds before the first frame is drawn -- which is why the
+        #: opening flash reads as 704 changed cells rather than as nothing.
+        self._shown = bytes(_CELLS)
+
+    def frame(self, levels, solid) -> int:
+        """Count one frame's changes. Returns how many cells changed level.
+
+        `levels` is the field being shown, `solid` a byte per cell that is 1
+        where a wall is. Three frames in four change nothing at all -- the
+        player moves a pixel a frame, so change arrives in bursts when
+        something crosses a cell boundary -- so the whole-buffer comparison
+        first is not an optimisation for its own sake, it is the common case.
+        """
+        changed = wall = 0
+        if levels != self._shown:
+            shown = self._shown
+            for idx in range(_CELLS):
+                if levels[idx] != shown[idx]:
+                    changed += 1
+                    wall += solid[idx]
+            # A copy, because `commit` rewrites `display` in place.
+            self._shown = bytes(levels)
+        self.frames += 1
+        self.total += changed
+        self.wall_total += wall
+        self._hist[changed] += 1
+        self._wall_hist[wall] += 1
+        return changed
+
+    def crossed(self) -> None:
+        """Forget what was on screen, as if the display had been cleared.
+
+        Not used by the session -- a crossing is a change like any other and
+        counting it as one is the point -- but a caller that blanks the screen
+        for its own reasons has to be able to say so, or the next frame is
+        priced against a picture nobody can see.
+        """
+        self._shown = bytes(_CELLS)
+
+    def stats(self) -> dict:
+        """Mean, p95, p99 and max, for both counts. All integers.
+
+        `None` throughout for a run with no frames in it, which is an answer
+        rather than a row of zeroes claiming nothing ever changed.
+        """
+        if not self.frames:
+            return {key: None for key in REPAINT_METRICS}
+        return {
+            "cells_changed_per_100f": 100 * self.total // self.frames,
+            "cells_changed_p95": self._percentile(self._hist, 95),
+            "cells_changed_p99": self._percentile(self._hist, 99),
+            "cells_changed_max": self._largest(self._hist),
+            "frames_unchanged_percent": 100 * self._hist[0] // self.frames,
+            "wall_cells_changed_per_100f":
+                100 * self.wall_total // self.frames,
+            "wall_cells_changed_p95": self._percentile(self._wall_hist, 95),
+            "wall_cells_changed_p99": self._percentile(self._wall_hist, 99),
+            "wall_cells_changed_max": self._largest(self._wall_hist),
+        }
+
+    def _percentile(self, hist, per_cent: int) -> int:
+        """Nearest rank, from the histogram: the smallest count that at least
+        `per_cent` of frames came in at or under.
+
+        Integer ranking on purpose. Interpolating between two counts would
+        invent a cell that never changed, and the tail is what this number is
+        read for.
+        """
+        rank = (per_cent * self.frames + 99) // 100
+        seen = 0
+        for count, frames in enumerate(hist):
+            seen += frames
+            if seen >= rank:
+                return count
+        return _CELLS
+
+    @staticmethod
+    def _largest(hist) -> int:
+        for count in range(len(hist) - 1, -1, -1):
+            if hist[count]:
+                return count
+        return 0
