@@ -14,9 +14,9 @@ scheme and it is all a player ever touches:
     ESC      quit, from anywhere
 
 **Everything else is inert unless the game is started with `--debug`.** There
-are sixteen developer keys on ordinary letters and one of them, `F`, reveals the
-entire room and everybody in it and holds it there. A tester who presses a key
-to find out what it does could silently destroy the run we are asking them
+are fourteen developer keys on ordinary letters and one of them, `F`, reveals
+the entire room and everybody in it and holds it there. A tester who presses a
+key to find out what it does could silently destroy the run we are asking them
 about and never know they had. They are all still there and they all still
 work; they are simply not reachable by accident. See `Debug`.
 
@@ -107,9 +107,9 @@ class Debug:
     **Only reachable with `--debug` on the command line.** Without it this class
     is never built, so there is no key sequence that can get at it -- the point
     is not that a tester is asked not to press `F`, it is that pressing `F` does
-    nothing. The sixteen keys below sit on ordinary letters and a tester who
-    fidgets used to be able to solve the game by accident and never know they
-    had cheated.
+    nothing. The keys below sit on ordinary letters and a tester who fidgets
+    used to be able to solve the game by accident and never know they had
+    cheated.
 
     None of it is part of the game. It is here so the thing can be judged
     without rebuilding it -- watch the swarm decide where to go, try the
@@ -126,7 +126,6 @@ class Debug:
         S  searchlight: frames per cell
         I  searchlight: run to the wall <-> turn short of it
         M  searchlight: how long the wake lingers, in frames
-        H  light hue: off -> on, memory keeps it -> on, memory reverts
         3/4  lives, still a placeholder    0  keys, still a placeholder
 
     `F` is the one that matters: it reveals the entire room and everybody in it
@@ -211,19 +210,6 @@ class Debug:
             self.wake = (self.wake + 1) % len(WAKES)
             run.roaming.memory = WAKES[self.wake]
             print(f"searchlight wake: {run.roaming.memory} frames")
-        elif key == pygame.K_h:
-            # off -> on with memory -> on without -> off
-            field = run.field
-            if not field.light_hue:
-                field.light_hue, field.hue_memory = True, True
-            elif field.hue_memory:
-                field.hue_memory = False
-            else:
-                field.light_hue = False
-            print("light hue:",
-                  "off" if not field.light_hue else
-                  "on, memory keeps it" if field.hue_memory else
-                  "on, memory reverts")
         else:
             for panel_key, name, delta in PANEL_KEYS:
                 if key == panel_key:

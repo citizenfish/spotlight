@@ -37,7 +37,7 @@ the first thing this audience reads as broken. One-cell doorways stay legal and
 stay used -- room A's inner box has one.
 """
 
-from spotlight.core.constants import CELL, COLS, CYAN, MAGENTA, WHITE
+from spotlight.core.constants import CELL, COLS, MAGENTA, WHITE
 
 from .layout import PLAY_ROWS
 from .rescue import NEST_BROOD
@@ -137,15 +137,58 @@ def cost(clegs: int = 0, people: int = 0, nests: int = 0, bodies: int = 0,
 
 WALL, FLOOR, DOOR, KEY, ROOM_LIGHT = "#", ".", "D", "K", "L"
 
-#: What hue each kind of cell wears. Light decides how bright; this decides
-#: which colour. Both are per-cell and single-valued, so no clash.
-INK = {
+#: Every cell kind a room may be written with. A room's palette has to name all
+#: of them, because a glyph with no ink is a cell that would be drawn in
+#: whatever the last one wore.
+CELL_KINDS = (WALL, FLOOR, DOOR, KEY, ROOM_LIGHT)
+
+#: The hues that mean a **thing** rather than a **place**, so they are the same
+#: in every room of the building (issue #47, *Art Direction* section 2).
+#:
+#: * WHITE is solid. A wall is the one thing you must never walk into, so it
+#:   keeps the one constant hue and the floor carries which room you are in.
+#: * MAGENTA is a door -- and **a key takes the hue of the door it opens**, so
+#:   the key is magenta here rather than the cyan it used to be. *Building
+#:   Structure* already says a door's colour says which key; tying the two
+#:   together is what that sentence implied, and it frees cyan to mean the
+#:   spray and nothing else. Cyan meaning two things was the collision that
+#:   forced this.
+#:
+#: BLUE appears nowhere in this table and nowhere in a room's, deliberately:
+#: non-bright blue on black is the least legible pair the machine sells, and
+#: this game is played in the dark.
+CONSTANT_INK = {
     WALL: WHITE,
-    FLOOR: WHITE,
-    ROOM_LIGHT: WHITE,
     DOOR: MAGENTA,
-    KEY: CYAN,
+    KEY: MAGENTA,
 }
+
+
+def palette(floor: int) -> dict:
+    """A room's ink table: the building's constant hues, plus its own floor.
+
+    One ink byte per cell kind, authored beside the room's map, because colour
+    is how a player tells one room from another -- the loudest complaint any
+    tester has made about this game is that they could not hold the building's
+    geography, and a global ink map cannot answer it.
+
+    **The room light zone takes the floor's hue** and not one of its own: it is
+    floor that happens to be lit, and giving it a hue would make the emergency
+    lighting a different *place* rather than the same place lit.
+
+    Cheap on the Z80 as well as here: five bytes per room in ROM, and an
+    attribute byte costs exactly the same whatever colour it holds, so the
+    per-frame cost of a palette is nothing at all.
+    """
+    return dict(CONSTANT_INK, **{FLOOR: floor, ROOM_LIGHT: floor})
+
+
+#: What a room gets when it authors no palette of its own: the all-white
+#: scheme the whole game wore before issue #47. Nothing the player ever sees
+#: uses it -- both rooms in `scene` author their own -- and it exists so that
+#: a scratch room built by a test or a tool need not invent a colour scheme to
+#: ask a question about walls.
+DEFAULT_INK = palette(WHITE)
 
 SOLID = frozenset({WALL})
 
@@ -230,12 +273,17 @@ class Room:
     The data is authored, never rolled. A room is designed.
     """
 
-    def __init__(self, name: str, rows, *, workers=(), clegs=(),
+    def __init__(self, name: str, rows, *, ink=None, workers=(), clegs=(),
                  spotlights=(), searchlight: Searchlight | None = None,
                  player_start: tuple[int, int] | None = None,
                  doorways=()) -> None:
         self.name = name
         self.rows = tuple(rows)
+        #: **The room owns its palette** (issue #47). It used to be one global
+        #: map from cell kind to ink, which meant every room in the building
+        #: was the same colour and nothing on screen said which one you were
+        #: standing in. See `palette`.
+        self.ink = dict(ink if ink is not None else DEFAULT_INK)
         #: (x, y, blood) in pixels and blood points, local to this room.
         self.workers = tuple(tuple(w) for w in workers)
         #: (cx, cy). Clegs live on the cell grid; pixel placement would cost
@@ -265,7 +313,7 @@ class Room:
             if len(row) != COLS:
                 raise ValueError(
                     f"{self.name}: row {y} is {len(row)} cells, need {COLS}")
-            unknown = set(row) - set(INK)
+            unknown = set(row) - set(self.ink)
             if unknown:
                 raise ValueError(
                     f"{self.name}: row {y} has unknown cells: {sorted(unknown)}")
@@ -334,8 +382,14 @@ class Room:
     # --- contents -----------------------------------------------------------
 
     def ink_map(self) -> bytearray:
-        """Per-cell hue for the whole play area."""
-        return bytearray(INK[c] for row in self.rows for c in row)
+        """Per-cell hue for the whole play area, from **this room's** palette.
+
+        One byte per cell, and it is the only thing that chooses a cell's
+        colour: light chooses the brightness, contents choose the hue, and
+        neither ever consults the other. That is what keeps attribute clash
+        impossible while the two rooms wear different schemes.
+        """
+        return bytearray(self.ink[c] for row in self.rows for c in row)
 
     def solid_map(self) -> bytes:
         """One byte per cell, 1 where a wall is. Built on request, not held.

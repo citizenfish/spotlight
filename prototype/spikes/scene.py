@@ -5,13 +5,17 @@ text because it has to be read by a person rather than parsed quickly. The
 legend lives in `building.py`:
 
     #  wall        D  the way out of the building (its own hue)
-    .  floor       K  key (its own hue) -- there is none in this building
+    .  floor       K  key (the hue of the door it opens)
     L  room light zone (floor, but authored as always lit)
 
-**There is no key.** Doors and keys are not built, so a `K` would be a cyan
+**There is no key.** Doors and keys are not built, so a `K` would be a magenta
 glyph that could not be picked up and opened nothing. The legend and the hue
 stay, because a key is a real thing in *Building Structure* and the colour rule
 is worth keeping exercised.
+
+**The two rooms differ in floor hue and in nothing else** (issue #47): room A's
+floor is yellow, room B's is cyan, and every wall in the building is white. See
+`FLOOR_A` for why the floor is what carries it.
 
 --- what issue #21 changed, and why ----------------------------------------
 
@@ -40,10 +44,41 @@ room you can see all of at once.
   it at the moment it would be broken.
 """
 
+from spotlight.core.constants import CYAN, YELLOW
+
 from .building import (
-    Building, DOOR, Doorway, EAST, EXIT, FLOOR, INK, KEY, Room,
-    ROOM_LIGHT, Searchlight, SOLID, WALL, WEST,
+    Building, CONSTANT_INK, DOOR, Doorway, EAST, EXIT, FLOOR, KEY, Room,
+    ROOM_LIGHT, Searchlight, SOLID, WALL, WEST, palette,
 )
+
+#: **The floor carries the room and the walls carry the building** (issue #47).
+#:
+#: The floor is the biggest lit area on screen and it is visible the moment any
+#: light falls anywhere, so it is the cheapest place to read *which room am I
+#: in* -- the one thing every tester so far has been unable to hold. The walls
+#: keep WHITE in both rooms because they mean "solid", which is a fact about the
+#: building and not about the room.
+#:
+#: Sprites take the hue of the cell they stand in, as they always have, so
+#: everybody in A is yellow and everybody in B is cyan. Colour has never been
+#: allowed to tell entities apart (*Avoiding attribute clash*), and telling you
+#: which room you are in is the strongest use left for it.
+#:
+#: **The price, said plainly: cyan spray on room B's cyan floor.** The two are
+#: told apart by pattern -- droplets against the four-dot stipple -- and not by
+#: hue. It is the one collision this palette produces and it buys cyan meaning
+#: exactly one thing everywhere else in the building.
+#:
+#: **Two coloured rooms is all the palette holds.** Once RED, MAGENTA, GREEN,
+#: CYAN and WHITE are spoken for, YELLOW is the only free ink left, so the rule
+#: to author by is that a hue identifies a *floor of the building* rather than
+#: a room: rooms meant to feel like one place share one, and two rooms that
+#: share a hue must not be adjacent.
+FLOOR_A, FLOOR_B = YELLOW, CYAN
+
+#: The two palettes, authored beside the maps they colour.
+INK_A = palette(FLOOR_A)
+INK_B = palette(FLOOR_B)
 
 #: Which rows the connecting doorway occupies, in **both** rooms. Three cells
 #: tall: two would fit a person, but the movement assist nudges by up to a cell
@@ -323,13 +358,13 @@ SEARCHLIGHT_VARY = False
 
 def _rooms() -> Building:
     near = Room(
-        NEAR_NAME, ROOM_A,
+        NEAR_NAME, ROOM_A, ink=INK_A,
         workers=WORKERS_A, clegs=CLEGS_A, spotlights=SPOTLIGHTS_A,
         searchlight=Searchlight(SEARCHLIGHT_RADIUS, SEARCHLIGHT_VARY),
         player_start=PLAYER_START,
         doorways=(Doorway(EAST, DOOR_ROWS, to=FAR),))
     far = Room(
-        FAR_NAME, ROOM_B,
+        FAR_NAME, ROOM_B, ink=INK_B,
         workers=WORKERS_B, clegs=CLEGS_B, spotlights=SPOTLIGHTS_B,
         searchlight=None,
         doorways=(Doorway(WEST, DOOR_ROWS, to=NEAR),))
@@ -353,8 +388,10 @@ def validate() -> None:
 
 
 __all__ = [
-    "BUILDING", "CLEGS_A", "CLEGS_B", "DOOR_ROWS", "ENTITIES", "EXIT",
-    "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "INK", "INNER_DOOR", "KEY",
+    "BUILDING", "CLEGS_A", "CLEGS_B", "CONSTANT_INK", "DOOR_ROWS", "ENTITIES",
+    "EXIT",
+    "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",
+    "INK_B", "INNER_DOOR", "KEY",
     "DOOR", "MOVERS", "NEAR", "NEAR_NAME", "PLAYER_START", "ROOM_A",
     "ROOM_B",
     "ROOM_FAR", "ROOM_LIGHT", "ROOM_NEAR", "SEARCHLIGHT_RADIUS",

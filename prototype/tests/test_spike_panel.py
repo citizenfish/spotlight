@@ -3,7 +3,9 @@
 import pytest
 
 from spikes import font, layout, panel
-from spotlight.core.constants import BLACK, COLS
+from spotlight.core.constants import (
+    BLACK, COLS, CYAN, GREEN, RED, WHITE, YELLOW,
+)
 from spotlight.core.screen import Screen, attr_byte, unpack_attr
 
 
@@ -298,6 +300,49 @@ def test_the_tally_says_in_words_what_it_is_counting():
     p.draw(s, force=True)
     assert _word(s, panel.REGIONS["rescued"]) == "SAFE"
     assert _read(s, panel.REGIONS["rescued"]).rstrip() == "3/7"
+
+
+# --- the one colour on the strip (issue #47) -------------------------------
+
+def test_the_safe_value_is_green_and_its_word_stays_white():
+    """The tally is the score and the retro-gamer's one complaint about the
+    strip was that it is the hardest readout to find. **The values carry the
+    colour and the labels do not** -- the instinct the ending screen already
+    had, brought to the strip for one attribute byte."""
+    s, p = _tally()
+    p.set("rescued", 3)
+    p.draw(s, force=True)
+    region = panel.REGIONS["rescued"]
+    for i in range(region.width):
+        ink, _, _, _ = unpack_attr(s.get_attr(region.col + i, region.row))
+        assert ink == GREEN, "the number is the thing that carries the colour"
+    for i in range(len(region.label)):
+        ink, _, _, _ = unpack_attr(s.get_attr(region.label_col + i,
+                                              region.row))
+        assert ink == WHITE, "the word went green with its number"
+
+
+def test_nothing_else_on_the_strip_changed_colour():
+    """**The strip is otherwise untouched, deliberately**, and this is the pin
+    on it. Written out rather than derived, so that moving any of them is a
+    decision somebody has to take here and defend.
+
+    The key flag stays CYAN even though the key in the world became MAGENTA,
+    and that mismatch is on purpose: in the play area cyan means the spray and
+    only the spray, while on the strip cyan is what the kit half is drawn in.
+    The strip is a different surface with a different job, and re-colouring it
+    to match the world would spend the round's one free colour change on the
+    readout nobody has complained about."""
+    assert {name: r.ink for name, r in panel.REGIONS.items()} == {
+        "blood": RED,
+        "lives": RED,
+        "light": YELLOW,
+        "lit": YELLOW,
+        "spray": CYAN,
+        "keys": CYAN,
+        "rescued": GREEN,
+    }
+    assert panel.LABEL_INK == WHITE
 
 
 def test_the_word_is_drawn_a_cell_clear_of_the_number():

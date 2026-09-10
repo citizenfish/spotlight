@@ -35,9 +35,21 @@ only where a light is on them *this frame*, and only where that light is one
 that reveals. Fixed room lighting shows you the room and not its occupants --
 see the note in the vault, this is a design change and not merely a fix.
 
-The field also remembers **which light lit each cell**, as a hue. Contents with
-a colour of their own keep it; floor and walls, which have none, take the hue of
-the light that lit them. That is how the searchlight gets to be yellow.
+**The field holds no hue.** It used to remember which light lit each cell, so
+that a cell with no colour of its own could take the searchlight's yellow --
+built in issue #12, switched off, and never adopted. Issue #47 took it away,
+because light-supplied hue and per-room colour cannot both be had: a light's
+hue only ever reaches cells whose *contents* have none, and after the per-room
+palettes every cell has one. The searchlight's yellow would never have fired on
+anything. What replaces the *this light is somebody else's* tell is the beam's
+fifth-of-a-second wake, which no other source has, and the visible housing a
+later slice of this round gives it. That is weaker than the yellow was, and is
+recorded as weaker: if a human session says the far room still reads as broken,
+the decision reopens rather than being defended.
+
+The saving is real and is the reason it is worth writing down: **one charge
+byte per cell and no hue byte**, so the field's per-cell state halves -- 704
+bytes here and on the Z80.
 
 Decay applies to every cell every frame whether or not the player is looking,
 which is what makes the fade keep running while you are out of a room.
@@ -80,11 +92,6 @@ CHARGE_DIM = LIT_THRESHOLD
 CHARGE_SWEEP = 10
 
 assert CHARGE_LIT <= 0xFF, "charge must fit in a byte"
-
-#: The hue a cell wears when nothing has chosen one -- floor, walls, and a light
-#: that has no colour of its own. Anything else in an ink map is a real colour
-#: and the light does not override it.
-UNCOLOURED = WHITE
 
 #: charge -> displayed level.
 _LEVEL_OF = bytes(
@@ -130,31 +137,26 @@ class LightField:
     Usage per frame::
 
         field.begin()
-        field.add(cx, cy, LIT, CHARGE_LIT, hue)   # each source contributes
+        field.add(cx, cy, LIT, CHARGE_LIT)        # each source contributes
         field.commit()                            # fold in, then decay
         field.paint(screen, ink)                  # write attributes
 
-    Two switches, both for judging by eye (issue #12):
-
-    * `light_hue` -- uncoloured cells take the hue of the light that lit them.
-    * `hue_memory` -- whether a dim, remembered cell keeps that hue, or reverts
-      to uncoloured because memory belongs to the player rather than the light.
+    **A light says how bright and never what colour.** The two switches that
+    used to be here, and the per-cell hue array they read, were withdrawn by
+    issue #47; see the module docstring for why they could not survive
+    per-room colour.
     """
 
-    __slots__ = ("charge", "display", "hue", "light_hue", "hue_memory",
-                 "_illum", "_memory", "_pending_hue", "_reveal", "_touched")
+    __slots__ = ("charge", "display",
+                 "_illum", "_memory", "_reveal", "_touched")
 
-    def __init__(self, light_hue: bool = False, hue_memory: bool = True) -> None:
+    def __init__(self) -> None:
         self.charge = bytearray(_CELLS)
         #: The level each cell actually shows: the fade, overridden by any
         #: source shining on it now. Rebuilt by `commit`.
         self.display = bytearray(_CELLS)
-        self.hue = bytearray([UNCOLOURED]) * _CELLS
-        self.light_hue = light_hue
-        self.hue_memory = hue_memory
         self._illum = bytearray(_CELLS)
         self._memory = bytearray(_CELLS)
-        self._pending_hue = bytearray(_CELLS)
         #: Cells a revealing light is on this frame. Never remembered.
         self._reveal = bytearray(_CELLS)
         self._touched: list[int] = []
@@ -170,8 +172,7 @@ class LightField:
         self._touched.clear()
 
     def add(self, cx: int, cy: int, level: int = LIT,
-            memory: int = CHARGE_LIT, hue: int = UNCOLOURED,
-            reveals: bool = True) -> None:
+            memory: int = CHARGE_LIT, reveals: bool = True) -> None:
         """Contribute light to a cell. **Brightest wins** -- nothing sums.
 
         `level` is how bright the cell reads while this source is on it.
@@ -179,10 +180,6 @@ class LightField:
         cell goes on being remembered once the source has gone. The two are
         independent: a searchlight is as bright as a spotlight and forgotten far
         sooner.
-
-        The hue follows the **memory**, not the brightness, because the hue has
-        to outlive the frame. A beam crossing ground you lit yourself does not
-        recolour your memory of it.
 
         `reveals` says whether this light shows people, as opposed to showing
         the room they are in. It is deliberately not remembered.
@@ -196,7 +193,6 @@ class LightField:
             self._illum[idx] = level
         if memory > self._memory[idx]:
             self._memory[idx] = memory
-            self._pending_hue[idx] = hue
         if reveals and level > self._reveal[idx]:
             self._reveal[idx] = level
 
@@ -205,14 +201,13 @@ class LightField:
 
         A cell that already remembers more than the source can give it -- the
         cone has just left and the searchlight is passing over -- keeps its
-        charge and its hue. The longer memory is the truer one.
+        charge. The longer memory is the truer one.
         """
         self.charge[:] = self.charge.translate(_DECAY)
         for idx in self._touched:
             memory = self._memory[idx]
             if memory > self.charge[idx]:
                 self.charge[idx] = memory
-                self.hue[idx] = self._pending_hue[idx]
 
         # What the player sees is the fade, except where a light is shining
         # now. Only the cells a source touched this frame can differ, so this
@@ -319,11 +314,12 @@ class LightField:
 
         Both are single-valued per cell, so there is still exactly one thing
         choosing a cell's attribute and clash remains impossible. It is what
-        lets a key be cyan and a door be magenta without breaking the rule.
+        lets a room's floor be yellow and a door be magenta without breaking
+        the rule -- and it is why per-room colour costs nothing per frame: the
+        ink map is the room's own, and the translate table does the rest.
 
-        With `light_hue` set, a cell whose contents are UNCOLOURED takes the hue
-        of the light that lit it instead -- still one chooser per cell, it just
-        consults the light when the contents have nothing to say.
+        The light itself never supplies a hue. It did until issue #47, for
+        cells whose contents had none; per-room colour leaves no such cell.
         """
         levels = self.levels()
         if isinstance(ink, int):
@@ -331,25 +327,9 @@ class LightField:
             return
         if len(ink) != _CELLS:
             raise ValueError(f"ink map must be {_CELLS} cells, got {len(ink)}")
-        if self.light_hue:
-            ink = self._with_light_hue(ink, levels)
         screen.attrs[0:_CELLS] = bytes(
             _COMBINED[(lv << 3) | hue] for lv, hue in zip(levels, ink)
         )
-
-    def _with_light_hue(self, ink, levels) -> bytes:
-        """Uncoloured contents take the light's hue; coloured ones keep theirs.
-
-        Without `hue_memory`, only a cell that is lit right now shows the
-        light's colour; a dim one falls back to uncoloured.
-        """
-        out = bytearray(ink)
-        for idx in range(_CELLS):
-            if ink[idx] != UNCOLOURED:
-                continue
-            if self.hue_memory or levels[idx] == LIT:
-                out[idx] = self.hue[idx]
-        return bytes(out)
 
 
 # --- pricing what gets redrawn (issue #46) ---------------------------------

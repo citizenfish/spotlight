@@ -9,20 +9,24 @@ light decides colour, and it does so in one place.
     3. Cone     a wedge in the facing direction, toggleable, with power
     4. Roaming  a pool that moves on its own -- sweeping, on a path, or drifting
 
-Each source carries three things the field composites: the **level** it reads
-at while it is shining, the **memory** it leaves once it has gone, and a
-**hue**, which uncoloured cells take on. Level and memory are separate on
-purpose -- the searchlight is as bright as the carried spotlight and forgotten
-far sooner.
+Each source carries two things the field composites: the **level** it reads at
+while it is shining, and the **memory** it leaves once it has gone. They are
+separate on purpose -- the searchlight is as bright as the carried spotlight
+and forgotten far sooner.
+
+There was a third, a **hue** that cells with no colour of their own took on,
+and it is what made the searchlight yellow. Issue #47 withdrew it: after
+per-room colour no cell is without a hue of its own, so a light's colour had
+nothing left to reach. A source now says how bright and never what colour.
 """
 
 from math import isqrt
 
-from spotlight.core.constants import COLS, YELLOW
+from spotlight.core.constants import COLS
 
 from .layout import PLAY_ROWS
 from .lighting import (
-    CHARGE_DIM, CHARGE_LIT, CHARGE_SWEEP, DIM, LIT, UNCOLOURED, LightField,
+    CHARGE_DIM, CHARGE_LIT, CHARGE_SWEEP, DIM, LIT, LightField,
 )
 
 # --- facing ----------------------------------------------------------------
@@ -171,17 +175,15 @@ class Source:
     """Common switching. Subclasses implement `emit`."""
 
     def __init__(self, level: int = LIT, memory: int = CHARGE_LIT,
-                 enabled: bool = True, hue: int = UNCOLOURED,
-                 reveals: bool = True) -> None:
+                 enabled: bool = True, reveals: bool = True) -> None:
         self.level = level
         self.memory = memory
-        self.hue = hue
         self.enabled = enabled
         #: Whether this light shows people, or only the room they stand in.
         self.reveals = reveals
 
     def light(self, field: LightField, cx: int, cy: int) -> None:
-        field.add(cx, cy, self.level, self.memory, self.hue, self.reveals)
+        field.add(cx, cy, self.level, self.memory, self.reveals)
 
     # --- what Clegs steer for ----------------------------------------------
 
@@ -720,14 +722,18 @@ class Roaming(Source):
     def __init__(self, x: int, y: int, radius: int = 3,
                  path: list[tuple[int, int]] | None = None,
                  seed: int = 0xACE1, level: int = LIT,
-                 memory: int = CHARGE_SWEEP,
-                 hue: int = YELLOW, step_every: int = 6,
+                 memory: int = CHARGE_SWEEP, step_every: int = 6,
                  mode: int | None = None, vary: bool = False,
                  inset: int = 0) -> None:
         # Frames per cell. Six is a beam that crosses the room in about four
         # seconds -- slow enough to watch, time, and cross behind. Three was
         # tried and played too fast to do anything about.
-        super().__init__(level, memory, hue=hue)
+        #
+        # The yellow this light used to carry went with issue #47: the beam is
+        # told from your own light by its shape, its speed and its short wake,
+        # and no longer by its colour. It wears the room's floor hue like
+        # everything else that stands on floor.
+        super().__init__(level, memory)
         self.x, self.y = x, y
         self.radius = radius
         self.inset = inset

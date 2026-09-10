@@ -1,5 +1,7 @@
 """The lighting model: levels, composition and the fade."""
 
+import inspect
+
 from spikes import layout, lighting as L
 from spotlight.core.constants import BLACK, COLS, CYAN, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte, unpack_attr
@@ -250,11 +252,18 @@ def test_a_brighter_memory_is_not_dimmed_by_a_weaker_light():
     assert f.level_at(5, 5) == L.LIT, "but the beam on it still reads bright"
 
 
-# --- hue per cell (issue #12) ----------------------------------------------
+# --- the light says how bright and never what colour (issue #47) -----------
+#
+# What stood here was eight tests of a per-cell hue the field kept, so that a
+# cell with no colour of its own took the colour of the light that lit it --
+# built in issue #12, never switched on, and withdrawn whole by issue #47. It
+# could not survive per-room palettes: a light's hue only ever reached cells
+# whose contents had none, and now every cell has one. The tests below pin the
+# thing that replaced it, and that the field cannot go back.
 
 def _paint_with_map(field, ink_map=None):
     s = Screen()
-    ink = bytearray([L.UNCOLOURED]) * (COLS * layout.PLAY_ROWS)
+    ink = bytearray([WHITE]) * (COLS * layout.PLAY_ROWS)
     if ink_map:
         for (cx, cy), hue in ink_map.items():
             ink[cy * COLS + cx] = hue
@@ -262,67 +271,64 @@ def _paint_with_map(field, ink_map=None):
     return s
 
 
-def test_hue_rides_with_the_memory_that_wins():
-    f = L.LightField(light_hue=True)
-    f.begin()
-    f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
-    f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE)
-    f.commit()
-    assert f.hue[5 * COLS + 5] == WHITE, "the cone is brighter, so it colours"
-
-    f = L.LightField(light_hue=True)
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
-    assert f.hue[5 * COLS + 5] == YELLOW
-
-
-def test_uncoloured_contents_take_the_light_hue_and_coloured_keep_theirs():
-    f = L.LightField(light_hue=True)
-    f.begin()
-    f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
-    f.add(6, 5, L.LIT, L.CHARGE_SWEEP, YELLOW)
-    f.commit()
-    s = _paint_with_map(f, {(6, 5): CYAN})
-    assert s.get_attr(5, 5) == L.attr_for(L.LIT, YELLOW), "floor goes yellow"
-    assert s.get_attr(6, 5) == L.attr_for(L.LIT, CYAN), "a key stays cyan"
-
-
-def test_light_hue_is_off_by_default():
+def test_the_ink_map_is_the_only_thing_that_chooses_a_colour():
+    """Two cells lit by the same source, wearing two different colours,
+    because their contents differ and the light has no say in it."""
     f = L.LightField()
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
-    s = _paint_with_map(f)
-    assert s.get_attr(5, 5) == L.attr_for(L.LIT, L.UNCOLOURED)
+    f.begin()
+    f.add(5, 5, L.LIT, L.CHARGE_SWEEP)
+    f.add(6, 5, L.LIT, L.CHARGE_SWEEP)
+    f.commit()
+    s = _paint_with_map(f, {(5, 5): YELLOW, (6, 5): CYAN})
+    assert s.get_attr(5, 5) == L.attr_for(L.LIT, YELLOW)
+    assert s.get_attr(6, 5) == L.attr_for(L.LIT, CYAN)
 
 
-def test_memory_keeps_or_reverts_the_hue_as_asked():
-    for keeps in (True, False):
-        f = L.LightField(light_hue=True, hue_memory=keeps)
-        f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
-        _idle(f, 1)
-        assert f.level_at(5, 5) == L.DIM
-        s = _paint_with_map(f)
-        expected = YELLOW if keeps else L.UNCOLOURED
-        assert s.get_attr(5, 5) == L.attr_for(L.DIM, expected), f"keeps={keeps}"
-
-
-def test_a_brighter_light_keeps_its_hue_against_a_weaker_one():
-    f = L.LightField(light_hue=True)
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE); f.commit()
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
-    assert f.hue[5 * COLS + 5] == WHITE
-
-
-def test_hue_state_is_one_byte_per_cell():
+def test_a_cell_keeps_its_colour_through_the_whole_fade():
+    """Remembered ground is the room's colour dimmed, never a different
+    colour. The withdrawn hue memory is what used to be able to change it."""
     f = L.LightField()
-    assert len(f.hue) == COLS * layout.PLAY_ROWS == 704
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
+    assert _paint_with_map(f, {(5, 5): CYAN}).get_attr(5, 5) == \
+        L.attr_for(L.LIT, CYAN)
+    _idle(f, L.LIT_FRAMES + 1)
+    assert f.level_at(5, 5) == L.DIM
+    assert _paint_with_map(f, {(5, 5): CYAN}).get_attr(5, 5) == \
+        L.attr_for(L.DIM, CYAN)
 
 
 def test_a_passing_beam_does_not_recolour_ground_you_lit_yourself():
-    """The hue follows the memory, and the cone's memory outlasts the beam's."""
-    f = L.LightField(light_hue=True)
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT, WHITE); f.commit()
+    """It cannot: no light carries a colour. This was the sharpest of the
+    withdrawn hue tests and it is worth keeping as a statement about the
+    searchlight, which is the light that used to be yellow."""
+    f = L.LightField()
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
     _idle(f, L.LIT_FRAMES + 20)
-    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP, YELLOW); f.commit()
-    assert f.hue[5 * COLS + 5] == WHITE
+    before = _paint_with_map(f, {(5, 5): YELLOW}).get_attr(5, 5)
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_SWEEP); f.commit()
+    after = _paint_with_map(f, {(5, 5): YELLOW}).get_attr(5, 5)
+    assert unpack_attr(after)[0] == unpack_attr(before)[0] == YELLOW
+
+
+def test_the_field_holds_one_byte_per_cell_and_no_second_one():
+    """**The saving, and the thing that must not creep back.** The hue array
+    was a second 704-byte array beside the charge, on this machine and on the
+    Z80. Anything per-cell added to the field from here has to be argued for
+    against this test."""
+    f = L.LightField()
+    cells = COLS * layout.PLAY_ROWS
+    per_cell = [name for name in L.LightField.__slots__
+                if len(getattr(f, name)) == cells]
+    assert sorted(per_cell) == ["_illum", "_memory", "_reveal", "charge",
+                                "display"], \
+        "a new per-cell array in the light field: is it a byte a cell worth?"
+    assert not hasattr(f, "hue")
+
+
+def test_a_source_offers_the_field_brightness_and_memory_only():
+    """The signature is the guarantee: there is no colour to pass."""
+    args = list(inspect.signature(L.LightField.add).parameters)
+    assert args == ["self", "cx", "cy", "level", "memory", "reveals"]
 
 
 # --- what the fade may remember (issue #12) --------------------------------

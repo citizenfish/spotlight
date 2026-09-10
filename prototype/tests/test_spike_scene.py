@@ -4,7 +4,9 @@ import pytest
 
 from spikes import building as B, lighting as L, scene, sources as S, sprites as SP
 from spikes.layout import PLAY_ROWS
-from spotlight.core.constants import CELL, COLS
+from spotlight.core.constants import (
+    BLUE, CELL, COLS, CYAN, MAGENTA, WHITE, YELLOW,
+)
 from spotlight.core.screen import Screen
 
 ROOMS = scene.BUILDING.rooms
@@ -31,10 +33,13 @@ def test_the_building_is_exactly_the_play_area(room):
     assert all(len(line) == COLS for line in room.rows)
 
 
-def test_every_cell_kind_has_a_hue(room):
+def test_every_cell_kind_has_a_hue_in_its_own_rooms_palette(room):
+    """The palette is the room's, not the building's (issue #47), so a glyph
+    with no ink in *this* room is a cell drawn in whatever colour the last one
+    left behind."""
     for line in room.rows:
         for c in line:
-            assert c in scene.INK, f"cell {c!r} has no ink"
+            assert c in room.ink, f"cell {c!r} has no ink in {room.name}"
 
 
 def test_the_building_is_walled_all_the_way_round_except_at_its_doors(room):
@@ -53,12 +58,80 @@ def test_ink_map_covers_every_cell(room):
     assert len(room.ink_map()) == COLS * PLAY_ROWS
 
 
-def test_keys_and_doors_have_hues_of_their_own():
-    """Light sets brightness; contents set hue. Both single-valued per cell,
-    so this does not reintroduce clash."""
-    assert scene.INK[scene.KEY] != scene.INK[scene.FLOOR]
-    assert scene.INK[scene.DOOR] != scene.INK[scene.FLOOR]
-    assert scene.INK[scene.KEY] != scene.INK[scene.DOOR]
+# --- one colour per room (issue #47) ---------------------------------------
+
+def test_the_two_rooms_differ_in_floor_hue_and_in_nothing_else():
+    """**The floor carries the room and the walls carry the building.**
+
+    The whole play area used to be white, so nothing on screen said which room
+    you were standing in -- the loudest complaint any tester has made about
+    this game. The fix is one ink byte per cell kind per room, and the test is
+    that it is *only* the floor that moves: a second difference would start
+    teaching the player that colour means something other than place.
+    """
+    a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
+    differ = {k for k in set(a) | set(b) if a[k] != b[k]}
+    assert differ == {scene.FLOOR, scene.ROOM_LIGHT}
+    assert a[scene.FLOOR] == YELLOW and b[scene.FLOOR] == CYAN
+
+
+def test_the_room_light_zone_wears_the_floors_hue(room):
+    """It is floor that happens to be lit, not a different place."""
+    assert room.ink[scene.ROOM_LIGHT] == room.ink[scene.FLOOR]
+
+
+def test_every_wall_in_the_building_is_white(room):
+    """WHITE means solid, in every room, because walking into a wall is the
+    one mistake that must never depend on which room you are in."""
+    assert room.ink[scene.WALL] == WHITE
+
+
+def test_the_key_takes_the_hue_of_the_door_it_opens(room):
+    """Keys were CYAN and **that collided with the spray**, which is the fault
+    this fixes: cyan meant two things, one of them lethal. *Building
+    Structure* already says a door's colour says which key, so tying the two
+    together frees cyan to mean poison and only poison."""
+    assert room.ink[scene.KEY] == room.ink[scene.DOOR] == MAGENTA
+    assert room.ink[scene.KEY] != room.ink[scene.FLOOR]
+
+
+def test_cyan_is_the_sprays_alone_except_where_it_is_room_bs_floor():
+    """The one collision the two-room palette produces, recorded here as a
+    deliberate trade rather than left to be rediscovered as a bug: cyan poison
+    on room B's cyan floor is told apart by *pattern* -- droplets against the
+    four-dot stipple -- and not by hue. It buys cyan meaning exactly one thing
+    everywhere else in the building."""
+    a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
+    assert CYAN not in a.values()
+    assert [k for k, v in b.items() if v == CYAN] == \
+        [scene.FLOOR, scene.ROOM_LIGHT]
+
+
+def test_no_room_uses_blue():
+    """Non-bright blue on black is the least legible pair the machine sells,
+    and this game is played in the dark."""
+    for r in ROOMS:
+        assert BLUE not in r.ink.values(), r.name
+
+
+def test_a_room_that_authors_no_palette_gets_the_old_white_one():
+    """The fallback is for scratch rooms in tests and tools. Every room a
+    player ever sees authors its own -- and this test is here so that a room
+    that forgot to would be visibly wrong rather than quietly white."""
+    plain = B.Room("plain", ROOMS[0].rows)
+    assert plain.ink[B.FLOOR] == WHITE
+    assert set(plain.ink) == set(B.CELL_KINDS)
+
+
+def test_the_ink_map_is_the_rooms_own():
+    """Two rooms with the same map and different palettes must produce
+    different ink maps, or `ink_map` is reading a global again."""
+    rows = ROOMS[0].rows
+    yellow = B.Room("yellow", rows, ink=B.palette(YELLOW)).ink_map()
+    cyan = B.Room("cyan", rows, ink=B.palette(CYAN)).ink_map()
+    assert yellow != cyan
+    walls = [i for i, c in enumerate("".join(rows)) if c == scene.WALL]
+    assert all(yellow[i] == cyan[i] == WHITE for i in walls)
 
 
 def test_this_building_places_no_key(room):

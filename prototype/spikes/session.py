@@ -1325,14 +1325,17 @@ class Session:
                 cells = cells + [c for run in self.door_calls for c in run]
                 self.call_cells = cells
             for cx, cy in cells:
-                field.add(cx, cy, lighting.LIT, memory=1, hue=GREEN,
-                          reveals=False)
+                # No hue here: the green comes from the frame's ink map,
+                # below, where every other colour on screen comes from. It was
+                # passed to the light as well until issue #47, which was the
+                # one place two things chose one cell's colour -- and the light
+                # was the one that never won.
+                field.add(cx, cy, lighting.LIT, memory=1, reveals=False)
             # The exit sign has its own battery, as they do. It is the one
             # thing in a failing building you can always see -- in the room it
             # is in, which is the near room and no other.
             for cx, cy in place.sign_cells:
-                field.add(cx, cy, lighting.LIT, memory=1, hue=RED,
-                          reveals=False)
+                field.add(cx, cy, lighting.LIT, memory=1, reveals=False)
             field.commit()
 
     def _calls_through_doors(self) -> list:

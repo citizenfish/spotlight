@@ -13,13 +13,14 @@ Two rules the issue is explicit about:
 
 from dataclasses import dataclass
 
-from spotlight.core.constants import BLACK, CYAN, RED, WHITE, YELLOW
+from spotlight.core.constants import BLACK, CYAN, GREEN, RED, WHITE, YELLOW
 from spotlight.core.screen import Screen, attr_byte
 
 from . import font
 from .layout import ACTION_LEFT, STATUS_LEFT, STRIP_BOTTOM, STRIP_TOP
 
 #: Labels are the dimmest thing on screen; values carry a little colour.
+#: True of the tally's word too, since issue #47 -- see `Region.attr_of_label`.
 LABEL_INK = WHITE
 
 #: TALLY draws "n/m" -- a count against a total, which a row of pips cannot do
@@ -70,6 +71,21 @@ class Region:
     #: what it was for, which is exactly the reader the playtest does not have.
     label: str | None = None
 
+    def attr_of_label(self, flash: bool = False) -> int:
+        """A label is always white, whatever colour its value wears.
+
+        **The values carry the colour and the labels do not** -- the instinct
+        the ending screen already had, and issue #47 brings it to the strip so
+        that `SAFE n/7` can be found. It is one attribute byte and it is the
+        only semantic use of colour anywhere in the build: the tally is the
+        score, and it was the hardest readout on screen to find.
+
+        The flash bit still covers both halves, because an alert is about the
+        whole readout and a word that stayed still while its number blinked
+        would read as two readouts.
+        """
+        return attr_byte(ink=LABEL_INK, paper=BLACK, bright=False, flash=flash)
+
     @property
     def label_col(self) -> int:
         """Where the label starts: right-aligned against the gap before the
@@ -105,7 +121,13 @@ REGIONS: dict[str, Region] = {
     # "7/7" and every quota this building has. It used to be five cells wide so
     # that "10/12" fitted, and a two-digit quota is what paid for the word --
     # see `_draw_tally` for what a total too wide to fit does instead of lying.
-    "rescued": Region(_BOTTOM, STATUS_LEFT + 15, 3, WHITE, TALLY,
+    # GREEN, and the only readout on the strip that is not the white it was
+    # (issue #47). The word SAFE beside it stays white, and **nothing else on
+    # the strip moves** -- including the key flag, which stays cyan even though
+    # the key in the world is now magenta. The strip is a different surface
+    # with a different job: in the play area cyan means the spray, and on the
+    # strip it is what the kit half is drawn in.
+    "rescued": Region(_BOTTOM, STATUS_LEFT + 15, 3, GREEN, TALLY,
                       label="SAFE"),
 }
 
@@ -241,10 +263,14 @@ class Panel:
             text = f"{value}"[:region.width]
         text += " " * (region.width - len(text))
         if region.label:
+            # The word is white and the number is the region's own colour.
+            # Two attributes for one readout, and it is still one chooser per
+            # cell -- the word's cells and the number's cells are disjoint.
+            label_attr = region.attr_of_label(flash=name in self._alerts)
             font.draw_text(screen, region.label_col, region.row, region.label)
             for i in range(len(region.label)):
                 cx = region.label_col + i
-                screen.set_attr(cx, region.row, attr)
+                screen.set_attr(cx, region.row, label_attr)
                 touched.append((cx, region.row))
         for i, ch in enumerate(text):
             cx = region.col + i

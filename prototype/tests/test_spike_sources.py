@@ -1,8 +1,10 @@
 """The four light sources."""
 
+import inspect
+
 from spikes import lighting as L, sources as S
 from spikes.layout import PLAY_ROWS
-from spotlight.core.constants import COLS, YELLOW
+from spotlight.core.constants import COLS
 
 
 def _field(*srcs) -> L.LightField:
@@ -348,14 +350,19 @@ def test_the_searchlight_tops_up_to_the_sweep_charge_not_full():
     assert L.CHARGE_SWEEP < L.CHARGE_LIT
 
 
-def test_the_searchlight_is_yellow_and_the_others_are_not():
+def test_no_source_carries_a_colour():
+    """The searchlight was yellow and nothing else was, which is what issue
+    #12 built and issue #47 took away: a light's hue could only ever reach a
+    cell whose contents had none, and per-room palettes leave no such cell.
+
+    Pinned as a signature rather than as a picture, because the fault this
+    guards against is somebody adding `hue=` back to one source and nothing
+    on screen changing until the next room is authored."""
+    for cls in (S.Roaming, S.Cone, S.Glow, S.RoomLight, S.Flash):
+        assert "hue" not in inspect.signature(cls.__init__).parameters, cls
+    assert "hue" not in inspect.signature(S.Source.__init__).parameters
     roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
-    assert _field(roam).hue[10 * COLS + 15] == YELLOW
-    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
-    cone.facing, cone.enabled = S.RIGHT, True
-    assert _field(cone).hue[10 * COLS + 11] == L.UNCOLOURED
-    glow = S.Glow(); glow.x, glow.y = 5, 5
-    assert _field(glow).hue[5 * COLS + 5] == L.UNCOLOURED
+    assert not hasattr(roam, "hue")
 
 
 def test_the_cone_still_leaves_its_long_bright_trail():

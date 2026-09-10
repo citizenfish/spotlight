@@ -1,6 +1,6 @@
 """The developer keys must be unreachable by accident.
 
-Issue #16. The spike bound sixteen letters, and `F` reveals the whole room and
+Issue #16. The spike bound a letter apiece, and `F` reveals the whole room and
 everybody in it and holds it there. A tester who presses a key to find out what
 it does could silently destroy the thing we are asking them about and would
 never know they had -- and the phase-0 review found this the third most likely
@@ -36,7 +36,7 @@ def snapshot(run):
         run.glow.enabled, run.roaming.enabled,
         run.roaming.vary, run.roaming.radius, run.roaming.inset,
         run.roaming.step_every, run.roaming.memory, run.roaming.mode,
-        run.calls_on, run.field.light_hue, run.field.hue_memory,
+        run.calls_on,
         bytes(run.field.charge), dict(run.panel.values),
         (run.player.x, run.player.y), run.blood, run.lives,
         [(c.cx, c.cy, c.state) for c in run.swarm.clegs],
