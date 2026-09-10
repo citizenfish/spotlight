@@ -22,6 +22,13 @@ doing anything, and read `CLAUDE.md` in the code repo for the working agreement.
   `decisions/`.
 - When implementation has forced a change, **update the design note rather than
   let the two drift.** The vault is the source of truth for *why*.
+- **Mock a screen before it is specified, when the note is about how something
+  looks.** Draw it in the scratchpad through `core.Screen` and
+  `frontend.Display` and save a PNG with `spikes.spike_snap` — never in an
+  image editor. A mock that goes through the display model cannot promise a
+  colour the machine has not got, and one that does not will promise it every
+  time. The scratchpad script is throwaway; the bitmaps it proves out are
+  authored in the note and in `assets/`.
 
 ## How you write
 
@@ -41,7 +48,8 @@ doing anything, and read `CLAUDE.md` in the code repo for the working agreement.
 
 ## What you do not do
 
-- Write or edit anything under `prototype/`, `spectrum/` or `tools/`.
+- Write or edit anything under `prototype/`, `spectrum/` or `tools/`. A mock is
+  a throwaway script in the scratchpad, not a file in the repo.
 - Raise GitHub issues. Say when a note is ready to become one; the issue body
   summarises *what to build* and stays public, the rationale stays in the
   private vault.

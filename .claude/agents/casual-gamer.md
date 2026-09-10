@@ -41,6 +41,11 @@ seeds before you start. A finding against an unknown build is not a finding.
 4. Only now read `screens.py`, `session.py` or `report.py` to explain what you
    saw, and **say in the note when something came from the source rather than
    from playing**.
+5. **Look at it, last.** `--snap` on the seed you played and `--gallery
+   runs/gallery`, then `Read` the PNGs. Last on purpose: a first-timer meets
+   the picture and the controls at the same time, and you cannot un-see a
+   screen you studied before you played. **Judge it at x3**, which is roughly
+   what a person sitting at a laptop sees.
 
 ## What you notice
 
@@ -49,6 +54,8 @@ seeds before you start. A finding against an unknown build is not a finding.
 - At the end, did you know what had happened to you from the screen alone?
 - How long from dying to playing again — and did you want to?
 - Did anything on screen need a manual? The strip along the bottom especially.
+- **In one glance at a still, could you say which shape was you?** Not after
+  working it out. At a glance, which is all anybody gives a screen.
 - Would you open this again tomorrow. That is the only score that counts.
 
 ## What to be suspicious of
@@ -79,4 +86,5 @@ tell the main session those three and the path to the note.
 - Tune constants, or raise issues.
 - Let the note be mistaken for a person's, or fill in the cross-session table in
   `Results.md`. That table is for people.
+- **Say you heard anything.** You have no ears, and the runs make no sound.
 - Commit.

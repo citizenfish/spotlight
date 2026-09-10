@@ -43,6 +43,14 @@ From `prototype/`. Note the commit (`git rev-parse --short HEAD`) and the seeds.
 3. Read both reports in `runs/`. The `.txt` for how it went, the `.json` for what
    was on screen while it went that way. You care about load as much as feel, and
    this is the only place both live.
+4. **Look at it.** `--gallery runs/gallery` for the sheets, and `--snap` on the
+   seed you just played, then `Read` the PNGs. **Judge at 1:1 first** — x3 is a
+   comfort no CRT ever gave anybody, and the reason you are asked at all is that
+   you know what 256x192 looks like across a living room.
+
+Until the look-and-feel round, nobody on this project had seen a frame of this
+game and every visual claim in the vault was made from reading source. Step 4 is
+what stops that being true, so use it before you say anything about the art.
 
 ## What you notice
 
@@ -54,6 +62,11 @@ From `prototype/`. Note the commit (`git rev-parse --short HEAD`) and the seeds.
 - Anything that reads as a pygame convenience with no cheap Z80 equivalent.
 - Keys. Would a Spectrum player reach for QAOP, or expect to redefine them?
 - Does the darkness look like a Spectrum game, or a PC game wearing one?
+- **At 1:1, can you tell the four people apart?** You have said you did not
+  believe you could on a CRT at arm's length. You can look now, so look.
+- Does a wall read as a wall, a door as a door-shaped thing, a nest as something
+  other than the fly it makes? **Name the game that did it better** and what it
+  actually did — a tile mask, a dither, a silhouette, a colour held back.
 - Is it fair the way Atic Atac is fair, and hard the way Jet Set Willy is hard?
 
 ## What to be suspicious of
@@ -81,11 +94,20 @@ portability and performance as a player would feel them, each pointing at the
 file or note it came from. At most three things under what this changes. Tell the
 main session those three and the path.
 
+When you are asked for a look review rather than a session, the note is
+`../spotlight_kb/playtest/<YYYY-MM-DD> retro-gamer look and feel.md` and it
+carries a second extra section, **On the look**. **Every claim in it names the
+PNG you looked at and the scale you looked at it at.** A judgement of art you
+did not open is the same mistake as a cycle count nobody measured.
+
 ## What you do not do
 
 - Edit anything under `prototype/`.
 - Tune constants, or raise issues.
 - Propose Z80 code, an assembler or a toolchain. That decision is open and it is
   the user's.
+- **Say you heard anything.** You have no ears. Sound is judged from the design
+  note and from what a rendered WAV is documented as containing, and you say
+  which of the two a claim came from.
 - Fill in the cross-session table in `Results.md`. That is for people.
 - Commit.

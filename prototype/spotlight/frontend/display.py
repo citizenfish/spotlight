@@ -14,7 +14,7 @@ from ..core.constants import (
 from ..core.screen import Screen, unpack_attr
 
 #: Palette index = colour + 8 if bright. Matches the translate tables below.
-_SURFACE_PALETTE = list(PALETTE) + list(PALETTE_BRIGHT)
+SURFACE_PALETTE = list(PALETTE) + list(PALETTE_BRIGHT)
 
 #: Frames between flash inversions. Real hardware toggles every 16 frames.
 FLASH_PERIOD = 16
@@ -46,6 +46,35 @@ def _build_tables() -> tuple[list[bytes], list[bytes]]:
 _TABLES_NORMAL, _TABLES_FLASHED = _build_tables()
 
 
+def resolve(screen: Screen, buffer: bytearray, flashing: bool = False) -> bytearray:
+    """Resolve a Screen's pixels and attributes into one palette index a pixel.
+
+    This lives outside `Display` because the window is no longer the only thing
+    that needs a frame in colour (issue #45). A screenshot taken any other way
+    could disagree with what a player sees -- a second copy of the colour rules
+    would be a second thing to get wrong, and the whole point of a screenshot
+    here is that somebody may judge the art from it. So there is one resolver
+    and both callers go through it.
+
+    `buffer` is passed in rather than returned fresh because the window reuses
+    one for every frame at 50Hz; it is returned as well so the one-shot callers
+    can read like an expression.
+    """
+    tables = _TABLES_FLASHED if flashing else _TABLES_NORMAL
+    pixels, attrs = screen.pixels, screen.attrs
+
+    for cy in range(ROWS):
+        for cx in range(COLS):
+            table = tables[attrs[cy * COLS + cx]]
+            left = cx * CELL
+            for row in range(cy * CELL, cy * CELL + CELL):
+                start = row * SCREEN_W + left
+                buffer[start:start + CELL] = pixels[
+                    start:start + CELL
+                ].translate(table)
+    return buffer
+
+
 class Display:
     """Owns the Pygame window and blits Screen contents into it."""
 
@@ -57,7 +86,7 @@ class Display:
         pygame.display.set_caption(title)
         # 8-bit paletted surface at true Spectrum resolution.
         self.surface = pygame.Surface((SCREEN_W, SCREEN_H), depth=8)
-        self.surface.set_palette(_SURFACE_PALETTE)
+        self.surface.set_palette(SURFACE_PALETTE)
         # transform.scale needs matching formats, and the window is not 8-bit,
         # so the paletted frame is blitted through a scratch surface that
         # already carries the display format.
@@ -68,18 +97,7 @@ class Display:
     def render(self, screen: Screen) -> None:
         """Resolve pixels + attributes into colour, then present the frame."""
         flashing = (self._frame // FLASH_PERIOD) % 2 == 1
-        tables = _TABLES_FLASHED if flashing else _TABLES_NORMAL
-        pixels, attrs, buf = screen.pixels, screen.attrs, self._buffer
-
-        for cy in range(ROWS):
-            for cx in range(COLS):
-                table = tables[attrs[cy * COLS + cx]]
-                left = cx * CELL
-                for row in range(cy * CELL, cy * CELL + CELL):
-                    start = row * SCREEN_W + left
-                    buf[start:start + CELL] = pixels[
-                        start:start + CELL
-                    ].translate(table)
+        buf = resolve(screen, self._buffer, flashing)
 
         self.surface.get_buffer().write(bytes(buf))
         self._scratch.blit(self.surface, (0, 0))

@@ -61,6 +61,35 @@ The four reference bots are `statue`, `wanderer`, `listener` and `oracle`, named
 after the ones the phase-0 difficulty targets are stated against. They walk;
 they cannot reach into the run.
 
+## Seeing it without a window
+
+Until issue #45 the only way to look at this game was to be sitting in front of
+it: the driver has no window, so every playtest note in the project was written
+from the two files above and nobody reviewing the art had seen a frame. These
+two flags are the answer, and both work with no window and no display device.
+
+```sh
+cd prototype
+python -m spikes.spike_driver --bot listener --seed 1 --snap 0,300,900
+python -m spikes.spike_driver --gallery runs/gallery
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--snap 0,300,900` | Saves those frames of the run as PNGs, into `--out`, named after the same run as its `.json` and `.txt`. Implies `--draw`. |
+| `--scales 1,3` | Which scales to write (the default). 1:1 is the only honest view of the pixels; x3 is what a person can actually look at. |
+| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet, and each room both fully lit and as it looks a few seconds into a run. Runs no seeds and writes no report. |
+
+A snapshot is named by its session frame. **Frame 0 is the run before it has
+run** — the walls are drawn but no light has been applied yet, so it comes out
+almost black; the window never shows that frame, because the loop steps and then
+draws. Frame 1 is the first picture a player sees, and the opening flash of a
+room is frames 1 to 12.
+
+Scaling is nearest-neighbour at whole numbers only — a smoothed screenshot of a
+1-bit display invents colours the Spectrum does not have. The colour comes from
+the window's own resolver, so a PNG cannot disagree with what a player sees.
+
 ## Test
 
 ```sh
