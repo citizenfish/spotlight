@@ -566,3 +566,53 @@ def test_a_body_one_step_ahead_is_still_wholly_covered():
                          (S.UP, ((10, 9), (10, 8)))):
         cells = set(patch_cells(10, 10, facing))
         assert set(body) <= cells, f"facing {facing} missed part of the body"
+
+
+# --- the droplets ----------------------------------------------------------
+
+def _dots(pattern):
+    """Where the pixels are, as (row, column) pairs, bit 7 leftmost."""
+    return [(y, x) for y, bits in enumerate(pattern)
+            for x in range(8) if bits & (0x80 >> x)]
+
+
+def test_the_droplets_moved_out_of_the_code_without_moving_a_dot():
+    """The transcription that issue #51 was, pinned to the pixel.
+
+    **What was wrong before:** the droplets were declared as hex in `spray.py`
+    although the asset-pipeline decision put them in `assets/tiles/spray.txt`,
+    so nothing checked them for drift and the port had no `DEFB` for them.
+    Moving them changed no pixel, and these are the positions they had at
+    `fb4d831`.
+
+    The two properties underneath the exact list are what the pattern is for,
+    and either of them going is a look regression rather than a tidy-up:
+
+    * **twice the density of lit floor** -- eight dots against four -- so a
+      sprayed cell reads as covered in something; and
+    * **staggered, not columnar.** Lit floor puts its dots in columns 1 and 5
+      on every row that has any; the spray alternates columns 2 and 6 with
+      columns 0 and 4. That is what keeps poison distinguishable from lit floor
+      **without relying on the cyan**, which matters because hue is per 8x8
+      cell and a patch at the edge of the torch sits against every brightness
+      there is.
+    """
+    from spikes import floor
+    from spikes.spray import STIPPLE
+
+    assert _dots(STIPPLE) == [(1, 2), (1, 6), (3, 0), (3, 4),
+                              (5, 2), (5, 6), (7, 0), (7, 4)]
+    assert len(_dots(STIPPLE)) == 2 * len(_dots(floor.STIPPLE_LIT))
+    columns = {x for _, x in _dots(STIPPLE)}
+    assert not columns & {x for _, x in _dots(floor.STIPPLE_LIT)}, \
+        "the droplets landed in the floor stipple's columns and stopped " \
+        "being distinguishable from it in mono"
+
+
+def test_the_droplets_are_drawn_from_the_generated_table():
+    """`spray.py` declares no bytes: the pattern comes through `bitmaps_gen`
+    like every other bitmap, so a change to the asset reaches the screen and
+    the Z80 from one edit (issue #51)."""
+    from spikes import bitmaps_gen, spray as spray_mod
+
+    assert spray_mod.STIPPLE is bitmaps_gen.BITMAPS["SPRAY"]

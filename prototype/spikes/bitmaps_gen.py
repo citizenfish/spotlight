@@ -278,6 +278,28 @@ DOOR_OPEN = (
     0xC3,  # ##....##   no head and no sill: open at both ends
 )
 
+FLOOR_DIM = (
+    0x00,  # ........   one dot in sixty-four -- ground you are remembering, not seeing
+    0x00,  # ........
+    0x00,  # ........
+    0x10,  # ...#....
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
+FLOOR_LIT = (
+    0x00,  # ........   four dots, evenly spread -- fully lit ground
+    0x44,  # .#...#..
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+    0x44,  # .#...#..
+    0x00,  # ........
+    0x00,  # ........
+)
+
 FOLLOWER = (
     0x00,  # ........
     0x00,  # ........
@@ -369,6 +391,17 @@ PLAYER = (
     0x00,  # ........   one clear row, so the mark is not feet
     0xFF,  # ########   the mark: the only figure with ground under him
     0xFF,  # ########
+)
+
+SPRAY = (
+    0x00,  # ........   scattered droplets, staggered so they are not the floor's columns
+    0x22,  # ..#...#.
+    0x00,  # ........
+    0x88,  # #...#...
+    0x00,  # ........
+    0x22,  # ..#...#.
+    0x00,  # ........
+    0x88,  # #...#...
 )
 
 WALL_DIM_00 = (
@@ -767,6 +800,8 @@ BITMAPS = {
     "DOORWAY_15": DOORWAY_15,
     "DOOR_LOCKED": DOOR_LOCKED,
     "DOOR_OPEN": DOOR_OPEN,
+    "FLOOR_DIM": FLOOR_DIM,
+    "FLOOR_LIT": FLOOR_LIT,
     "FOLLOWER": FOLLOWER,
     "HOUSING": HOUSING,
     "KEY": KEY,
@@ -774,6 +809,7 @@ BITMAPS = {
     "LAMP_ON": LAMP_ON,
     "NEST": NEST,
     "PLAYER": PLAYER,
+    "SPRAY": SPRAY,
     "WALL_DIM_00": WALL_DIM_00,
     "WALL_DIM_01": WALL_DIM_01,
     "WALL_DIM_02": WALL_DIM_02,

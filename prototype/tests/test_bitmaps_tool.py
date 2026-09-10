@@ -250,8 +250,14 @@ def test_the_asm_and_the_python_hold_the_same_bytes():
 
 
 def test_every_bitmap_the_game_draws_came_out_of_the_pipeline():
-    """Sprites and tiles both, so that neither can quietly grow a second copy."""
-    from spikes import bitmaps_gen, sprites, tiles
+    """Sprites, tiles, and the two stipples, so none can grow a second copy.
+
+    The stipples are here because of issue #51: the wall-tile slice claimed
+    nothing that draws declared a byte of its own, and three blocks did -- the
+    lit and dim floor stipples and the spray's droplets, the oldest bitmaps in
+    the game and therefore the ones a slice looking at walls never saw.
+    """
+    from spikes import bitmaps_gen, floor, sprites, spray, tiles
 
     for sprite in sprites.SPRITES.values():
         assert tuple(sprite) in set(bitmaps_gen.BITMAPS.values())
@@ -260,6 +266,110 @@ def test_every_bitmap_the_game_draws_came_out_of_the_pipeline():
                           (tiles.DOORWAY, "DOORWAY")):
         for mask, rows in enumerate(table):
             assert rows == bitmaps_gen.BITMAPS[f"{prefix}_{mask:02d}"]
+    assert floor.STIPPLE_LIT == bitmaps_gen.BITMAPS["FLOOR_LIT"]
+    assert floor.STIPPLE_DIM == bitmaps_gen.BITMAPS["FLOOR_DIM"]
+    assert spray.STIPPLE == bitmaps_gen.BITMAPS["SPRAY"]
+
+
+# --- the rule, and its one exception, both checked -------------------------
+
+#: Modules under `spikes/` that are allowed to declare bytes, each with the
+#: reason it is allowed. **The list is the whole point of the test**: the rule
+#: "nothing that draws declares a byte of its own" was stated in a commit
+#: message and then had three silent exceptions, and a rule with unlisted
+#: exceptions is one nobody can check (issue #51).
+BYTE_DECLARERS = {
+    "bitmaps_gen.py":
+        "the generated table itself -- this is where the bytes are supposed "
+        "to be",
+    "font.py":
+        "the 8x8 character set. It is genuinely the same kind of thing and "
+        "belongs in assets/ too, but it is sixty-odd glyphs keyed by "
+        "character -- ':' and '/' and '?' are not [A-Z][A-Z0-9_]* -- so it "
+        "needs a naming rule the asset format has not got yet. Issue #51 "
+        "scoped itself to the three stipples and left this named here rather "
+        "than unnoticed.",
+}
+
+#: How many bytes in a row make a declaration rather than a coincidence. Eight
+#: is a bitmap's height, and the shortest thing worth moving to `assets/`.
+BYTES_IN_A_ROW = 8
+
+
+def _declared_byte_blocks(path):
+    """Every tuple or list in one module that looks like a bitmap.
+
+    Eight or more integer constants, all of them a byte. Read from the syntax
+    tree rather than by grepping for `0x`, so that decimal art, a hex constant
+    that is not art, and a comment that merely mentions bytes are all judged
+    correctly.
+    """
+    import ast
+
+    found = []
+    tree = ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Tuple, ast.List)):
+            continue
+        values = node.elts
+        if len(values) < BYTES_IN_A_ROW:
+            continue
+        if all(isinstance(v, ast.Constant) and isinstance(v.value, int)
+               and not isinstance(v.value, bool) and 0 <= v.value <= 0xFF
+               for v in values):
+            found.append(node.lineno)
+    return found
+
+
+def test_nothing_that_draws_declares_a_byte_of_its_own():
+    """The claim the wall-tile slice made, now actually enforced.
+
+    **What was wrong before.** `e651a19` said "nothing that draws declares a
+    byte of its own any more" and the drift test only ever looked at the files
+    that had already moved, so `floor.py` and `spray.py` went on holding hex
+    tuples and `assets/tiles/floor.txt` and `spray.txt` -- both named in the
+    asset-pipeline decision -- did not exist. A rule stated in prose and
+    checked nowhere is a rule that decays into a habit.
+
+    Anything new that fails this should move its art into `assets/` and
+    regenerate. Adding a name to `BYTE_DECLARERS` is allowed, but it is a
+    visible decision with a reason attached, which is the difference between an
+    exception and a leak.
+    """
+    spikes = ROOT / "prototype" / "spikes"
+    offenders = {}
+    for path in sorted(spikes.glob("*.py")):
+        if path.name in BYTE_DECLARERS:
+            continue
+        lines = _declared_byte_blocks(path)
+        if lines:
+            offenders[path.name] = lines
+    assert not offenders, (
+        f"{offenders} declares bytes in drawing code. Author the art in "
+        f"assets/ and regenerate with tools/bitmaps.py.")
+
+
+def test_the_stipples_are_inside_the_tree_the_drift_test_watches(tmp_path):
+    """Editing a row of `floor.txt` without regenerating must fail the suite.
+
+    The drift test compares the committed module against a regeneration of the
+    whole asset tree, so this only holds if `floor.txt` is *in* that tree. That
+    is easy to believe and cheap to prove: move one dot in a copy of the tree
+    and the regenerated module stops matching the committed one.
+    """
+    import shutil
+
+    tree = tmp_path / "assets"
+    for name in ("sprites", "tiles"):
+        shutil.copytree(ROOT / "assets" / name, tree / name)
+    floor_txt = tree / "tiles" / "floor.txt"
+    text = floor_txt.read_text()
+    assert "...#...." in text, "the dim stipple is not where this test looks"
+    floor_txt.write_text(text.replace("...#....", "....#...", 1))
+
+    paths = [str(tree / "sprites"), str(tree / "tiles")]
+    blocks = bitmaps.read_tree(paths)
+    assert bitmaps.python_module(blocks, list(ASSETS)) != GENERATED_PY.read_text()
 
 
 def test_writing_only_happens_when_something_changed(tmp_path):

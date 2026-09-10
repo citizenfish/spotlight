@@ -1,0 +1,36 @@
+; spray.txt
+;
+; Flyspray on the ground: the droplets that mark a patch of poisoned floor.
+;
+; **It has to read differently from lit floor, and it has only pixels to do it
+; with.** Sprayed ground is drawn in cyan while lit floor is white, but hue is
+; the one thing an 8x8 cell cannot be relied on for -- a patch laid at the edge
+; of the torch sits next to cells of every brightness, and colour blindness and
+; a black-and-white television both exist. So the droplets are twice as dense
+; as the lit stipple and, more to the point, **staggered**: two dots on every
+; other row, the pairs shifted two pixels between rows, where the floor's dots
+; line up in columns. A column of dots and a scatter of them are still different
+; when both are the same colour.
+;
+; Drawn over the floor rather than instead of it -- the play area composites,
+; nothing clears -- so a lit sprayed cell carries both patterns, which is why
+; the offsets matter more than the count.
+;
+; **Not to be redrawn without a design decision.** The patch's shape is settled
+; in the vault (issue #42 and issue #44 for the rebound), and its density is
+; what tells a player at a glance how much of a doorway one charge plugged.
+;
+; It lived as hex in `spikes/spray.py` until issue #51 moved it here, so that
+; the port gets these bytes as DEFB like every other bitmap and the drift test
+; guards them.
+
+name: SPRAY
+size: 8x8
+........   scattered droplets, staggered so they are not the floor's columns
+..#...#.
+........
+#...#...
+........
+..#...#.
+........
+#...#...

@@ -1,0 +1,56 @@
+; floor.txt
+;
+; The stipple: how the game tells you a cell is floor at all.
+;
+; A lit cell with no pixels set is just black -- ink on black paper with no ink
+; drawn -- so without a stipple, light reveals *objects* but never its own
+; shape, and the player cannot tell how far their spotlight reaches.
+;
+; **The two densities are the contrast step the palette cannot give.** LIT and
+; DIM differ by only 255 against 215 on one channel, which is nearly invisible
+; on a moving sprite; four dots against one is not. So the fade is carried by
+; how much of a cell is drawn, not by hue, and it will carry the same way on a
+; Spectrum where the two levels are BRIGHT and not-BRIGHT of one ink.
+;
+; **The densities are tuned and are not to be redrawn** (issue #51 says so in
+; as many words). They decide how much of a room the player is told about, and
+; the dim one is deliberately one dot in sixty-four -- ground you are
+; remembering rather than seeing. Moving a dot is a gameplay change, not an art
+; tidy-up.
+;
+; Two things elsewhere are measured against these dots and would have to be
+; re-measured if they moved:
+;
+;   * the player's foot bar is five pixels of solid ink because the lit
+;     stipple's dot-every-four-pixels swallows anything narrower (issue #49,
+;     and see assets/sprites/player.txt);
+;   * `test_spike_tiles` checks that a sign painted on floor and the returns
+;     drawn in a doorway both leave the lit stipple showing through, because a
+;     lit cell with nothing in it reads as an unlit one.
+;
+; These blocks were the oldest bitmaps in the game and the last art still
+; declared as hex in drawing code; they came here so that the answer to *what
+; does a floor look like* is a file and not a Python module, and so that the
+; drift test guards them like every other bitmap.
+
+name: FLOOR_LIT
+size: 8x8
+........   four dots, evenly spread -- fully lit ground
+.#...#..
+........
+........
+........
+.#...#..
+........
+........
+
+name: FLOOR_DIM
+size: 8x8
+........   one dot in sixty-four -- ground you are remembering, not seeing
+........
+........
+...#....
+........
+........
+........
+........

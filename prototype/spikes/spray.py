@@ -15,20 +15,21 @@ the damage is decided -- see the design notes on Clegs.
 
 from spotlight.core.constants import COLS
 
+from .bitmaps_gen import BITMAPS
 from .layout import PLAY_ROWS
 from .sources import _AXES
 
 #: Scattered droplets, so sprayed ground reads differently from lit floor.
-STIPPLE = (
-    0x00,
-    0x22,  # ..#...#.
-    0x00,
-    0x88,  # #...#...
-    0x00,
-    0x22,  # ..#...#.
-    0x00,
-    0x88,  # #...#...
-)
+#:
+#: **The droplets are not here.** They are authored in `assets/tiles/spray.txt`
+#: and generated into `bitmaps_gen.py` by `tools/bitmaps.py` (issue #51). They
+#: had been declared as hex in this module since the spike, which left them
+#: outside the drift test that guards every other bitmap and gave the port
+#: nothing to assemble. Not one pixel moved in the transcription -- the gallery
+#: was regenerated and compared byte for byte -- and the pattern's density and
+#: its stagger against the floor's columns are both load-bearing, so the asset
+#: file, not this line, is where the reasoning lives.
+STIPPLE = BITMAPS["SPRAY"]
 
 #: Frames a patch stays active. 50 is one second.
 PATCH_FRAMES = 250
