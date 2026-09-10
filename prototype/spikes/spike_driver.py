@@ -116,6 +116,15 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
         run.step(bot.intent(run) if bot is not None else session_mod.IDLE)
         if draw:
             run.draw(screen)
+            # **The driver schedules and counts surges and never waits for
+            # one** (issue #53). Its frames are frames of simulation: holding
+            # here would mean the same `--frames` bought fewer stepped frames,
+            # every bot run would end somewhere new, and the tail of every
+            # event log in the project would shift -- the same reason it
+            # honours no pause. With `--draw` it draws the plan, so the frame
+            # can be photographed and its cells counted, and steps straight on.
+            if run.surge.take():
+                run.draw_surge(screen)
             if on_frame is not None:
                 on_frame(run, screen)
     if run.over is None:
@@ -159,7 +168,7 @@ def write(run, name: str, out_dir: str, when: str = "",
         json.dump(report.results(run, bot=name, extra=extra), handle, indent=1)
         handle.write("\n")
     with open(f"{base}.txt", "w") as handle:
-        handle.write("\n".join(report.human(run, bot=name, measured=extra))
+        handle.write("\n".join(report.note(run, bot=name, measured=extra))
                      + "\n")
     return f"{base}.json", f"{base}.txt"
 
@@ -261,6 +270,11 @@ SUMMARY = (
     ("chgp99", "cells_changed_p99", 6),
     ("chgmax", "cells_changed_max", 6),
     ("wall/100f", "wall_cells_changed_per_100f", 9),
+    # **The one figure the repaint counter cannot see** (issue #53). A surge
+    # changes no light level, so the four columns to the left of this one must
+    # not move by one when it lands; what it costs instead is two whole-screen
+    # repaints apiece, and this is how many times a run paid them.
+    ("surges", "surges", 6),
 )
 
 
@@ -361,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(results)
 
         print()
-        for line in report.human(run, bot=name, measured=extra):
+        for line in report.note(run, bot=name, measured=extra):
             print(line)
         if not args.no_files:
             paths = write(run, name, args.out, when, extra)

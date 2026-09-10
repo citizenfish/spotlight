@@ -493,6 +493,72 @@ def freed_room(index: int = scene.NEAR) -> Screen:
     return screen
 
 
+#: How long the gallery will play a run looking for a frame with a nest on it.
+#:
+#: A nest is a body twenty seconds after a death, so it is the one thing on the
+#: surge plan that a run has to be played *into* rather than set up: the statue
+#: on the gallery seed turns its first at frame 4,000. The limit is generous
+#: rather than tight because what it guards against is an infinite loop, not a
+#: slow one -- and if the game ever stops producing a nest in two minutes of
+#: play, that is a finding rather than a broken sheet.
+SURGE_LIMIT = 6000
+
+
+def surge_screen() -> Screen:
+    """The mains surge, on a played frame: the whole building plan.
+
+    Issue #53. **The one picture in the game that shows both rooms at once**,
+    and the beat the whole memorisation premise rests on -- so the sheet has to
+    show it with something in it. A plan of two empty rooms would be a picture
+    of the geometry working and would say nothing about the thing the surge is
+    for, which is that it hands you *the people* as well as the building.
+
+    So the run is played until there is a nest in the building, because a nest
+    is the one mark on the plan that cannot be set up: it is a body twenty
+    seconds after a death, and both halves of that have to actually happen. The
+    workers, the flies and the player are there from the first frame.
+
+    **The statue plays it**, which is the one choice here worth arguing. The
+    listener reaches the same state at frame 3,200 and rescues five people on
+    the way, so its plan has one green mark left on it -- a truthful frame of a
+    good run and a poor picture of what a surge hands over. The statue saves
+    nobody, so the plan carries five people in both rooms, a nest, the swarm
+    and a player standing on open floor, which is what a reviewer has to be able
+    to look at. Nothing about the level or the rules moves either way.
+
+    **The surge is drawn by the game's own code on an ordinary frame** --
+    `Session.draw_surge`, exactly as the shell calls it -- rather than by
+    anything this module knows about plans. It is not scheduled: waiting for a
+    real one would mean playing a run until its own seed said so, and the
+    picture would then be of whatever frame that landed on rather than of a
+    frame with a nest in it. What is photographed is the drawing, which is what
+    the sheet is for.
+
+    It raises rather than returning a picture of nothing if the run never
+    produces one, for the same reason `swapped_room` does: a sheet that quietly
+    showed an empty plan would be the one image on it nobody could check.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    playing = bots.make("statue", seed=GALLERY_SEED)
+    for _ in range(SURGE_LIMIT):
+        run.step(playing.intent(run))
+        if run.over is not None:
+            break
+        if run.rescue.nests() and run.rescue.alive_waiting():
+            break
+    if not (run.rescue.nests() and run.rescue.alive_waiting()):
+        raise RuntimeError(
+            f"no nest and somebody alive in {SURGE_LIMIT} frames of the "
+            f"gallery run, so the plan would be photographed without them")
+    screen = Screen()
+    # The ordinary frame first and the plan over the top of it, which is what
+    # the shell does: the play area is replaced and the status strip is left
+    # exactly where it is, still reading out the run underneath.
+    run.draw(screen)
+    run.draw_surge(screen)
+    return screen
+
+
 def standing_clear(run) -> bool:
     """Is the player far enough from the edges to be a picture of a room?
 
@@ -568,4 +634,12 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     near = slug(scene.BUILDING[scene.NEAR].name)
     sheet(f"room-{near}-freed", freed)
     sheet(f"room-{near}-freed-flashed", freed, flashing=True)
+    # The mains surge (issue #53), in both halves of the cycle for the same
+    # reason: the player's mark and the nests are drawn with the FLASH bit, and
+    # a still can only ever show one half of it. **The half where the player is
+    # inverted is the half you find yourself in**, so a reviewer given only the
+    # other one would be looking at a plan with no player on it.
+    surged = surge_screen()
+    sheet("surge", surged)
+    sheet("surge-flashed", surged, flashing=True)
     return paths

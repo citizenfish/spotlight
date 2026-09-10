@@ -13,6 +13,11 @@ door, and get back in for the next one before the ones you left run out of time.
 Your torch shows you the room. It also shows the biting flies where you are.
 That trade is the whole game.
 
+The building's power is failing rather than dead. Every forty to seventy
+seconds it surges, and for a second you get the whole plan: both rooms, the way
+out, the people, the nests and the flies. Everything stops while it is up. Then
+the darkness comes back and what you have is whatever you held in your head.
+
 ## Playing it
 
 You need Python 3.12 and about a minute. On a clean machine:
@@ -28,7 +33,9 @@ python -m spotlight
 ```
 
 `--scale N` makes the window bigger or smaller; the default is 3, which is a
-768x576 window for a 256x192 screen.
+768x576 window for a 256x192 screen. `--surge-frames N` changes how long the
+mains surge holds the building plan on screen; the default is 50, one second,
+and how long it *should* be is an open question that only playing can settle.
 
 The title screen says everything a first-time player needs, in words. Briefly:
 

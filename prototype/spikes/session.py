@@ -35,8 +35,9 @@ from spotlight.core.screen import Screen, attr_byte
 
 from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
-    moments as moments_mod, rescue as rescue_mod, scene, sources,
-    spray as spray_mod, sprites, tally as tally_mod, tiles,
+    moments as moments_mod, player as player_mod, rescue as rescue_mod,
+    scene, sources, spray as spray_mod, sprites, surge as surge_mod,
+    tally as tally_mod, tiles,
 )
 from .layout import PLAY_BOTTOM, PLAY_TOP
 from .lighting import LightField
@@ -346,7 +347,8 @@ class Session:
 
     def __init__(self, seed: int = DEFAULT_SEED,
                  blood: int = BLOOD_FULL, lives: int = LIVES,
-                 metrics: bool = False) -> None:
+                 metrics: bool = False,
+                 surge_frames: int = surge_mod.SURGE_FRAMES) -> None:
         self.seed = seed
         scene.validate()
         self.building = scene.BUILDING
@@ -430,6 +432,16 @@ class Session:
         #: run on from the starting swarm's, so no fly in the building shares a
         #: seed with another and a brood is as varied as an authored swarm.
         self._brood_seed = sources.xorshift16(beam_seed)
+        #: When the mains surge (issue #53), and how long the host owes when it
+        #: does. **Its seed is the last link in the chain, after the Cleg, beam
+        #: and brood seeds, and that placement is the requirement rather than a
+        #: preference**: derived anywhere earlier it would shift every seed
+        #: downstream of it, every fly in the building would behave differently
+        #: and every event log in the project would move. It decides nothing
+        #: about the game -- see `surge.Schedule`, and `surge.Schedule.take`
+        #: for who honours the freeze.
+        self.surge = surge_mod.Schedule(
+            sources.xorshift16(self._brood_seed), frames=surge_frames)
         #: How often the valve has held a spawn, and the most nests that have
         #: ever been live at once. Target T13 is stated in both.
         self.valve_holds = 0
@@ -990,7 +1002,44 @@ class Session:
         ending = self._ending()
         if ending is not None:
             self.finish(ending)
+        else:
+            # **Last, and only while the run is still going** (issue #53). A
+            # surge is not an event, raises none, and changes nothing a rule
+            # can read -- it hands the *host* a number of frames not to step
+            # the game for, exactly as a moment's pause does. A run that has
+            # just ended does not flash a plan of a building nobody is in any
+            # more; the ending screen is what happens next.
+            self.surge.update(self.frame, self._mid_threshold())
         return self.frame_events
+
+    def _mid_threshold(self) -> bool:
+        """Is the player's figure partway through a doorway right now?
+
+        **The one thing a surge is not allowed to interrupt.** A screen that
+        changes twice in two frames is a glitch rather than a beat: the player
+        straddling a doorway is a frame or two from the view flicking to the
+        next room, and dropping the plan on top of that reads as the display
+        breaking. A surge that comes due here waits -- see
+        `surge.Schedule.update`, which defers it and never drops it.
+
+        True while any part of the sprite overlaps the column a doorway is cut
+        through, on a row the doorway occupies. The crossing itself fires when
+        the figure has cleared the threshold *entirely*, so this is exactly the
+        window between first touching it and being through: at a pixel a frame,
+        at most eight frames.
+        """
+        room = self.place.room
+        if not room.doorways:
+            return False
+        left = self.player.x // CELL
+        right = (self.player.x + player_mod.WIDTH - 1) // CELL
+        top = self.player.y // CELL
+        bottom = (self.player.y + player_mod.HEIGHT - 1) // CELL
+        for door in room.doorways:
+            if left <= door.column <= right \
+                    and any(cy in door.rows for cy in range(top, bottom + 1)):
+                return True
+        return False
 
     # --- bodies, and what becomes of them -----------------------------------
 
@@ -1765,3 +1814,65 @@ class Session:
             screen.set_attr(cx, cy,
                             screen.get_attr(cx, cy) | moments_mod.FLASH_BIT)
         self.panel.draw(screen)
+
+    # --- the mains surge ----------------------------------------------------
+
+    def surge_marks(self) -> list:
+        """Everything on the plan that is not the building itself.
+
+        `(room, cx, cy, kind)` for the player, every living worker, every nest
+        and every fly in the building -- **including the rooms you are not
+        standing in**, which is the whole of what a surge hands over. The
+        building is simulated everywhere whether or not you are looking at it,
+        and for one second a surge lets you see that.
+
+        A body that has not turned is deliberately not on this list. The plan
+        shows the people, the nests and the flies, and a body is none of the
+        three: it is neither somebody to reach nor a thing that will hurt you
+        yet, and the tick is already its channel. If the design ever wants
+        bodies on the plan they get their own row of the table and their own
+        hue rather than borrowing a nest's.
+        """
+        marks = [(self.here, self.player.cx, self.player.cy,
+                  surge_mod.P_PLAYER)]
+        for worker in self.rescue.workers:
+            if worker.alive:
+                cx, cy = worker.cell()
+                marks.append((worker.room, cx, cy, surge_mod.P_WORKER))
+        for place in self.places:
+            for nest in self.rescue.nests(place.index):
+                cx, cy = nest.cell()
+                marks.append((place.index, cx, cy, surge_mod.P_NEST))
+            for cleg in place.swarm.clegs:
+                marks.append((place.index, cleg.cx, cleg.cy,
+                              surge_mod.P_CLEG))
+        return marks
+
+    def draw_surge(self, screen: Screen) -> int:
+        """Replace the play area with the building plan. Returns cells written.
+
+        **It reads no light field and writes to none** (issue #53). A surge is
+        not a light: it adds no charge, appears in no room's list of sources
+        and lures nothing, which is why the repaint counter -- which counts
+        cells whose light level changed -- must not move by one when this is
+        called. What it costs instead is a whole-screen repaint here and
+        another when the play area comes back, and the counter can see neither;
+        `surge.cells_written` is that figure and the module docstring prices
+        both against the port's frame budget.
+
+        **The status strip is left exactly as it is**, by not being touched:
+        it is not part of the surge, it is already on screen from the frame
+        before, and rescued-of-quota has been on it permanently since the strip
+        existed. Nothing steps during a freeze, so nothing on it can change --
+        which is why redrawing it here would be a call that could only ever
+        draw the same bytes back.
+
+        **A Pygame convenience worth naming**: the host draws the ordinary
+        frame and then this over the top of it, which is two passes over the
+        play area on the frame a surge fires. On the Z80 the ordinary frame
+        would simply be skipped -- the surge frame is the only thing on screen
+        -- and the price is the one whole-screen repaint the port model already
+        charges for.
+        """
+        return surge_mod.draw(screen, self.building.rooms,
+                              self.surge_marks())

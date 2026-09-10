@@ -68,7 +68,12 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     freed = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
     assert f"{freed}_x1.png" in names and f"{freed}_x3.png" in names
     assert f"{freed}-flashed_x1.png" in names
-    assert len(paths) == len(names) == 16 + 4 * len(scene.BUILDING.rooms)
+    # The mains surge (issue #53), in both halves of the cycle for the same
+    # reason: the player's mark on the plan is drawn with the FLASH bit, and
+    # finding yourself is the precondition for reading the plan at all.
+    for sheet in ("surge", "surge-flashed"):
+        assert f"{sheet}_x1.png" in names and f"{sheet}_x3.png" in names
+    assert len(paths) == len(names) == 20 + 4 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):

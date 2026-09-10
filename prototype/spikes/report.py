@@ -26,11 +26,32 @@ counts rather than people, which is exactly why a run could report four workers
 
 from spotlight.core.constants import COLS
 
-from . import lighting, rescue as rescue_mod, session as session_mod, sources
+from . import (
+    lighting, rescue as rescue_mod, session as session_mod, sources, surge,
+)
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
 
 FRAME_RATE = 50
+
+#: Whole-screen repaints one surge costs: the frame the plan appears and the
+#: frame the play area comes back (issue #53). **The existing repaint counter
+#: can see neither**, because it counts cells whose light level changed and a
+#: surge changes none -- it freezes the field and replaces the screen. Two is
+#: therefore a fact about how a surge is drawn rather than a measurement, and
+#: it is written here beside the metric it multiplies.
+SURGE_REPAINT_FRAMES = 2
+
+#: How many T-states one of those frames costs the port, at 704 cells and
+#: roughly 146 T-states a cell, against 52,416 spendable in a 50Hz frame. About
+#: 196% of the budget before an entity is drawn -- **the same overrun a room
+#: entry already has**, arriving by a different door, twice every forty to
+#: seventy seconds. It is the pre-existing fault the tile slice recorded, it is
+#: not this slice's to fix, and the dirty-cell retrofit that fixes it is owed
+#: elsewhere. Stated so that a run report prices it rather than a reader having
+#: to.
+SURGE_FRAME_TSTATES = 102620
+FRAME_TSTATES = 52416
 
 # --- outcomes --------------------------------------------------------------
 # What became of one person. Five, not three, because "died" and "still inside"
@@ -214,9 +235,24 @@ def metrics(run) -> dict:
     changes = (run.repaint.stats() if run.repaint is not None
                else {key: None for key in lighting.REPAINT_METRICS})
 
+    # **What the surge costs, in its own figures, because the counter above
+    # cannot see it** (issue #53). A surge changes no light level -- it freezes
+    # the field and replaces the screen -- so every number in `changes` must be
+    # identical to the commit before this slice. What it does cost is two
+    # whole-screen repaints per surge: one on the frame the plan appears, one
+    # on the frame the play area comes back. Both are counted here rather than
+    # inferred, and priced in `surge.py` against the port's frame budget.
+    surges = {
+        "surges": run.surge.count,
+        "surge_repaint_frames": SURGE_REPAINT_FRAMES * run.surge.count,
+        "surge_repaint_cells": surge.cells_written(),
+        "surge_frames": run.surge.frames,
+    }
+
     return {
         **by_lure,
         **changes,
+        **surges,
         "frames": run.frame,
         "seconds": run.seconds,
         "workers_total": run.total,
@@ -605,6 +641,47 @@ def _nest_clause(run) -> str:
     # the ending, it is the shortest thing in the report, and "four nests, 15
     # flies" is what somebody would jot beside a run anyway.
     return f"Bodies: {', '.join(parts)}. " if parts else ""
+
+
+def surge_lines(run) -> list[str]:
+    """What the surges cost, in English. Issue #53, for the tester's note.
+
+    **Not part of the five sentences above**, and appended after them the same
+    way the crossing walker's figures are. The bound on `human` is a design
+    rule -- a memory aid that has to be studied is not one -- and it is stated
+    about the sentences a user talks from. This is a measurement, and it is
+    here rather than only in the JSON because the note that has to state the
+    port price is written from the `.txt`.
+
+    The price itself is the pre-existing one: two whole-screen repaints per
+    surge, which the light-level repaint counter cannot see, on the same
+    overrun a room entry already has. Saying it every run is the point -- it is
+    the figure this slice is not allowed to quietly make somebody else's
+    problem.
+    """
+    if not run.surge.count:
+        return []
+    frames = run.surge.frames
+    repaints = SURGE_REPAINT_FRAMES * run.surge.count
+    return _wrap(
+        f"Surges: {_word(run.surge.count)}, of {frames} frames, with the "
+        f"game frozen while the plan is up. They cost {_word(repaints)} "
+        f"whole-screen repaints the light counter cannot see -- "
+        f"{surge.cells_written()} cells apiece, about {SURGE_FRAME_TSTATES:,} "
+        f"T-states against {FRAME_TSTATES:,} spendable, which is the same "
+        f"overrun a room entry already has and is not this slice's to fix.")
+
+
+def note(run, bot: str = "", label: str = "",
+         measured: dict | None = None) -> list[str]:
+    """The whole `.txt`: the five sentences, then what was measured.
+
+    Split from `human` so the memory aid keeps its bound and the measurements
+    keep their place underneath it. Whoever writes a note about a run reads
+    this; whoever wants a number reads the JSON.
+    """
+    return human(run, bot=bot, label=label, measured=measured) \
+        + surge_lines(run)
 
 
 def human(run, bot: str = "", label: str = "",
