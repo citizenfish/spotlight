@@ -20,7 +20,8 @@ from spotlight.core.constants import CELL
 from spotlight.core.screen import Screen
 
 from spikes import (
-    buzz, clegs as clegs_mod, panel, rescue as rescue_mod, scene, session,
+    buzz, clegs as clegs_mod, moments, panel, rescue as rescue_mod, scene,
+    session,
 )
 from spikes.session import Intent, Session
 from spikes.spotlights import FloorLight
@@ -1068,8 +1069,19 @@ def test_the_torch_going_out_is_announced_once_and_then_stops_flashing():
 def test_swapping_onto_a_fresh_light_is_not_the_torch_running_out():
     """The bar refills in front of you, and you did it on purpose.
 
-    The alert is for the thing that happens *to* the player. A spotlight picked
-    up on the same frame the last one died is not that.
+    A spotlight picked up on the same frame the last one died is not the torch
+    running out, and it must not be logged or read as one.
+
+    **The bar does now flash on a swap, and it did not until issue #52.** The
+    original rule here was that the alert is only for the thing that happens
+    *to* the player, and a swap is not that; *Art Direction* section 8 revisits
+    it and adds `M_PICKUP`, on the ground that the bar's **value** changed
+    underneath the player in the same instant -- the case *Screen Layout* carved
+    out -- and because `spotlight_swaps` is 0 in every run any agent has ever
+    made, so a swap that makes no noise and draws no lamp is a mechanic with no
+    surface at all. What still has to be true is that the two are told apart, so
+    the assertion is now about *which* flash: thirty-two frames for the pickup,
+    not the torch's ninety-six, and no `TORCH_OUT` in the log either way.
     """
     run = Session()
     cx, cy = run.player.cx, run.player.cy
@@ -1078,7 +1090,12 @@ def test_swapping_onto_a_fresh_light_is_not_the_torch_running_out():
     run.step(Intent(torch=True))
     assert any(e.kind == session.SWAPPED for e in run.frame_events)
     assert not any(e.kind == session.TORCH_OUT for e in run.frame_events)
-    assert not run.panel.flashing("light")
+    assert not run.panel.flashing("lit"), "the flag is the torch's, not a swap's"
+    for _ in range(moments.PICKUP_FRAMES - 2):
+        run.step()
+    assert run.panel.flashing("light")
+    run.step()
+    assert not run.panel.flashing("light"), "a pickup flashed for a torch's time"
 
 
 # --- the bar reads the light in your hand (issue #38) ----------------------

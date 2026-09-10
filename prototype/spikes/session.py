@@ -35,8 +35,8 @@ from spotlight.core.screen import Screen, attr_byte
 
 from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
-    rescue as rescue_mod, scene, sources, spray as spray_mod, sprites,
-    tally as tally_mod, tiles,
+    moments as moments_mod, rescue as rescue_mod, scene, sources,
+    spray as spray_mod, sprites, tally as tally_mod, tiles,
 )
 from .layout import PLAY_BOTTOM, PLAY_TOP
 from .lighting import LightField
@@ -457,6 +457,14 @@ class Session:
         #: having to search a list to find out.
         self._index = {id(w): i for i, w in enumerate(self.rescue.workers)}
         self.tally = tally_mod.Tally()
+        #: The fourteen moments (issue #52): a flash, a pause and a sound id
+        #: for the things that happen. **It decides nothing.** Every moment is
+        #: raised beside the event that already knew the thing had happened, no
+        #: moment writes to the light field, and the pause on the two endings
+        #: and the death is owed to the *shell* and never acted on here -- see
+        #: `moments.Moments.pause` for what honouring it in the session would
+        #: do to every event log in the project.
+        self.moments = moments_mod.Moments()
 
         #: How many cells change light level per frame, or `None` when nobody
         #: asked (issue #46). **Off in the game and on in the driver**, and off
@@ -702,6 +710,10 @@ class Session:
             return []
         self.frame += 1
         self.frame_events = []
+        # Before anything can raise one, so a moment raised on this frame gets
+        # every frame of its flash. It ages the flashes and clears the list of
+        # what was raised; it changes nothing a rule can read.
+        self.moments.begin()
 
         if intent.torch:
             self.kit.toggle()
@@ -714,6 +726,13 @@ class Session:
                                             self.is_solid):
             self.tally.sprays += 1
             self.panel.set("spray", self.spray.charges)
+            # **Raised here because there is no event for it, and this slice
+            # must not add one** (issue #52). A new kind in the run log is a
+            # changed run log, and every acceptance criterion in the
+            # look-and-feel round rests on the log not moving. Firing the spray
+            # is a thing the player did on purpose, so it is a sound and
+            # nothing else -- no flash, no pause.
+            self._moment(moments_mod.M_SPRAY)
             # The charge covers the ground under the player as well as the
             # patch ahead of them. See `_douse_underfoot` -- it is the moment
             # the charge is spent that this is asked, and nowhere else.
@@ -772,12 +791,20 @@ class Session:
         # Spray reaches everything except a Cleg already on you, and only in
         # the room the patch was laid in.
         killed = 0
+        # Where they died, for the moment's flash: the list has to be taken
+        # before `kill` removes them, because a dead fly has no cell to ask
+        # afterwards. Only this room's, since the screen shows one room and a
+        # cell reference in another is a different place with the same number.
+        died_at = []
         for place in self.places:
-            killed += place.swarm.kill(
-                self.spray.kills(place.swarm.sprayable(), place.index))
+            dead = self.spray.kills(place.swarm.sprayable(), place.index)
+            if place.index == self.here:
+                died_at.extend((fly.cx, fly.cy) for fly in dead)
+            killed += place.swarm.kill(dead)
         if killed:
             self.tally.swatted += killed
             self._record(SPRAY_KILL, count=killed, room=room)
+            self._moment(moments_mod.M_SPRAY_KILL, sorted(set(died_at)))
 
         # Everybody bleeds, found or not. This is the clock, and it is what
         # makes light compete with time rather than with darkness.
@@ -787,6 +814,10 @@ class Session:
             # question the user asks a playtester is where.
             self._record(WORKER_DIED, who=self._index[id(gone)],
                          room=self.places[gone.room].room.name)
+            # **No flash, and it must not gain one.** They are usually not on
+            # lit ground, so there would be nothing to flash, and the death
+            # already has its own channel in the shout. See `moments`.
+            self._moment(moments_mod.M_WORKER_DIED, room=gone.room)
 
         # A body is temporary whatever you do about it: twenty seconds in which
         # a charge saves it, thirty as a nest if it is not, and then nothing.
@@ -800,6 +831,10 @@ class Session:
         freed = self.rescue.reach(self.here, self.player.occupied_cells())
         if freed is not None:
             self._record(FREED, who=self._index[id(freed)], room=room)
+            # The two cells they were standing in **at the instant they were
+            # freed**. It follows them nowhere: a moment marks where a thing
+            # happened, which is also why it costs nothing per frame.
+            self._moment(moments_mod.M_FREED, sorted(freed.cells()))
         self.rescue.follow(self.here, self.player.x, self.player.y)
         # Again, because `follow` is what moves a follower through the doorway
         # and a fly on one has to go with them. Twice a frame over six flies is
@@ -816,6 +851,10 @@ class Session:
         for saved in self.rescue.deliver(self.here,
                                          self.player.occupied_cells()):
             self._record(DELIVERED, who=self._index[id(saved)], room=room)
+            # The door, not the person: what the player is looking at when
+            # somebody is banked is the way out, and the door is the thing that
+            # did it. Two cells, because a person-shaped hole is 8x16.
+            self._moment(moments_mod.M_DELIVERED, self._exit_cells())
         self.at_exit = at_door
         self._gone_in = self._gone_in or not at_door
         # **Leaving is pushing through it.** Not the frame you touch the door
@@ -834,6 +873,9 @@ class Session:
         if bites:
             self.tally.attachments += bites
             self._record(BITTEN, count=bites, room=room)
+            # **No flash.** Bites are frequent and a bar that alerts on every
+            # one is furniture rather than an alert; a bite is a sound.
+            self._moment(moments_mod.M_BITE)
         if self.swarm.drained:
             self._record(DRAINED, count=self.swarm.drained, room=room)
         self.tally.frame(self.cone.lit, self.swarm.drained)
@@ -859,6 +901,12 @@ class Session:
             self.lives -= 1
             self.panel.set("lives", self.lives)
             self._record(LIFE_LOST, count=self.lives, room=room)
+            # Raised **before** the respawn, because the cells to flash are the
+            # ones they died in and `_respawn` is about to put the player back
+            # at the entrance. This is one of the three moments that pause, and
+            # the pause is the shell's -- nothing here waits for it.
+            self._moment(moments_mod.M_PLAYER_DIED,
+                         sorted(self.player.occupied_cells()))
             if self.lives > 0:
                 self._respawn()
 
@@ -883,9 +931,18 @@ class Session:
             # will ever have again.
             self.cone_full = self.cone.power
             self._record(SWAPPED, count=self.cone.power, room=room)
+            # The bar's *value* changed underneath the player in the same
+            # instant, which is the one case *Screen Layout* carved out for a
+            # readout the player did ask for. The bar only, not the flag: the
+            # light was already burning and still is.
+            self._moment(moments_mod.M_PICKUP)
         elif was_lit and self.cone.power <= 0:
             self._record(TORCH_OUT, room=room)
-            self.panel.alert("light")
+            # Both regions, which the bare `panel.alert("light")` here was not:
+            # the table says *the LIGHT bar and its flag*, and the flag is the
+            # half that says the thing has gone out. The frames come from the
+            # moment table, so the two are no longer written down twice.
+            self._moment(moments_mod.M_TORCH_OUT)
 
         self.panel.set("light", bar_pips(self.cone.power, self.cone_full))
         self.panel.set("lit", self.cone.lit)
@@ -1092,6 +1149,12 @@ class Session:
             nest.hatched += 1
             self._record(HATCHED, who=self._index[id(nest)],
                          count=nest.hatched, room=place.room.name)
+            # **The flash is already running and this does not start one.**
+            # A hatch is announced two seconds *before* it happens, so it is a
+            # state on the nest rather than something this event can drive --
+            # see `moments.hatch_is_near`. The moment is still raised, because
+            # it still has a sound.
+            self._moment(moments_mod.M_HATCHED, [at], room=nest.room)
             return True
         return False
 
@@ -1128,6 +1191,8 @@ class Session:
             if body.age == rescue_mod.BODY_FRAMES and not body.doused:
                 self._record(NEST_TURNED, who=self._index[id(body)],
                              room=self.places[body.room].room.name)
+                self._moment(moments_mod.M_NEST_TURNED, [body.cell()],
+                             room=body.room)
             if body.age == rescue_mod.GONE_FRAMES:
                 self._record(NEST_BURNT if not body.doused else BODY_GONE,
                              who=self._index[id(body)],
@@ -1181,6 +1246,9 @@ class Session:
         self.here = to
         self.crossings += 1
         self._record(CROSSED, count=to, room=left)
+        # **No flash**: the screen has just flicked to a different room, which
+        # is already the largest visual event in the game.
+        self._moment(moments_mod.M_DOOR)
         self.place.enter()
         # Straight away, not at the end of the frame: a fly on the player has
         # to change swarms with them, or the swarm it left behind ticks a
@@ -1258,6 +1326,11 @@ class Session:
             return
         self.over = reason
         self._record(GAME_OVER, room=self.room)
+        # An ending may stop the clock, and these two are the only pauses in
+        # the game besides a death. Everything but walking out with all of them
+        # alive is the same beat; getting everyone out has its own.
+        self._moment(moments_mod.M_ALL_OUT if reason == ALL_OUT
+                     else moments_mod.M_GAME_OVER)
 
     def _ending(self) -> str | None:
         """Has the run ended, and how?
@@ -1317,6 +1390,88 @@ class Session:
         self.log.append(event)
         self.frame_events.append(event)
         return event
+
+    # --- the moments (issue #52) -------------------------------------------
+
+    def _moment(self, name: str, cells=(), room: int | None = None):
+        """Raise one of the fourteen. It logs nothing and decides nothing.
+
+        **A moment is not an event.** It is raised beside one, from the code
+        that already knew the thing had happened, and it adds no kind to the run
+        log -- `M_SPRAY` is raised from the call site precisely because there is
+        no `SPRAY_FIRED` and this slice must not invent one. Nothing in a run
+        reads a moment back, so a moment cannot change a run.
+
+        **Only cells the player is already being shown are flashed.** Flashing
+        something in the dark is a light that costs nothing, and this game does
+        not have one of those. The test is the cell's displayed level, read from
+        the room the moment happened in -- which is last frame's field, because
+        `_light` runs at the end of a step. That is the same frame of lag the
+        swarm's prey test has and it is the honest reading of *what the player
+        was being shown when this happened*.
+
+        The moment is raised whether or not any cell survives that test: a
+        moment over dark ground still has a sound, it simply has nothing to
+        flash.
+        """
+        room = self.here if room is None else room
+        field = self.places[room].field
+        moment = self.moments.raise_moment(
+            name, cells, room,
+            lit=lambda cx, cy: field.level_at(cx, cy) != lighting.DARK)
+        # The two strip flashes go through the mechanism the strip already has.
+        # `Panel.alert` is the attribute flash bit on a readout, which is the
+        # same thing this is, so a second mechanism would only be a second
+        # thing to keep in step.
+        for readout in moment.strip:
+            self.panel.alert(readout, moment.frames)
+        return moment
+
+    def _exit_cells(self) -> list:
+        """The two cells of the way out, or none if this room has no door.
+
+        `exit_cell` names the top of the opening and a person is 8x16, so the
+        pair is the person-shaped hole `sprites.DOOR_OPEN` is drawn in.
+        """
+        room = self.place.room
+        if not room.has_exit:
+            return []
+        ex, ey = room.exit_cell()
+        return [(ex, ey), (ex, ey + 1)]
+
+    def flash_cells(self) -> set:
+        """Every cell wearing the FLASH bit this frame, in the room on screen.
+
+        Three sources, and only the first is a moment:
+
+        * the live flashes a moment raised, which were light-tested once when
+          they were raised and are not tested again -- a cell that goes dark
+          mid-flash is black ink on black paper, and flashing swaps ink and
+          paper, so it stops showing anything on its own;
+        * **a body**, for its whole window, from the death until it is doused or
+          it turns. The visual half of the tick, and it had never been built;
+        * **a nest about to place one**, from two seconds before the spawn until
+          the spawn is placed. A tell rather than a report, which is why it
+          cannot be driven by the `HATCHED` event.
+
+        The two states are re-tested against the light every frame, because they
+        are states: a body lying on ground the player cannot see is not being
+        shown anything, and the rule is that a moment may only flash what the
+        player is already being shown.
+        """
+        cells = self.moments.cells(self.here)
+        state = set()
+        for body in self.rescue.bodies(self.here):
+            if moments_mod.body_is_flashing(body):
+                state.add(body.cell())
+        for nest in self.rescue.nests(self.here):
+            if moments_mod.hatch_is_near(nest.age - rescue_mod.BODY_FRAMES,
+                                         nest.hatched, nest.owed):
+                state.add(nest.cell())
+        field = self.place.field
+        cells.update(cell for cell in state
+                     if field.level_at(cell[0], cell[1]) != lighting.DARK)
+        return cells
 
     def _light(self) -> None:
         """Sources contribute, brightest wins, then everything decays.
@@ -1599,4 +1754,14 @@ class Session:
         # Light decides brightness, contents decide hue. This overwrites every
         # play-area attribute, so it must come after the drawing.
         field.paint(screen, frame_inks)
+
+        # **A flash is one bit on top of that, and it is not a light**
+        # (issue #52). Bit 7, which the ULA blinks in hardware at no cost per
+        # frame: the ink, the paper and the bright bit are whatever the light
+        # and the cell's contents already chose, and a moment adds nothing to
+        # the field they chose them from. It has to come after `paint`, which
+        # overwrites every play-area attribute.
+        for cx, cy in self.flash_cells():
+            screen.set_attr(cx, cy,
+                            screen.get_attr(cx, cy) | moments_mod.FLASH_BIT)
         self.panel.draw(screen)

@@ -260,6 +260,10 @@ class Shell:
         self.on_tick = on_tick
         self._torch = False
         self._spray = False
+        #: Frames the shell is holding for, because a moment asked it to
+        #: (issue #52). **The game is not stepped during them and the session
+        #: never hears about them.** See `frame`.
+        self.held = 0
         screens.draw_title(screen)
 
     # --- input --------------------------------------------------------------
@@ -292,9 +296,43 @@ class Shell:
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
+        self.held = 0
 
     def frame(self, dx: int = 0, dy: int = 0) -> None:
-        """One frame of whatever state we are in."""
+        """One frame of whatever state we are in.
+
+        **A pause is frames in which the game is not stepped, and they are the
+        shell's** (issue #52). Three moments ask for one -- a death and the two
+        endings -- and the whole of honouring it is here: `held` counts down,
+        `run.step` is not called, and the frame that was on screen stays on
+        screen. Nothing about the run moves.
+
+        That is not a tidiness preference, it is the constraint the slice was
+        built under. If the *session* held instead, its frame counter would go
+        on advancing through the pause, every event after it would be stamped
+        with a different frame, and every run log in the project would move --
+        which is exactly the guarantee this round is measured by. The headless
+        driver honours no pause at all for the same reason: a hold there would
+        mean the same `--frames` bought fewer stepped frames and the tail of
+        every log would shift. On the target this is the same thing again: the
+        main loop stops calling the game step and goes on servicing the
+        interrupt.
+
+        What it costs, said plainly: the ending screen's TIME TAKEN counts
+        stepped frames, so a run's reported time is short of wall-clock by
+        however long it paused. The alternative is a pause in the run log,
+        which is a far larger price for a much smaller problem.
+        """
+        if self.held:
+            self.held -= 1
+            if not self.held and self.run is not None \
+                    and self.run.over is not None:
+                # The ending screen is what the pause was holding *off*. Fifty
+                # frames of the last play frame -- the flash of where you died
+                # still running on it -- and then the screen that explains it.
+                self.state = ENDED
+                self.show_ending()
+            return
         if self.state != PLAY:
             return
         self.run.step(Intent(dx=dx, dy=dy, torch=self._torch,
@@ -305,7 +343,10 @@ class Shell:
         if self.run.tick and self.on_tick is not None:
             self.on_tick()
         self.run.draw(self.screen)
-        if self.run.over is not None:
+        # Taken after the frame is drawn, so what the pause holds on screen is
+        # the frame the moment happened on.
+        self.held = self.run.moments.take_pause()
+        if self.run.over is not None and not self.held:
             self.state = ENDED
             self.show_ending()
 

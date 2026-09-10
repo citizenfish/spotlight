@@ -15,7 +15,8 @@ pinned below.
 
 import pygame
 
-from spikes import scene, sources, sprites, spike_gallery as gallery, tiles
+from spikes import moments, scene, sources, sprites, tiles
+from spikes import spike_gallery as gallery
 from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import CELL, COLS, ROWS, SCREEN_H, SCREEN_W
 from spotlight.core.screen import Screen
@@ -63,7 +64,11 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # where somebody put it down. No bot has ever swapped one.
     swapped = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-swapped"
     assert f"{swapped}_x1.png" in names and f"{swapped}_x3.png" in names
-    assert len(paths) == len(names) == 12 + 4 * len(scene.BUILDING.rooms)
+    # A moment's flash, in both halves of the cycle (issue #52).
+    freed = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
+    assert f"{freed}_x1.png" in names and f"{freed}_x3.png" in names
+    assert f"{freed}-flashed_x1.png" in names
+    assert len(paths) == len(names) == 16 + 4 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -386,6 +391,31 @@ def test_the_title_is_photographed_in_both_flash_phases(tmp_path):
     paths = gallery.write(str(tmp_path))
     plain = next(p for p in paths if p.endswith("title_x1.png"))
     flashed = next(p for p in paths if p.endswith("title-flashed_x1.png"))
+    assert (pygame.image.tostring(pygame.image.load(plain), "RGB")
+            != pygame.image.tostring(pygame.image.load(flashed), "RGB"))
+
+
+def test_a_played_frame_with_a_flash_in_it(tmp_path):
+    """Issue #52. A flash is two halves of a hardware cycle, so a still can only
+    ever show one of them -- the same reason the title's prompt is photographed
+    twice, and the same fault it was fixing: the first review of that screen
+    read a flashing prompt as plain white text.
+
+    The picture is of a freeing, and it is made by the game's own rules: the
+    player is stood on a waiting worker, `Rescue.reach` frees them, and the
+    session raises `M_FREED` over the two cells they were standing in.
+    """
+    screen = gallery.freed_room()
+    play = COLS * PLAY_ROWS
+    flashing = [i for i in range(play) if screen.attrs[i] & moments.FLASH_BIT]
+    assert flashing, "the sheet has no flash on it to review"
+    # In the play area and nowhere else: this is a moment, not a strip alert.
+    assert not any(a & moments.FLASH_BIT for a in screen.attrs[play:])
+
+    paths = gallery.write(str(tmp_path))
+    stem = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
+    plain = next(p for p in paths if p.endswith(f"{stem}_x1.png"))
+    flashed = next(p for p in paths if p.endswith(f"{stem}-flashed_x1.png"))
     assert (pygame.image.tostring(pygame.image.load(plain), "RGB")
             != pygame.image.tostring(pygame.image.load(flashed), "RGB"))
 

@@ -54,7 +54,7 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, player as player_mod, screens, scene, sprites
+from . import bots, moments, player as player_mod, screens, scene, sprites
 from . import session as session_mod, tiles
 from . import spike_snap
 from .building import EAST
@@ -433,6 +433,66 @@ def swapped_room(index: int = scene.NEAR) -> Screen:
     return screen
 
 
+#: Frames of ordinary play before the freeing, so that the room has been lit
+#: once and is remembered. **A moment tests the light when it is raised**, and
+#: on frame one no light has been cast at all -- the field is built at the end
+#: of a step -- so a freeing on the first frame would raise no flash and the
+#: sheet would be a picture of the rule working, captioned as a picture of it
+#: failing.
+FREE_SETTLE = 20
+
+#: And how many frames after it the picture is taken, out of the flash's
+#: sixteen. Enough that the player has walked off the cells and the flash is
+#: visibly *where it happened* rather than where anybody is standing.
+FREE_WALK = 10
+
+
+def freed_room(index: int = scene.NEAR) -> Screen:
+    """A moment's flash, on a played frame, set up the way a swap is.
+
+    Issue #52. A flash is the one thing on screen that a still cannot show by
+    itself -- it is two halves of a hardware cycle -- so the gallery writes both
+    halves of one, exactly as it has done for the title screen's prompt since
+    that prompt was first reviewed as though it were plain white text.
+
+    **Nothing about the level or the rules moves to get it.** The player is
+    stood on a waiting worker -- the same convenience `enter` uses to stand them
+    in a doorway -- and then the game's own `Rescue.reach` frees them and the
+    session's own `_moment` raises `M_FREED` over the two cells they were
+    standing in. Then the player walks away from those cells, which is the
+    picture worth having: **a flash marks where a thing happened and follows
+    nothing**, so the two cells go on flashing behind them.
+
+    It raises rather than returning a picture of nothing if the freeing does not
+    happen, for the same reason `swapped_room` does: a sheet that quietly showed
+    an ordinary frame would be the one image on it nobody could check.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    enter(run, index)
+    for _ in range(FREE_SETTLE):
+        run.step()
+    waiting = run.rescue.alive_waiting(index)
+    if not waiting:
+        raise ValueError(f"room {index} has nobody waiting to be freed")
+    worker = waiting[0]
+    run.player.x, run.player.y = worker.x, worker.y
+    # The torch goes on in the same step, because the picture is of a lit room
+    # and because the sheet's other played shots hold it on too.
+    run.step(session_mod.Intent(torch=True))
+    raised = [name for name, _cells in run.moments.raised]
+    if moments.M_FREED not in raised:
+        raise RuntimeError(
+            "nobody was freed, so there is no moment here to photograph")
+    for _ in range(FREE_WALK):
+        run.step(session_mod.Intent(dx=1))
+    screen = Screen()
+    run.draw(screen)
+    if not any(attr & moments.FLASH_BIT for attr in screen.attrs):
+        raise RuntimeError(
+            "the flash had gone by the time the picture was taken")
+    return screen
+
+
 def standing_clear(run) -> bool:
     """Is the player far enough from the edges to be a picture of a room?
 
@@ -501,4 +561,11 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     # show: a spotlight burning where somebody put it down.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",
           swapped_room(scene.NEAR))
+    # A moment's flash, in both halves of the cycle (issue #52). A still can
+    # only ever show one half, and a reviewer given one half of a flash reads it
+    # as a cell that is simply the wrong colour.
+    freed = freed_room(scene.NEAR)
+    near = slug(scene.BUILDING[scene.NEAR].name)
+    sheet(f"room-{near}-freed", freed)
+    sheet(f"room-{near}-freed-flashed", freed, flashing=True)
     return paths

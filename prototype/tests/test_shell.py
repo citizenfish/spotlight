@@ -66,11 +66,26 @@ def test_the_torch_and_the_spray_are_edge_triggered(shell):
     assert shell.run.cone.enabled is True
 
 
+def _out_of_the_pause(shell):
+    """Run out whatever pause the last frame asked for (issue #52).
+
+    An ending stops the clock for a second before the ending screen replaces
+    the play frame -- a beat on the frame it happened, which is what the pause
+    is for. The frames are the shell's: `run.step` is not called during them,
+    so nothing about the run moves. See `Shell.frame`.
+    """
+    held = shell.held
+    for _ in range(held):
+        shell.frame()
+    return held
+
+
 def test_an_ending_replaces_the_play_screen(shell):
     shell.key(pygame.K_SPACE)
     shell.run.lives = 1
     shell.run.blood = 0
     shell.frame()
+    assert _out_of_the_pause(shell) == 50
     assert shell.state == spike1.ENDED
     text = rows(shell.screen)
     assert session.ENDING_TEXT[session.NO_LIVES][0] in text
@@ -94,6 +109,7 @@ def test_space_from_the_ending_starts_a_clean_run(shell):
     first.lives = 1
     first.blood = 0
     shell.frame()
+    _out_of_the_pause(shell)
     assert shell.state == spike1.ENDED
 
     shell.key(pygame.K_SPACE)
@@ -113,6 +129,7 @@ def test_other_keys_do_not_restart_from_the_ending(shell):
     shell.run.lives = 1
     shell.run.blood = 0
     shell.frame()
+    _out_of_the_pause(shell)
     shell.key(pygame.K_j)
     assert shell.state == spike1.ENDED
 

@@ -84,6 +84,14 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     window onto the loop, not a hook into it, and a driver that could change a
     run would make every number it prints unrepeatable.
 
+    **A pause is not honoured here, and that is deliberate** (issue #52). Three
+    moments ask the *shell* to stop stepping the game for a while -- a death and
+    the two endings -- and this loop asks `run.moments` for nothing. Its frames
+    are frames of simulation: a hold here would mean the same `--frames` bought
+    fewer stepped frames, every run would end somewhere else, and the tail of
+    every event log in the project would shift. Bot runs are untouched by the
+    moments and have to stay that way.
+
     **Frame zero is the run before it has run**, drawn once before the first
     step, so that a frame number given to `--snap` means the session frame of
     that name and `--snap 0` is not a request that quietly fails. It is worth
