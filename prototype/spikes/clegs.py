@@ -266,7 +266,7 @@ class Cleg:
 
     __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "goal_source",
                  "kind", "flank", "step_every", "hunger", "heading", "victim",
-                 "_run", "_timer", "_tick", "_seed")
+                 "wing", "_run", "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -304,6 +304,24 @@ class Cleg:
         #: Which way it is wandering, and how much longer for.
         self.heading = (0, 0)
         self._run = 0
+        #: **Which wing frame this fly is drawn in**, and the only animation
+        #: state anything in the play area carries: one bit, flipped in `_try`
+        #: when the fly actually steps a cell (issue #49).
+        #:
+        #: **Never flipped on the frame counter, and this is a port decision
+        #: wearing an art decision's clothes.** Alternating on `session.frame`
+        #: is 25Hz, which is not a wingbeat but a strobe, and it dirties every
+        #: fly's cell every other frame whether or not the fly moved: eighteen
+        #: flies at 1,654 T-states to erase and redraw is about 15,000 T-states
+        #: a frame spent animating flies that are standing still, against
+        #: 32,832 for all entities. Tied to movement it is free, because a fly
+        #: that stepped is being erased and redrawn anyway -- and it says
+        #: something true, that **a Cleg's wingbeat is its speed**, so the swarm
+        #: visibly quickens as it closes. A fly sitting on somebody is still,
+        #: which is also correct: an attached fly is carried by its victim
+        #: rather than stepping, and its cell is written directly in `Swarm.tick`
+        #: where this bit is not touched.
+        self.wing = 0
 
     def commit(self, cell: tuple[int, int], kind: int) -> None:
         """Take up a lure: where it is, **and what it was**.
@@ -401,6 +419,9 @@ class Cleg:
         if avoid is not None and avoid(nx, ny):
             return False
         self.cx, self.cy = nx, ny
+        # It stepped, so it is being erased and redrawn anyway: the wingbeat
+        # rides on the move and costs nothing. See `wing`.
+        self.wing ^= 1
         return True
 
     def _toward(self, tx: int, ty: int, is_solid, avoid=None) -> None:

@@ -241,7 +241,12 @@ INNER_DOOR = (15, 7)
 
 #: Which entity kinds move. Movers are only drawn where a light is on them this
 #: frame; the rest are fixtures the fade is allowed to remember.
-MOVERS = frozenset({"worker", "cleg"})
+#:
+#: Named by `sprites.SPRITES` key, and the Cleg has two of them since it gained
+#: a second wing frame (issue #49). `ENTITIES` is empty, so nothing in the game
+#: reads this today; it is kept in step anyway, because a lookup that has been
+#: wrong for a while is worse than one that has never been used.
+MOVERS = frozenset({"worker", "cleg_a", "cleg_b"})
 
 #: Fixed scenery, for the whole building. **Empty on purpose.** A body and a
 #: nest were placed while sprites were the question in spike 1, and they stayed

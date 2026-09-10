@@ -558,6 +558,29 @@ DWELL, DWELL_SPREAD, DWELL_EVERY = 20, 30, 6
 STATION_COLS, STATION_ROWS = 8, 6
 STATION_INSET = 2
 
+#: **Where a searchlight is bolted, by mount**: one cell in from each corner of
+#: the play area, so the housing stands on the room's own floor rather than in
+#: the masonry.
+#:
+#: Bit 0 says east rather than west and bit 1 says south rather than north,
+#: which is the same pair of bits the circuit's mirrorings are taken from -- so
+#: the corner the housing is bolted to is the corner the circuit is mirrored
+#: into, and looking at it tells you something true rather than something
+#: decorative. Four entries, eight bytes of ROM, no arithmetic at runtime.
+#:
+#: The housing is drawn and held lit by the session (issue #49). **It is not a
+#: light source and must not become one**: it is a direct write into the room's
+#: field with `reveals=False`, exactly like the exit sign's cell. A `Source`
+#: here would be a new permanent lure at the corner the beam is mounted on,
+#: which changes what the swarm does.
+HOUSING_CORNERS = (
+    (1, 1),
+    (COLS - 2, 1),
+    (1, PLAY_ROWS - 2),
+    (COLS - 2, PLAY_ROWS - 2),
+)
+
+
 #: A closed knight's tour of that grid: forty-eight stations, every step a
 #: knight move, and the last joins back to the first.
 #:
@@ -760,6 +783,10 @@ class Roaming(Source):
         self.step_every = step_every
         self.vary = vary
         self.cycles = 0
+        #: **Which corner this light is bolted to**, 0-3, indexing
+        #: `HOUSING_CORNERS`. A repeating light keeps the one it starts with; a
+        #: varying one takes a new one with each circuit, and the housing moves
+        #: with it, which is free information the design intends to give.
         self.mount = 0
         #: How long to hold at each waypoint, or None for a route with no
         #: pauses. An operator stops at the end of a swing; a machine does not.
@@ -774,6 +801,21 @@ class Roaming(Source):
         self.mode = mode
         if self.mode in (self.SWEEP, self.ARC):
             self._new_sweep(first=True)
+
+    @property
+    def housing(self) -> tuple[int, int]:
+        """The cell the light is bolted to: **a fixture, not a light.**
+
+        A moving pool with no emitter reads as *the lighting* rather than as a
+        fixture installed in this room, and a player read the far room's
+        absence of one as the game malfunctioning. So a room with a searchlight
+        draws a housing here and a room without draws none, which makes the
+        absence authored rather than ambiguous.
+
+        Whoever draws it holds the cell lit **directly**, with `reveals=False`.
+        See `HOUSING_CORNERS` for why it may never be a `Source`.
+        """
+        return HOUSING_CORNERS[self.mount]
 
     # --- sweeps ------------------------------------------------------------
 
@@ -800,7 +842,16 @@ class Roaming(Source):
                 return route
             # A closed tour can be entered anywhere, so the start is free to be
             # random; the flips and the reversal are the rest of the variety.
-            self.mount = seed & 0b11
+            #
+            # **The mount is taken from the two mirroring bits**, so that the
+            # corner the housing is drawn in is the corner this circuit is
+            # mirrored into. It was `seed & 0b11` until issue #49, which is bit
+            # 0 (the reversal, which has no corner) and bit 1 (flip_x) -- a
+            # label that half agreed with the geometry and half did not. It
+            # names a corner and nothing reads it to decide anything, so this
+            # moves no rule: the route, the dwells and the entry station are
+            # byte for byte what they were.
+            self.mount = (seed >> 1) & 0b11
             route, self._dwells = tour_route(
                 self.radius, seed=seed, start=(seed >> 2) % len(KNIGHT_TOUR),
                 reverse=bool(seed & 1), flip_x=bool(seed & 2),

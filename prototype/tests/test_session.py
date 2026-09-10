@@ -1291,3 +1291,38 @@ def test_dying_in_the_doorway_does_not_walk_you_out_of_the_building():
     assert run.lives == 1
     assert run.leaving == 0
     assert (run.player.x, run.player.y) == scene.PLAYER_START
+
+
+# --- the wingbeat reaches the screen (issue #49) ----------------------------
+
+def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
+    """The swarm's animation is per fly and comes from the fly, not the frame.
+
+    `clegs.Cleg.wing` holds one bit, flipped when the fly steps a cell, and
+    `draw` indexes `sprites.CLEG_FRAMES` with it. This is the join between the
+    two: a fly in frame B has to be drawn in frame B, on a frame the frame
+    counter says nothing about.
+    """
+    from spikes import sprites
+
+    run = Session(seed=1)
+    cleg = run.place.swarm.clegs[0]
+    # Somewhere with nothing else drawn over it, and lit, so it is on screen.
+    cleg.cx, cleg.cy = 20, 5
+    run.place.opening.hold(True)
+    run.step()
+    for wing in (0, 1):
+        cleg.wing = wing
+        cleg.cx, cleg.cy = 20, 5
+        screen = Screen()
+        run.draw(screen)
+        want = sprites.CLEG_FRAMES[wing]
+        for dy, bits in enumerate(want):
+            for dx in range(sprites.WIDTH):
+                if not bits & (0x80 >> dx):
+                    continue
+                assert screen.point(20 * CELL + dx, 5 * CELL + dy), \
+                    f"wing {wing} is not drawn in frame {wing}"
+        # And the two frames really are different pictures on the screen.
+        other = sprites.CLEG_FRAMES[1 - wing]
+        assert want != other

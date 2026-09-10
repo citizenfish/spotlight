@@ -1,0 +1,80 @@
+; door.txt
+;
+; A door is 8x16, because it is the person-shaped hole you walk out
+; through. HOLLOW MEANS YOU CAN WALK THROUGH IT.
+;
+; DOOR_OPEN redrawn for issue #49. It was the same rectangle as
+; DOOR_LOCKED with the leaf taken out, and a first-timer read the pair
+; backwards. The diagnosis was not the obvious one: the labels were
+; right, the played screen was drawing the right sprite, and the guess
+; "hollow means a gap you walk through" was correct. The fault is that
+; the two states had the same outer silhouette and differed only in
+; how full they were -- at 1:1 across a room, two magenta rectangles.
+;
+; So an open door is now WHERE THE WALL STOPS AND RETURNS: two jambs,
+; a four-pixel gap, and no head and no sill to close the outline. It
+; is open at both ends where the locked door is closed at both, so the
+; pair differs in outline and not in fill -- and it says the same
+; thing the doorway tiles say, that a way through is the place the
+; masonry ends.
+;
+; Three-pixel jambs were drawn and rejected: they leave a two-pixel
+; slot, and a two-pixel slot closes up at 1:1, which is the fault
+; being fixed. The arithmetic came out the other way from the way it
+; was expected to -- the open door GAINS ink, 44 pixels to 64, because
+; two-pixel jambs are heavier than a one-pixel frame -- so the way out
+; is a louder object than it was as well as a differently shaped one.
+;
+; The real cost, named: an 8x16 door presumes a vertical wall, because
+; a person-shaped hole in a horizontal wall would be 16x8. That was
+; already true of the closed rectangle; two vertical jambs make it
+; visible rather than introduce it.
+;
+; An open door is magenta; a locked one takes the hue of the key that
+; opens it. Nothing in the playtest building is locked, so DOOR_LOCKED
+; is drawn and unexercised -- it is specified because the shape rule
+; only makes sense as a pair.
+;
+; Authored here and generated into prototype/spikes/bitmaps_gen.py
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
+; with ';' rather than '#', which is what a row of eight set pixels
+; starts with -- the first version of this format used '#' and
+; silently ate the player's shoulders.
+
+name: DOOR_OPEN
+size: 8x16
+##....##   two jambs, a four-pixel gap
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##   no head and no sill: open at both ends
+
+name: DOOR_LOCKED
+size: 8x16
+########   a closed frame
+#......#
+#.####.#
+#.####.#
+#.#..#.#   the keyhole
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#.####.#
+#......#
+########

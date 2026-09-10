@@ -258,10 +258,14 @@ def test_the_fade_keeps_running_in_the_room_you_have_left():
     run.step(Intent(torch=True))
     for _ in range(10):
         run.step()
-    sign = set(near.sign_cells)
+    # The sign and the searchlight's housing are held lit by their own
+    # batteries and never fade, so neither is a witness to the fade. The
+    # housing joined that list with issue #49: it is a bolted fixture, and the
+    # debug toggle above puts the beam out rather than taking it off the wall.
+    held = set(near.sign_cells) | {near.housing}
     remembered = [(cx, cy) for cy in range(22) for cx in range(COLS)
                   if near.field.remembered_at(cx, cy) != lighting.DARK
-                  and (cx, cy) not in sign]
+                  and (cx, cy) not in held]
     assert remembered, "the torch left no memory to decay"
     walk(run, 1, 16)
     assert run.here == scene.FAR

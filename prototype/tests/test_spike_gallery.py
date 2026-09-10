@@ -17,7 +17,7 @@ import pygame
 
 from spikes import scene, sources, sprites, spike_gallery as gallery, tiles
 from spikes.layout import PLAY_ROWS
-from spotlight.core.constants import CELL, COLS, SCREEN_H, SCREEN_W
+from spotlight.core.constants import CELL, COLS, ROWS, SCREEN_H, SCREEN_W
 from spotlight.core.screen import Screen
 
 import screenreader
@@ -59,7 +59,11 @@ def test_the_gallery_writes_every_sheet(tmp_path):
         stem = f"room-{gallery.slug(room.name)}"
         assert f"{stem}-lit_x1.png" in names
         assert f"{stem}-played_x1.png" in names
-    assert len(paths) == len(names) == 10 + 4 * len(scene.BUILDING.rooms)
+    # The one frame that is set up rather than played: a spotlight burning
+    # where somebody put it down. No bot has ever swapped one.
+    swapped = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-swapped"
+    assert f"{swapped}_x1.png" in names and f"{swapped}_x3.png" in names
+    assert len(paths) == len(names) == 12 + 4 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -86,7 +90,33 @@ def test_the_sprite_sheet_names_every_sprite():
     gallery.draw_sprite_sheet(screen)
     text = " ".join(screenreader.rows(screen))
     for name in sprites.SPRITES:
-        assert name.upper() in text, f"{name} is not named on the sheet"
+        assert gallery.label(name) in text, f"{name} is not named on the sheet"
+
+
+def test_no_caption_on_the_sprite_sheet_runs_over_its_block():
+    """**The sheet is where art is named**, so a name that printed over its
+    neighbour would take out the only thing on it that is not a picture.
+
+    Thirty-two columns, three blocks, and DOOR LOCKED is eleven characters --
+    which fits only in the right-hand block, where the last column of the
+    screen is going spare. `sprites.SPRITES` is ordered to put it there. This
+    is what fails if somebody inserts a sprite ahead of it without a thought
+    about the layout.
+    """
+    for n, name in enumerate(sprites.SPRITES):
+        cx, _cy = gallery.block_at(n)
+        width = gallery.block_width(n)
+        assert len(gallery.label(name)) <= width, \
+            f"{name} needs {len(gallery.label(name))} columns and has {width}"
+        assert cx + width <= COLS, f"{name}'s block runs off the screen"
+
+
+def test_the_sprite_sheet_fits_between_its_heading_and_its_legend():
+    """Fourteen entries at three across is five rows, and the sheet has to
+    hold them without printing into the legend at the bottom."""
+    rows = -(-len(sprites.SPRITES) // gallery._ACROSS)
+    last = gallery._TOP + rows * gallery._BLOCK_H
+    assert last <= ROWS - 3, f"the sheet needs {last} rows and has {ROWS - 3}"
 
 
 def test_the_sprite_sheet_draws_every_sprite():
@@ -95,9 +125,8 @@ def test_the_sprite_sheet_draws_every_sprite():
     screen = Screen()
     gallery.draw_sprite_sheet(screen)
     for n, sprite in enumerate(sprites.SPRITES.values()):
-        cx = gallery._LEFT + (n % gallery._ACROSS) * gallery._BLOCK_W
-        cy = gallery._TOP + (n // gallery._ACROSS) * gallery._BLOCK_H
-        px, py = (cx + 3) * CELL, cy * CELL
+        cx, cy = gallery.block_at(n)
+        px, py = (cx + 3) * CELL, gallery.sprite_top(cy, len(sprite))
         for dy, bits in enumerate(sprite):
             for dx in range(sprites.WIDTH):
                 want = 1 if bits & (0x80 >> dx) else 0
@@ -105,13 +134,35 @@ def test_the_sprite_sheet_draws_every_sprite():
                 assert got == want, f"sprite {n} differs at row {dy}"
 
 
+def test_every_sprite_on_the_sheet_stands_on_its_own_caption():
+    """Which name goes with which picture, and it is not obvious by accident.
+
+    Three rows to a block leaves no blank row between one caption and the next
+    block's sprite, so an object drawn at the top of its block sits nearer the
+    name above it than the one below. Bottom-aligning every box on the row
+    above its caption settles it, and keeps the size difference visible: a
+    person fills both rows of the block, an object fills the lower one.
+    """
+    for n, (name, sprite) in enumerate(sprites.SPRITES.items()):
+        _cx, cy = gallery.block_at(n)
+        bottom = gallery.sprite_top(cy, len(sprite)) + len(sprite)
+        assert bottom == (cy + gallery._BLOCK_H - 1) * CELL, \
+            f"{name} does not stand on its caption"
+
+
 def test_the_people_get_twice_the_height_of_the_objects():
     """**Size is how the game tells a person from a thing** -- a sprite may not
     choose its own colour, so 8x16 against 8x8 is the whole distinction. A
     sheet that tidied everything to one size would hide the property the art
-    most has to get right."""
+    most has to get right.
+
+    A door is 8x16 without being a person, and the sheet shows that too: it is
+    the person-shaped hole you walk out through, and it is the size it is for
+    that reason.
+    """
+    tall = set(sprites.PEOPLE) | set(sprites.DOORS)
     for name, sprite in sprites.SPRITES.items():
-        assert len(sprite) == (16 if name in sprites.PEOPLE else 8), name
+        assert len(sprite) == (16 if name in tall else 8), name
 
 
 # --- the tile sheet ---------------------------------------------------------

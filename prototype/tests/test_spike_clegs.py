@@ -1068,3 +1068,92 @@ def test_the_sonar_is_unchanged_when_nothing_is_attached_to_anybody():
     """The click rate for an ordinary run does not move."""
     swarm = C.Swarm([C.Cleg(12, 10, seed=1), C.Cleg(26, 4, seed=2)])
     assert swarm.nearest_distance(30, 20) == 16, "the nearer of the two"
+
+
+# --- the wingbeat is the fly's speed (issue #49) ----------------------------
+#
+# The only animated thing in the play area, and the rule it is built to is a
+# port decision wearing an art decision's clothes: **the frame flips when the
+# Cleg steps a cell, never on the frame counter.** Alternating on
+# `session.frame` is 25Hz, which is a strobe rather than a wingbeat, and it
+# dirties every fly's cell every other frame whether or not the fly moved --
+# about 15,000 T-states a frame animating flies that are standing still,
+# against 32,832 for all entities.
+
+def test_a_cleg_that_does_not_step_holds_its_frame():
+    """**The whole of the cost argument, as a test.**
+
+    A fly with nothing to go to stands still, and a fly standing still must not
+    be redrawn. If this ever fails, the swarm has started costing a redraw a
+    frame each for nothing.
+    """
+    # A cell the room will not let it out of. A hunting fly with nothing to go
+    # to still wanders, which is the *other* half of the rule: it flaps when it
+    # wanders, because it moved. What must cost nothing is the fly that does
+    # not move, so the fixture is one that cannot.
+    def boxed(cx, cy):
+        return (cx, cy) != (10, 10)
+
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    was = cleg.wing
+    for _ in range(50):
+        swarm.tick(_lures((30, 10)), (30, 20), boxed, 64)
+    assert (cleg.cx, cleg.cy) == (10, 10), "it moved, so this asks nothing"
+    assert cleg.wing == was, "a fly standing still is flapping"
+
+
+def test_a_cleg_that_steps_alternates_its_frame():
+    """A fly walking towards a light beats its wings once per cell.
+
+    So the swarm visibly quickens as it closes, on the same channel the sonar
+    is already using -- and it costs nothing, because a fly that stepped is
+    being erased and redrawn anyway.
+    """
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    frames, where = [cleg.wing], (cleg.cx, cleg.cy)
+    steps = 0
+    for _ in range(200):
+        swarm.tick(_lures((30, 10)), (30, 10), OPEN, 64)
+        if (cleg.cx, cleg.cy) != where:
+            steps += 1
+            where = (cleg.cx, cleg.cy)
+            frames.append(cleg.wing)
+    assert steps >= 4, "the fly never set off, so this asks nothing"
+    assert all(a != b for a, b in zip(frames, frames[1:])), \
+        f"the wingbeat did not alternate with the steps: {frames}"
+
+
+def test_a_cleg_sitting_on_somebody_is_still():
+    """**A fly that is feeding is not flying**, which is also correct.
+
+    An attached Cleg is carried by its victim -- `Swarm.tick` writes its cell
+    directly rather than stepping it -- so it keeps whatever frame it landed
+    in, however far the person it is riding walks.
+    """
+    victim = Person(12, 10, blood=99)
+    cleg = C.Cleg(12, 10, seed=1)
+    swarm = C.Swarm([cleg])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.state == C.ATTACHED
+    landed = cleg.wing
+    for step in range(10):
+        victim.cx = 12 + step
+        swarm.tick([], (30, 20), OPEN, 64, prey=[victim])
+    assert cleg.cx == victim.cx, "the fly did not ride its host"
+    assert cleg.wing == landed, "a fly on somebody is beating its wings"
+
+
+def test_the_wingbeat_is_one_bit_and_indexes_the_frame_table():
+    """One bit per fly, and the drawing is a table lookup rather than a branch.
+
+    Stated as a test because it is the thing that makes the animation free on
+    the Z80: an eight-bit `wing` would be a byte per fly and a comparison per
+    draw, and neither is needed.
+    """
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    for _ in range(120):
+        swarm.tick(_lures((30, 10)), (30, 10), OPEN, 64)
+        assert cleg.wing in (0, 1)

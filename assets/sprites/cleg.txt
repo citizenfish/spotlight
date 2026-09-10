@@ -3,19 +3,47 @@
 ; A Cleg: fat body, splayed legs. Seen from above, like everything
 ; else.
 ;
+; TWO FRAMES, and it is the only animated thing in the play area
+; (issue #49). Same body, same ink count, different silhouette:
+; wings down and wings up.
+;
+;   The frame flips when the Cleg STEPS A CELL. Never on the frame
+;   counter.
+;
+; Alternating on the frame counter is 25Hz, which is not a wingbeat,
+; it is a strobe -- and it dirties every fly's cell every other frame
+; whether or not the fly moved, about 15,000 T-states a frame spent
+; animating flies that are standing still, against 32,832 for all
+; entities. Tied to movement it is free, because a Cleg that stepped
+; is being erased and redrawn anyway, and it says something true: a
+; Cleg's wingbeat is its speed, so the swarm visibly quickens as it
+; closes. A Cleg sitting on somebody is still, which is also correct.
+; One bit per fly, in `clegs.Cleg.wing`.
+;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
 ; with ';' rather than '#', which is what a row of eight set pixels
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
 
-name: CLEG
+name: CLEG_A
 size: 8x8
 ........
-.#....#.   legs out
+.#....#.   wings down
 ..#..#..
 .######.   body
 ########
 .######.
 ..#..#..   legs
 .#....#.
+
+name: CLEG_B
+size: 8x8
+........
+........   wings up: same body, same ink count
+.##..##.
+.######.   body
+########
+.######.
+.##..##.   legs
+........

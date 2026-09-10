@@ -41,9 +41,13 @@ about a cell's colour, because only one thing ever decides it.
 That is the whole mechanism for avoiding attribute clash, and it costs the
 ability to tell entities apart by colour. So they are told apart by **size
 first, silhouette second**: **people are 8x16 whether or not they are alive**,
-everything else is 8x8. A body was the exception to that rule and is now the
+and the objects are 8x8. A body was the exception to that rule and is now the
 proof of it -- size says whether a thing is a person, pose says whether it is
 still alive.
+
+**A door is the one other 8x16 thing**, and it is 8x16 because it is the
+person-shaped hole you walk out through. It is never mistaken for a person
+because it never moves and it stands in a wall.
 
 Drawing is byte-per-pixel here because that is how `core.screen` models the
 display. On real hardware an 8-pixel-wide sprite at an arbitrary x needs its
@@ -64,6 +68,14 @@ PLAY_BOTTOM_PX = PLAY_ROWS * CELL
 #: arms held clear of the body, a wide planted stance. **The only figure that
 #: touches both edges of its column at the shoulders** -- the widest thing in
 #: the room is you.
+#:
+#: **He wears two marks and both are needed, because there are two grounds to
+#: be seen against** (issue #49). The lamp on his helmet is what tells him from
+#: a follower on a wall cell, in a doorway and on the sprite sheet; the solid
+#: bar under his feet is what tells him from a follower on lit floor, where the
+#: stipple's dot-every-four-pixels swallows anything narrower than five pixels
+#: of solid ink. The reasoning, the measurement and the three rejected
+#: alternatives are in `assets/sprites/player.txt`, beside the drawing.
 PLAYER = BITMAPS["PLAYER"]
 
 #: A trapped worker, waiting: arms up and out, which is the silhouette of
@@ -96,28 +108,80 @@ FOLLOWER = BITMAPS["FOLLOWER"]
 #: that offset went with it.
 BODY = BITMAPS["BODY"]
 
+# --- doors, 8x16 -----------------------------------------------------------
+#
+# **A door is person-sized because it is the person-shaped hole you walk out
+# through**, so it is the one thing that is 8x16 without being a person.
+
+#: A way out you can use: two jambs, a four-pixel gap, no head and no sill.
+#: **Where the wall stops and returns**, which is the same thing the doorway
+#: tiles say -- a way through is the place the masonry ends.
+DOOR_OPEN = BITMAPS["DOOR_OPEN"]
+
+#: A way out that wants a key: a closed frame with a leaf and a keyhole. It is
+#: **open at neither end where the open door is open at both**, so the pair
+#: differs in outline and not in fill. Nothing in the playtest building is
+#: locked, so this is drawn and unexercised; it exists because the shape rule
+#: only means anything as a pair.
+DOOR_LOCKED = BITMAPS["DOOR_LOCKED"]
+
 # --- everything else, 8x8 --------------------------------------------------
 
-#: A Cleg: fat body, splayed legs.
-CLEG = BITMAPS["CLEG"]
+#: A Cleg, wings down. **The frame flips when the fly steps a cell** and never
+#: on the frame counter -- see `clegs.Cleg.wing`, which holds the bit, and
+#: `assets/sprites/cleg.txt` for the T-states that rule is protecting.
+CLEG_A = BITMAPS["CLEG_A"]
 
-#: A nest: a bounded mass, deliberately angular so it cannot be mistaken for a
-#: Cleg. An organic blob read too much like the thing it spawns.
+#: The same Cleg, wings up. Same body, same ink count, different silhouette.
+CLEG_B = BITMAPS["CLEG_B"]
+
+#: The two Cleg frames, indexed by the fly's own wing bit, so that drawing a
+#: swarm is a table lookup rather than a branch per fly.
+CLEG_FRAMES = (CLEG_A, CLEG_B)
+
+#: A nest: a squat, dense mass with a broken top edge and an off-centre lip.
+#: Redrawn for issue #49 -- it was a rim with a bar in it, which at 1:1 is a
+#: horizontal dash and reads as a UI element.
 NEST = BITMAPS["NEST"]
 
-#: A spotlight lying on the floor: a lamp with its beam spreading below.
-LAMP = BITMAPS["LAMP"]
+#: A spotlight lying on the floor, dark: a hollow octagon.
+LAMP_OFF = BITMAPS["LAMP_OFF"]
+
+#: The same spotlight burning: the octagon filled.
+LAMP_ON = BITMAPS["LAMP_ON"]
+
+#: The searchlight's mount: a ring with a lens in it, bolted to its corner.
+#: **Empty is dark, filled is burning, a lens is bolted down.**
+HOUSING = BITMAPS["HOUSING"]
+
+#: The ceiling fixture over an authored room light: a strip light seen from
+#: above. Deliberately **not** an octagon, because a thing you walk under must
+#: not look like a thing you can pick up.
+BATTEN = BITMAPS["BATTEN"]
 
 KEY = BITMAPS["KEY"]
 
 #: Every drawable, for tests and the sprite sheet.
+#:
+#: **The order is the order they are laid out on the sheet** (three across),
+#: and it is chosen so the door pair sits in the right-hand column, which is
+#: the only block wide enough for the eleven characters of DOOR LOCKED.
+#: `test_spike_gallery` pins that no caption overruns its block, so a sprite
+#: inserted here without a thought about the layout fails the suite rather than
+#: quietly printing over its neighbour.
 SPRITES = {
-    "player": PLAYER, "worker": WORKER, "follower": FOLLOWER, "body": BODY,
-    "cleg": CLEG, "nest": NEST, "key": KEY, "lamp": LAMP,
+    "player": PLAYER, "worker": WORKER, "follower": FOLLOWER,
+    "body": BODY, "cleg_a": CLEG_A, "cleg_b": CLEG_B,
+    "nest": NEST, "key": KEY, "door_open": DOOR_OPEN,
+    "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_locked": DOOR_LOCKED,
+    "housing": HOUSING, "batten": BATTEN,
 }
 
 #: The four that are people, and so are 8x16 and drawn from above.
 PEOPLE = ("player", "worker", "follower", "body")
+
+#: The two that are doors, and so are 8x16 without being people.
+DOORS = ("door_open", "door_locked")
 
 WIDTH = 8
 

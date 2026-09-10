@@ -5,6 +5,38 @@
 ; The only figure that touches both edges of its column at the
 ; shoulders -- the widest thing in the room is you.
 ;
+; He wears TWO marks, and both are needed, because there are two
+; grounds to be seen against (issue #49):
+;
+;   * The LAMP on his helmet -- four pixels, centred, symmetric. It
+;     is what tells him from a follower on a wall cell, in a doorway
+;     and on the sprite sheet, where there is no floor stipple to
+;     compete with and no floor under his feet to draw a bar on. It
+;     is centred so it says nothing about facing, and symmetric
+;     because a lamp in one hand would quietly cost the BODY its only
+;     tell, which is that it is symmetric nowhere.
+;   * The BAR under his feet -- the bottom two rows of the box, which
+;     every other figure leaves blank, with one clear row above so it
+;     reads as ground rather than as feet.
+;
+; Why the lamp alone was not enough, measured rather than judged: the
+; lit floor stipple puts a dot every four pixels, so a four-pixel mark
+; is the same width as the gap between two dots and the eye pools it
+; with the floor. Nothing narrower than five pixels of solid ink is a
+; mark on this ground. A first-timer shown a played screen with the
+; lamp alone called which figure was the player a coin flip.
+;
+; Three alternatives were drawn and rejected, all on the same rule:
+; a lamp lifted off the head by a blank row (the gap fills with
+; stipple), corner ticks round the box (two-pixel marks, which are
+; floor dots), and drawing the player as an outline -- refused because
+; in this game an outline already means REMEMBERED, and a hollow
+; player would read as a player who is fading.
+;
+; 84 pixels of ink against 44 for the worker, the follower and the
+; body alike. The bar costs no T-states: it is inside a box that was
+; already being drawn, on cells that were already dirty.
+;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
 ; with ';' rather than '#', which is what a row of eight set pixels
@@ -14,10 +46,10 @@
 name: PLAYER
 size: 8x16
 ........
-........
-..####..   head, seen from above - no hat, no face
+..####..   the lamp, worn on the helmet
 ..####..
-..####..
+.######.   head, seen from above - no hat, no face
+.######.
 ########   shoulders, full width - the kit
 ########
 ##.##.##   arms clear of the body
@@ -26,6 +58,6 @@ size: 8x16
 .######.   hips
 .##..##.   legs, planted wide
 .##..##.
-........
-........
-........
+........   one clear row, so the mark is not feet
+########   the mark: the only figure with ground under him
+########

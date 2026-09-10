@@ -270,6 +270,21 @@ class Place:
                          if name not in scene.MOVERS]
         for cx, cy in room.cells_of(scene.KEY):
             self.fixtures.append((sprites.KEY, cx * CELL, cy * CELL))
+        # **The way out, drawn as a door** (issue #49). A `D` cell is floor in
+        # every mechanical respect, so until now the exit was four magenta
+        # stipple dots per cell -- the loudest object in the game and the
+        # hardest to see. It is 8x16 because it is the person-shaped hole you
+        # walk out through, and `exit_cell` is the top of it, so one sprite
+        # covers the two-cell opening a person fits through.
+        #
+        # Drawn open, because nothing in this building is locked. When a locked
+        # door exists it takes `sprites.DOOR_LOCKED` and the hue of the key
+        # that opens it; the pair differs in outline rather than in fill,
+        # which is the whole point of the redraw.
+        if room.has_exit:
+            ex, ey = room.exit_cell()
+            self.fixtures.append((sprites.DOOR_OPEN, ex * CELL, ey * CELL))
+
         #: The opening flash, **once per room and never on re-entry**. You
         #: cannot play a room you have never seen the shape of; re-entry is
         #: precisely the case where you are supposed to be living off what you
@@ -277,6 +292,26 @@ class Place:
         #: pointless and hand the building over for free.
         self.opening = sources.Flash()
         self.seen = False
+
+    @property
+    def housing(self) -> "tuple[int, int] | None":
+        """Where this room's searchlight is bolted, or None if it has none.
+
+        **Not a light, and it must never become one.** `_light` holds the cell
+        lit with a direct write into the field, `reveals=False`, exactly as it
+        does the exit sign's; `draw` puts the housing sprite on it. A
+        `sources.Source` here would be a new permanent lure at the corner the
+        beam is mounted on, which changes what the swarm does -- and it would
+        show up first in the `blood_by_*` figures, which is where a test looks
+        for it.
+
+        Read from the light each time rather than kept, because a varying beam
+        takes a new corner with each circuit and **the housing moves with it**.
+        A room without a searchlight has none, so its absence is authored
+        rather than ambiguous -- which is what went wrong when a player read
+        the far room as broken.
+        """
+        return None if self.roaming is None else self.roaming.housing
 
     @property
     def fixed(self) -> tuple:
@@ -1336,6 +1371,24 @@ class Session:
             # is in, which is the near room and no other.
             for cx, cy in place.sign_cells:
                 field.add(cx, cy, lighting.LIT, memory=1, reveals=False)
+            # **The searchlight's housing, held lit the same way** (issue #49):
+            # one permanently lit cell at the mount corner, the brightest
+            # single cell in the room, and it never moves. A room without a
+            # searchlight has none, so the absence is authored rather than
+            # ambiguous -- which is what went wrong when a player read the far
+            # room as broken.
+            #
+            # **It is a direct write and not a `sources.Source`, deliberately.**
+            # A source there is a new permanent lure at the corner the beam is
+            # mounted on: every fly within notice of that corner would have
+            # somewhere to go for ever, which moves every difficulty figure in
+            # the vault. `reveals=False` for the same reason the sign has it --
+            # it shows the fixture, never a person standing under it, so
+            # nobody is made prey by standing in the corner.
+            housing = place.housing
+            if housing is not None:
+                field.add(*housing, level=lighting.LIT, memory=1,
+                          reveals=False)
             field.commit()
 
     def _calls_through_doors(self) -> list:
@@ -1438,6 +1491,29 @@ class Session:
         # happen to be standing in.
         for spr, sx, sy in place.fixtures:
             sprites.draw(screen, spr, sx, sy)
+        # **The spotlights lying on this room's floor** (issue #49). There was
+        # no draw call for one anywhere in the game, so an unlit spare was
+        # invisible and a burning one was a disc of stipple with nothing in the
+        # middle -- which means the whole pick-up-and-swap economy, on which a
+        # weak spotlight being a trap and baiting being a level-design feature
+        # both rest, had never once been on screen.
+        #
+        # Filled when it is burning, hollow when it is not: empty is dark,
+        # filled is burning. **Drawn like a key and not like a person** -- no
+        # `visible=` -- because a dropped spotlight is a fixture. It stays put,
+        # so the fade is allowed to remember it.
+        for light in self.kit.floor:
+            if light.room != self.here:
+                continue
+            spr = sprites.LAMP_ON if light.burning else sprites.LAMP_OFF
+            sprites.draw(screen, spr, light.cx * CELL, light.cy * CELL)
+        # The searchlight's housing: a ring with a lens, on the cell `_light`
+        # holds permanently lit. A fixture rather than a light -- see
+        # `Place.housing`.
+        housing = place.housing
+        if housing is not None:
+            sprites.draw(screen, sprites.HOUSING,
+                         housing[0] * CELL, housing[1] * CELL)
         # People are only drawn where a light is on them, and only if they are
         # in this room. A body is not a person any more: it is part of the
         # building, and the fade may remember it -- and it stays where it fell,
@@ -1470,8 +1546,13 @@ class Session:
             if worker.room == self.here:
                 sprites.draw(screen, sprites.FOLLOWER, worker.x, worker.y,
                              visible=field.reveals_at)
+        # **The one animated thing in the play area.** The frame is the fly's
+        # own wing bit, flipped when it steps a cell and never on
+        # `self.frame` -- so a swarm standing still costs nothing to animate
+        # and a swarm closing on you visibly quickens. See `clegs.Cleg.wing`.
         for cleg in place.swarm.clegs:
-            sprites.draw(screen, sprites.CLEG, cleg.cx * CELL, cleg.cy * CELL,
+            sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
+                         cleg.cx * CELL, cleg.cy * CELL,
                          visible=field.reveals_at)
         sprites.draw(screen, sprites.PLAYER, self.player.x, self.player.y)
 
@@ -1502,6 +1583,12 @@ class Session:
             frame_inks[cy * COLS + cx] = GREEN
         for cx, cy in place.sign_cells:
             frame_inks[cy * COLS + cx] = RED
+        # The housing is white and its cell is held at full brightness, so it
+        # is the brightest single cell in the room. White because it means
+        # *fixture* here for the same reason it means *solid* on a wall: it is
+        # the building, not the room.
+        if housing is not None:
+            frame_inks[housing[1] * COLS + housing[0]] = WHITE
         for cx, cy in self.spray.cells_in(self.here):
             for dy, bits in enumerate(spray_mod.STIPPLE):
                 for dx in range(CELL):

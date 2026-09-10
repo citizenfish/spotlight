@@ -34,16 +34,28 @@ The tile sheet arrived with issue #48: every wall and doorway tile at both
 light levels, and a joined-up plan drawn through the real mask arithmetic, so
 that a seam in the masonry is visible in a picture rather than only findable by
 somebody counting pixels.
+
+Issue #49 added the fourth room shot, and it is the one thing here that is set
+up rather than played. **`LAMP_ON` cannot be photographed from a bot run**:
+every authored spotlight starts unlit, a floor light only lights by being
+swapped for a burning one, and `spotlight_swaps` is 0 in every run any bot has
+ever made. `swapped_room` makes the swap happen with the game's own rule and
+the game's own code rather than lighting one in the level data, which would be
+a change to where the light in this building is. **And the sheet is where art
+is named, not where it is judged** -- both faults that slice fixed passed on a
+black-paper sprite sheet and failed on a lit floor, because a floor stipple is
+itself a fill, so the room shots are what a reviewer looks at.
 """
 
 import os
 
 from spotlight.core.constants import (
-    BLACK, CELL, CYAN, ROWS, SCREEN_H, SCREEN_W, WHITE, YELLOW,
+    BLACK, CELL, COLS, CYAN, ROWS, SCREEN_H, SCREEN_W, WHITE, YELLOW,
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, screens, scene, session as session_mod, sprites, tiles
+from . import bots, player as player_mod, screens, scene, sprites
+from . import session as session_mod, tiles
 from . import spike_snap
 from .building import EAST
 
@@ -69,13 +81,66 @@ def _attr(ink: int, bright: bool = False) -> int:
 
 # --- the sprite sheet -------------------------------------------------------
 
-#: Blocks across the sheet. Three fits the longest name (FOLLOWER, eight cells)
-#: with a gap either side inside thirty-two columns.
+#: Blocks across the sheet, and how big each is in cells.
+#:
+#: Three across at ten wide leaves the right-hand block eleven columns of the
+#: thirty-two, which is what DOOR LOCKED needs -- `sprites.SPRITES` is ordered
+#: so the door pair lands there, and `test_spike_gallery` fails if a caption
+#: ever overruns its block. Three rows per block: two for the sprite, because
+#: the 8x16 ones fill both, and one for its name underneath.
+#:
+#: The blank row the blocks used to carry went when the sheet grew from eight
+#: entries to fourteen. Fourteen is five rows of three, which needs every row
+#: between the heading and the legend.
 _ACROSS = 3
 _BLOCK_W = 10
-_BLOCK_H = 4
+_BLOCK_H = 3
 _LEFT = 1
 _TOP = 3
+
+
+def block_at(n: int) -> tuple[int, int]:
+    """Where the nth entry's block starts, in cells."""
+    return (_LEFT + (n % _ACROSS) * _BLOCK_W,
+            _TOP + (n // _ACROSS) * _BLOCK_H)
+
+
+def block_width(n: int) -> int:
+    """How many columns the nth entry's caption may use.
+
+    The last block in a row gets whatever is left of the screen, which is one
+    column more than the others -- and that column is the difference between
+    DOOR LOCKED fitting and printing over its neighbour.
+    """
+    if n % _ACROSS == _ACROSS - 1:
+        return COLS - (_LEFT + (_ACROSS - 1) * _BLOCK_W)
+    return _BLOCK_W
+
+
+def sprite_top(cy: int, height: int) -> int:
+    """The y, in pixels, of a sprite of that height in a block starting at `cy`.
+
+    **Every sprite stands on its own caption**: the box's bottom edge is the
+    row above the name, whatever height the box is. An 8x16 figure therefore
+    fills both rows of the block and an 8x8 object fills the lower one.
+
+    Top-aligning them was tried first and read wrong. With three rows to a
+    block, a top-aligned 8x8 object sits one row under the *previous* block's
+    caption and two rows above its own, so the eye pairs it with the wrong
+    name -- which on the one sheet in the game whose job is naming things is
+    the whole of the job.
+    """
+    return (cy + _BLOCK_H - 1) * CELL - height
+
+
+def label(name: str) -> str:
+    """What an entry is called on the sheet.
+
+    The key from `sprites.SPRITES`, upper-cased, with the underscore as a
+    space, because the game's font has no underscore in it and a missing glyph
+    would print as the error block.
+    """
+    return name.upper().replace("_", " ")
 
 
 def draw_sprite_sheet(screen: Screen) -> None:
@@ -99,11 +164,10 @@ def draw_sprite_sheet(screen: Screen) -> None:
                   bright=True)
 
     for n, (name, sprite) in enumerate(sprites.SPRITES.items()):
-        cx = _LEFT + (n % _ACROSS) * _BLOCK_W
-        cy = _TOP + (n // _ACROSS) * _BLOCK_H
+        cx, cy = block_at(n)
         # Three cells in, so the 8-pixel sprite sits over the middle of its
         # caption rather than at one end of it.
-        px, py = (cx + 3) * CELL, cy * CELL
+        px, py = (cx + 3) * CELL, sprite_top(cy, len(sprite))
         # clip_bottom is the play area's floor in the game and there is no play
         # area here, so it is opened up to the whole screen; without that the
         # bottom row of the grid would be cut off mid-sprite.
@@ -111,11 +175,11 @@ def draw_sprite_sheet(screen: Screen) -> None:
         people = name in sprites.PEOPLE
         for scx, scy in sprites.cells_spanned(px, py, len(sprite)):
             screen.set_attr(scx, scy, _attr(WHITE, bright=True))
-        screens.write(screen, cx, cy + 2, name.upper(),
+        screens.write(screen, cx, cy + 2, label(name),
                       YELLOW if people else CYAN, bright=True)
 
     legend = (("YELLOW - PEOPLE, 8X16", YELLOW),
-              ("CYAN - OBJECTS, 8X8", CYAN))
+              ("CYAN - OBJECTS 8X8, DOORS 8X16", CYAN))
     for i, (line, ink) in enumerate(legend):
         screens.write(screen, screens.centre(line), ROWS - 3 + i, line, ink,
                       bright=True)
@@ -308,6 +372,67 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
     return kept if kept is not None else copy_of(screen)
 
 
+#: How far the player walks off the light they have just put down, so that the
+#: burning lamp is photographed rather than the player's boots. Three cells is
+#: clear of an 8x16 figure and still inside the pool it is making.
+SWAP_STEPS = 24
+
+#: And how long to stand there afterwards. The opening flash lights the whole
+#: room and the memory of it takes about three seconds to go out, so a frame
+#: taken straight after the swap is a picture of a fully lit room with a lamp
+#: in it -- which shows the sprite and hides the thing the sprite is for. Held
+#: until the flash has faded, so what is on screen is the pool the lamp itself
+#: is making.
+SWAP_SETTLE = 200
+
+
+def swapped_room(index: int = scene.NEAR) -> Screen:
+    """A spotlight **burning on the floor**, which no bot has ever produced.
+
+    `LAMP_ON` cannot be photographed from a played run and that is a fact about
+    the game rather than about the gallery: every authored spotlight starts
+    unlit, a floor light only lights by being swapped for a burning one, and
+    `spotlight_swaps` is 0 in every run any bot has ever made. So the picture
+    is set up here instead.
+
+    **Nothing about the level moves to get it.** Lighting one in the level data
+    would be a change to where the light in this building is, which is a
+    level-design dial and a gameplay change this round forbids. What happens
+    instead is the game's own swap rule, fired by the game's own code: the
+    player is stood on the room's first authored spotlight -- the same
+    convenience `enter` uses to stand them in a doorway -- the torch is
+    switched on, and `Spotlights.tick` leaves the burning light behind exactly
+    as it would if somebody had walked there. Then the player walks off it, so
+    the lamp is not underneath a figure.
+
+    It raises rather than returning a picture of nothing if the swap does not
+    happen, because a sheet that quietly showed an unlit spare would be worse
+    than no sheet at all -- it is the one image on it nobody can check against
+    a run.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    enter(run, index)
+    lights = [l for l in run.kit.floor if l.room == index]
+    if not lights:
+        raise ValueError(f"room {index} authors no spotlight to swap")
+    light = lights[0]
+    # Standing on it: x is the cell, y is the cell the *feet* are in.
+    run.player.x = light.cx * CELL
+    run.player.y = (light.cy + 1) * CELL - player_mod.HEIGHT
+    run.step(session_mod.Intent(torch=True))
+    if not light.burning:
+        raise RuntimeError(
+            "the swap did not leave a burning light on the floor, so there is "
+            "nothing here to photograph")
+    for _ in range(SWAP_STEPS):
+        run.step(session_mod.Intent(dx=1))
+    for _ in range(SWAP_SETTLE):
+        run.step()
+    screen = Screen()
+    run.draw(screen)
+    return screen
+
+
 def standing_clear(run) -> bool:
     """Is the player far enough from the edges to be a picture of a room?
 
@@ -372,4 +497,8 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     for index, room in enumerate(scene.BUILDING.rooms):
         sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))
         sheet(f"room-{slug(room.name)}-played", room_screen(index, lit=False))
+    # The one thing on the sprite sheet that a played frame cannot otherwise
+    # show: a spotlight burning where somebody put it down.
+    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",
+          swapped_room(scene.NEAR))
     return paths

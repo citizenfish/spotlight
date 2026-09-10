@@ -8,6 +8,16 @@
 ; No timestamp: the file is committed and a test compares it byte for
 ; byte, so any diff is art and code having drifted.
 
+BATTEN:
+        DEFB $00                   ; ........   a strip light seen from above, not an octagon
+        DEFB $00                   ; ........
+        DEFB $FF                   ; ########
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
 BODY:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
@@ -26,15 +36,25 @@ BODY:
         DEFB $83                   ; #.....##
         DEFB $00                   ; ........
 
-CLEG:
+CLEG_A:
         DEFB $00                   ; ........
-        DEFB $42                   ; .#....#.   legs out
+        DEFB $42                   ; .#....#.   wings down
         DEFB $24                   ; ..#..#..
         DEFB $7E                   ; .######.   body
         DEFB $FF                   ; ########
         DEFB $7E                   ; .######.
         DEFB $24                   ; ..#..#..   legs
         DEFB $42                   ; .#....#.
+
+CLEG_B:
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........   wings up: same body, same ink count
+        DEFB $66                   ; .##..##.
+        DEFB $7E                   ; .######.   body
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $66                   ; .##..##.   legs
+        DEFB $00                   ; ........
 
 DOORWAY_00:
         DEFB $00                   ; ........   mask  0, -
@@ -196,6 +216,42 @@ DOORWAY_15:
         DEFB $81                   ; #......#
         DEFB $C3                   ; ##....##
 
+DOOR_LOCKED:
+        DEFB $FF                   ; ########   a closed frame
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $A5                   ; #.#..#.#   the keyhole
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $BD                   ; #.####.#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+
+DOOR_OPEN:
+        DEFB $C3                   ; ##....##   two jambs, a four-pixel gap
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##   no head and no sill: open at both ends
+
 FOLLOWER:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
@@ -214,6 +270,16 @@ FOLLOWER:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+HOUSING:
+        DEFB $3C                   ; ..####..   a ring with a lens: the searchlight, bolted down
+        DEFB $42                   ; .#....#.
+        DEFB $81                   ; #......#
+        DEFB $99                   ; #..##..#
+        DEFB $99                   ; #..##..#
+        DEFB $81                   ; #......#
+        DEFB $42                   ; .#....#.
+        DEFB $3C                   ; ..####..
+
 KEY:
         DEFB $00                   ; ........
         DEFB $1C                   ; ...###..   ring
@@ -224,32 +290,42 @@ KEY:
         DEFB $0E                   ; ....###.   teeth
         DEFB $00                   ; ........
 
-LAMP:
-        DEFB $00                   ; ........
-        DEFB $18                   ; ...##...   handle
+LAMP_OFF:
+        DEFB $3C                   ; ..####..   a hollow octagon: a spotlight lying dark
+        DEFB $42                   ; .#....#.
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $42                   ; .#....#.
         DEFB $3C                   ; ..####..
-        DEFB $7E                   ; .######.   dome
-        DEFB $FF                   ; ########   lens
-        DEFB $66                   ; .##..##.   beam
-        DEFB $24                   ; ..#..#..
-        DEFB $00                   ; ........
+
+LAMP_ON:
+        DEFB $3C                   ; ..####..   filled: the same spotlight burning
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $3C                   ; ..####..
 
 NEST:
         DEFB $00                   ; ........
-        DEFB $FF                   ; ########   rim
-        DEFB $81                   ; #......#
-        DEFB $BD                   ; #.####.#   something inside
-        DEFB $BD                   ; #.####.#
-        DEFB $81                   ; #......#
+        DEFB $30                   ; ..##....   the lip, broken and off-centre
+        DEFB $7C                   ; .#####..
+        DEFB $FE                   ; #######.
+        DEFB $DF                   ; ##.#####   the brood, uneven
         DEFB $FF                   ; ########
-        DEFB $00                   ; ........
+        DEFB $7E                   ; .######.
+        DEFB $2C                   ; ..#.##..   it does not sit square
 
 PLAYER:
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $3C                   ; ..####..   head, seen from above - no hat, no face
+        DEFB $3C                   ; ..####..   the lamp, worn on the helmet
         DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.   head, seen from above - no hat, no face
+        DEFB $7E                   ; .######.
         DEFB $FF                   ; ########   shoulders, full width - the kit
         DEFB $FF                   ; ########
         DEFB $DB                   ; ##.##.##   arms clear of the body
@@ -258,9 +334,9 @@ PLAYER:
         DEFB $7E                   ; .######.   hips
         DEFB $66                   ; .##..##.   legs, planted wide
         DEFB $66                   ; .##..##.
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
+        DEFB $00                   ; ........   one clear row, so the mark is not feet
+        DEFB $FF                   ; ########   the mark: the only figure with ground under him
+        DEFB $FF                   ; ########
 
 WALL_DIM_00:
         DEFB $FF                   ; ########   mask  0, -

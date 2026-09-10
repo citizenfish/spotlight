@@ -1,8 +1,14 @@
 ; nest.txt
 ;
-; A nest: a bounded mass, deliberately angular so it cannot be
-; mistaken for a Cleg. An organic blob read too much like the thing it
-; spawns.
+; A nest. Redrawn for issue #49: it was a rim with a bar in it, which
+; at 1:1 is a small horizontal dash and reads as a UI element rather
+; than as a thing in the room. It met its one stated goal -- not
+; looking like a Cleg -- and met nothing else.
+;
+; Now a squat, dense mass with a broken top edge and an off-centre
+; lip. Against a Cleg's splayed legs it is a solid body with a torn
+; outline; against a BODY it is one cell tall rather than two, which
+; is the tell that size says whether a thing is a person.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -13,10 +19,10 @@
 name: NEST
 size: 8x8
 ........
-########   rim
-#......#
-#.####.#   something inside
-#.####.#
-#......#
+..##....   the lip, broken and off-centre
+.#####..
+#######.
+##.#####   the brood, uneven
 ########
-........
+.######.
+..#.##..   it does not sit square

@@ -71,14 +71,22 @@ def cells_of(run, kind: str):
 
 def spoken_for(run) -> set:
     """Cells whose hue is chosen by something standing on them rather than by
-    the room: a shout, the exit sign, poison.
+    the room: a shout, the exit sign, the searchlight's housing, poison.
 
     They are the *contents* choosing the hue, which is the same rule the floor
     and the walls follow -- and a shout is written wherever the word fits, so
     it lands on walls and on doorways as readily as on floor.
+
+    The housing joined the list with issue #49. It is white and held at full
+    brightness wherever the beam is bolted, on the same footing as the sign:
+    a fixture of the building, so it takes the building's constant hue rather
+    than the room's floor.
     """
-    return set(run.call_cells) | set(run.place.sign_cells) | \
+    cells = set(run.call_cells) | set(run.place.sign_cells) | \
         set(run.spray.cells_in(run.here))
+    if run.place.housing is not None:
+        cells.add(run.place.housing)
+    return cells
 
 
 # --- the two rooms are told apart by their floors ---------------------------

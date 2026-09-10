@@ -1,8 +1,24 @@
 ; lamp.txt
 ;
-; A spotlight lying on the floor: a lamp with its beam spreading
-; below. Still drawn in side view, and now the only object that is --
-; a known debt.
+; The lamp family: one silhouette, three meanings, told apart by their
+; middles -- EMPTY IS DARK, FILLED IS BURNING, A LENS IS BOLTED DOWN.
+; Plus a fourth that is deliberately not an octagon at all.
+;
+; These replace a lamp drawn in elevation -- a handle, a dome and a
+; beam spreading downward -- which was the only object in the game
+; that disagreed with the camera, and the reason nobody noticed is
+; that it was never drawn: there was no draw call for a dropped
+; spotlight anywhere in the game, so the whole pick-up-and-swap
+; economy had never once been on screen (issue #49).
+;
+; LAMP_OFF and LAMP_ON share a silhouette on purpose, which the
+; legibility contract otherwise forbids of a pair of states that means
+; something. The exemption is real rather than an oversight: a burning
+; lamp sits inside the pool of light it is making, and that pool is a
+; far larger cue than the eight bytes in the middle of it. It is the
+; only state pair in the game with a second channel of its own. If a
+; session ever reports a spare being mistaken for a burning one, this
+; is the paragraph that gets reopened.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -10,13 +26,46 @@
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
 
-name: LAMP
+name: LAMP_OFF
 size: 8x8
-........
-...##...   handle
+..####..   a hollow octagon: a spotlight lying dark
+.#....#.
+#......#
+#......#
+#......#
+#......#
+.#....#.
 ..####..
-.######.   dome
-########   lens
-.##..##.   beam
-..#..#..
+
+name: LAMP_ON
+size: 8x8
+..####..   filled: the same spotlight burning
+.######.
+########
+########
+########
+########
+.######.
+..####..
+
+name: HOUSING
+size: 8x8
+..####..   a ring with a lens: the searchlight, bolted down
+.#....#.
+#......#
+#..##..#
+#..##..#
+#......#
+.#....#.
+..####..
+
+name: BATTEN
+size: 8x8
+........   a strip light seen from above, not an octagon
+........
+########
+#......#
+#......#
+########
+........
 ........

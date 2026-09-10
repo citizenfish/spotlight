@@ -151,8 +151,10 @@ def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     was inside it. If a future slice makes the dim tiles heavier, this is the
     test that should stop it.
 
-    The player is 60 today and *Screen Layout* quotes 84, which is the redraw
-    slice C brings; either way the figure is the heavier thing on the cell.
+    The player is 84 since the slice C redraw -- the lamp and the bar took him
+    from 60 -- which is nearly twice the ink of anybody else in the room and
+    three times the heaviest remembered wall. Either way the figure is the
+    heavier thing on the cell.
     """
     inks = [tiles.ink_of(rows) for rows in tiles.WALL_DIM]
     assert min(inks) == 0 and max(inks) == 48, "mask 0 is a free-standing cell"
@@ -160,7 +162,7 @@ def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     runs = [ink for mask, ink in enumerate(inks) if mask not in (0,)]
     assert max(runs) <= 28
     assert max(runs) < tiles.ink_of(sprites.WORKER) == 44
-    assert tiles.ink_of(sprites.PLAYER) == 60
+    assert tiles.ink_of(sprites.PLAYER) == 84
 
 
 def test_the_derivation_reproduces_every_tile():

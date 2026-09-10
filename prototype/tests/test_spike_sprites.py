@@ -56,7 +56,7 @@ def test_a_sprite_in_a_dark_cell_is_swallowed_not_recoloured():
     s = Screen()
     field = L.LightField()          # nothing lit at all
     field.paint(s, YELLOW)
-    SP.draw(s, SP.CLEG, 40, 40)
+    SP.draw(s, SP.CLEG_A, 40, 40)
     ink, paper, _, _ = __import__(
         "spotlight.core.screen", fromlist=["unpack_attr"]
     ).unpack_attr(s.get_attr(5, 5))
@@ -67,8 +67,8 @@ def test_a_sprite_in_a_dark_cell_is_swallowed_not_recoloured():
 
 def test_sprites_position_by_pixel_not_by_cell():
     a, b = Screen(), Screen()
-    SP.draw(a, SP.CLEG, 40, 40)
-    SP.draw(b, SP.CLEG, 43, 40)
+    SP.draw(a, SP.CLEG_A, 40, 40)
+    SP.draw(b, SP.CLEG_A, 43, 40)
     assert bytes(a.pixels) != bytes(b.pixels)
 
 
@@ -84,7 +84,7 @@ def test_a_cell_aligned_sprite_spans_the_minimum():
 
 def test_a_person_spans_more_rows_than_a_cleg():
     assert len(SP.cells_spanned(40, 40, len(SP.PLAYER))) == 2
-    assert len(SP.cells_spanned(40, 40, len(SP.CLEG))) == 1
+    assert len(SP.cells_spanned(40, 40, len(SP.CLEG_A))) == 1
 
 
 # --- clipping --------------------------------------------------------------
@@ -100,7 +100,7 @@ def test_sprites_are_clipped_at_the_screen_edges():
 
 def test_a_sprite_does_not_wrap_around_the_right_edge():
     s = Screen()
-    SP.draw(s, SP.CLEG, SCREEN_W - 3, 40)
+    SP.draw(s, SP.CLEG_A, SCREEN_W - 3, 40)
     for py in range(40, 48):
         assert not s.point(0, py), "sprite wrapped onto the left edge"
 
@@ -118,13 +118,13 @@ def test_sprites_cannot_be_drawn_into_the_status_strip():
 def test_sprites_set_pixels_without_clearing_the_background():
     s = Screen()
     s.fill_cell_pixels(5, 5, on=True)
-    SP.draw(s, SP.CLEG, 41, 41)
+    SP.draw(s, SP.CLEG_A, 41, 41)
     assert s.point(40, 40), "background pixel was cleared"
 
 
 # --- silhouettes -----------------------------------------------------------
 
-def test_people_are_8x16_alive_or_dead_and_everything_else_is_8x8():
+def test_people_are_8x16_alive_or_dead_and_the_objects_are_8x8():
     """The size rule lost its exception when the body became a person.
 
     It used to read "people are 8x16, everything else is 8x8", and a body was
@@ -132,12 +132,19 @@ def test_people_are_8x16_alive_or_dead_and_everything_else_is_8x8():
     somebody lying down has the same plan as somebody standing up, so size
     cannot be the tell and pose has to be: **size says whether a thing is a
     person, pose says whether it is still alive.**
+
+    **A door is the one 8x16 thing that is not a person** (issue #49), because
+    it is the person-shaped hole you walk out through. It is never confused
+    with one: it does not move, and it stands in a wall.
     """
     for name in SP.PEOPLE:
         assert len(SP.SPRITES[name]) == 16, name
-    for name in ("cleg", "nest", "key", "lamp"):
+    for name in SP.DOORS:
+        assert len(SP.SPRITES[name]) == 16, name
+    objects = set(SP.SPRITES) - set(SP.PEOPLE) - set(SP.DOORS)
+    assert objects, "every sprite became a person or a door"
+    for name in objects:
         assert len(SP.SPRITES[name]) == 8, name
-    assert set(SP.PEOPLE) | {"cleg", "nest", "key", "lamp"} == set(SP.SPRITES)
 
 
 def test_every_silhouette_is_distinct():
@@ -172,14 +179,26 @@ def test_which_figure_is_yours_is_a_body_and_not_a_hat():
     assert sum(1 for a, b in zip(SP.PLAYER, SP.WORKER) if a != b) >= 8
 
 
-def test_no_figure_has_anything_above_its_head():
+def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
     """Seen from above a head is the topmost thing and there is no hat on it.
 
-    Two blank rows at the top of every figure, which is also what keeps the
-    box 8x16 while the drawing is eleven or twelve rows of it.
+    **The player is the one exception and it is deliberate** (issue #49). The
+    rule exists so that no hat, brim, hair or face makes a figure read as
+    front-facing; a centred block on a helmet reads as a fitting rather than a
+    face, and **it is an object rather than anatomy**. It is what identifies
+    him where there is no floor under his feet to draw his bar on -- on a wall
+    cell, in a doorway, and on the sprite sheet.
+
+    The rest keep two blank rows, which is also what keeps the box 8x16 while
+    the drawing is eleven or twelve rows of it.
     """
     for name in SP.PEOPLE:
+        if name == "player":
+            continue
         assert SP.SPRITES[name][:2] == (0x00, 0x00), name
+    assert SP.PLAYER[0] == 0x00, "the lamp is inside the box, not on its edge"
+    assert SP.PLAYER[1] == SP.PLAYER[2] == 0x3C, \
+        "the lamp is four pixels wide, two rows, centred"
 
 
 def test_the_living_are_symmetric_and_the_dead_are_not():
@@ -207,10 +226,20 @@ def test_no_sprite_is_blank():
         assert any(sprite), f"{name} is empty"
 
 
+#: The lamp family: one silhouette, three meanings, told apart by their
+#: middles -- empty is dark, filled is burning, a lens is bolted down. They are
+#: exempt from the pairwise silhouette rule below, deliberately and with a
+#: reason: a burning lamp sits inside the pool of light it is making, a housing
+#: is bolted to a wall corner and never lies on the floor, and neither of those
+#: cues is in the eight bytes. See `assets/sprites/lamp.txt`.
+LAMP_FAMILY = ("lamp_off", "lamp_on", "housing")
+
+
 def test_silhouettes_differ_by_more_than_a_row_or_two():
     """Exact inequality is too weak. Shapes carrying all the information have
     to be distinguishable at a glance, not by one pixel."""
-    same_size = [(n, s) for n, s in SP.SPRITES.items() if len(s) == 8]
+    same_size = [(n, s) for n, s in SP.SPRITES.items()
+                 if len(s) == 8 and n not in LAMP_FAMILY]
     for i, (name_a, a) in enumerate(same_size):
         for name_b, b in same_size[i + 1:]:
             differing = sum(1 for ra, rb in zip(a, b) if ra != rb)
@@ -227,9 +256,23 @@ def test_no_sprite_is_a_solid_block():
 
 def test_the_cleg_is_the_widest_thing_at_its_waist():
     """Its full-width middle with thin legs is what makes it read as an insect
-    rather than as debris."""
-    assert 0xFF in SP.CLEG
-    assert SP.CLEG[1] == 0x42, "splayed legs, not a solid top"
+    rather than as debris. True of both wing frames."""
+    for frame in SP.CLEG_FRAMES:
+        assert 0xFF in frame
+        assert frame[0] == 0x00, "the fly is inside its box"
+    assert SP.CLEG_A[1] == 0x42, "splayed legs, not a solid top"
+
+
+def test_the_two_cleg_frames_are_the_same_body_at_the_same_weight():
+    """**Same body, same ink count, different silhouette.** A wingbeat that
+    changed the fly's mass would read as the fly getting bigger, which is what
+    a Cleg does by walking towards you and must not do by flapping."""
+    a, b = SP.CLEG_A, SP.CLEG_B
+    assert a != b, "the second frame is the first one"
+    ink = [sum(bin(row).count("1") for row in f) for f in (a, b)]
+    assert ink[0] == ink[1], f"the frames weigh {ink[0]} and {ink[1]}"
+    # The body -- the three rows that make it an insect -- is untouched.
+    assert a[3:6] == b[3:6], "the wingbeat moved the body"
 
 
 # --- the fade remembers the building, not its inhabitants (issue #12) ------
@@ -269,6 +312,22 @@ def _assets():
     return Path(__file__).resolve().parents[2] / "assets" / "sprites"
 
 
+def _authored() -> set:
+    """Every block name authored under `assets/sprites/`.
+
+    Read with the converter's own parser, so this asks the question the way the
+    build does: a file may hold a family -- the lamp's four, the Cleg's two --
+    and the block name is the identity.
+    """
+    import importlib.util
+    from pathlib import Path
+    tool = Path(__file__).resolve().parents[2] / "tools" / "bitmaps.py"
+    spec = importlib.util.spec_from_file_location("bitmaps_tool", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {block.name for block in module.read_tree([str(_assets())])}
+
+
 def test_every_sprite_is_authored_in_assets_and_generated_from_there():
     """**One source, not two agreeing copies** (issue #48).
 
@@ -278,23 +337,33 @@ def test_every_sprite_is_authored_in_assets_and_generated_from_there():
     the grid by `tools/bitmaps.py`, so `sprites.py` declares none of its own and
     the question cannot be asked. What is left to check is that the module the
     game imports really is the generated one, and that every sprite the game
-    draws has a file behind it.
+    draws is authored somewhere under `assets/sprites/`.
 
-    The file names are still `player.txt` and the block names are `PLAYER`,
-    because the file name is documentation and `name:` is the identity.
+    **Checked block by block rather than file by file.** It used to require a
+    file per sprite, `player.txt` for PLAYER; the lamp family and the two Cleg
+    frames are families that belong in one file each, exactly as the sixteen
+    doorway tiles do. The file name is documentation and `name:` is the
+    identity, which is the tool's own rule.
     """
     from spikes import bitmaps_gen
+    authored = _authored()
     for name, sprite in SP.SPRITES.items():
-        path = _assets() / f"{name}.txt"
-        assert path.exists(), f"{name} is drawn in code and nowhere else"
-        assert tuple(sprite) == bitmaps_gen.BITMAPS[name.upper()], \
+        block = name.upper()
+        assert block in authored, f"{name} is drawn in code and nowhere else"
+        assert tuple(sprite) == bitmaps_gen.BITMAPS[block], \
             f"{name} is not the generated bitmap"
 
 
 def test_the_assets_directory_holds_nothing_the_game_does_not_draw():
-    drawn = {f"{name}.txt" for name in SP.SPRITES}
-    on_disk = {p.name for p in _assets().glob("*.txt")}
-    assert on_disk == drawn, "art nobody draws, or a sprite with no source"
+    """Art nobody draws is art nobody maintains, and the suite should say so.
+
+    The one thing this would wrongly refuse is a sprite drawn ahead of the code
+    that uses it. There is none: DOOR_LOCKED is unexercised by the playtest
+    building -- nothing in it is locked -- but it is on the sprite sheet, which
+    is a draw call like any other.
+    """
+    drawn = {name.upper() for name in SP.SPRITES}
+    assert _authored() == drawn, "art nobody draws, or a sprite with no source"
 
 
 def test_sprites_py_declares_no_bytes_of_its_own():

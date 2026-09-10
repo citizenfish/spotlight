@@ -12,6 +12,17 @@ test regenerates it and compares byte for byte, so any diff at all is
 art and code having drifted.
 """
 
+BATTEN = (
+    0x00,  # ........   a strip light seen from above, not an octagon
+    0x00,  # ........
+    0xFF,  # ########
+    0x81,  # #......#
+    0x81,  # #......#
+    0xFF,  # ########
+    0x00,  # ........
+    0x00,  # ........
+)
+
 BODY = (
     0x00,  # ........
     0x00,  # ........
@@ -31,15 +42,26 @@ BODY = (
     0x00,  # ........
 )
 
-CLEG = (
+CLEG_A = (
     0x00,  # ........
-    0x42,  # .#....#.   legs out
+    0x42,  # .#....#.   wings down
     0x24,  # ..#..#..
     0x7E,  # .######.   body
     0xFF,  # ########
     0x7E,  # .######.
     0x24,  # ..#..#..   legs
     0x42,  # .#....#.
+)
+
+CLEG_B = (
+    0x00,  # ........
+    0x00,  # ........   wings up: same body, same ink count
+    0x66,  # .##..##.
+    0x7E,  # .######.   body
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x66,  # .##..##.   legs
+    0x00,  # ........
 )
 
 DOORWAY_00 = (
@@ -218,6 +240,44 @@ DOORWAY_15 = (
     0xC3,  # ##....##
 )
 
+DOOR_LOCKED = (
+    0xFF,  # ########   a closed frame
+    0x81,  # #......#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xA5,  # #.#..#.#   the keyhole
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#
+    0x81,  # #......#
+    0xFF,  # ########
+)
+
+DOOR_OPEN = (
+    0xC3,  # ##....##   two jambs, a four-pixel gap
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xC3,  # ##....##   no head and no sill: open at both ends
+)
+
 FOLLOWER = (
     0x00,  # ........
     0x00,  # ........
@@ -237,6 +297,17 @@ FOLLOWER = (
     0x00,  # ........
 )
 
+HOUSING = (
+    0x3C,  # ..####..   a ring with a lens: the searchlight, bolted down
+    0x42,  # .#....#.
+    0x81,  # #......#
+    0x99,  # #..##..#
+    0x99,  # #..##..#
+    0x81,  # #......#
+    0x42,  # .#....#.
+    0x3C,  # ..####..
+)
+
 KEY = (
     0x00,  # ........
     0x1C,  # ...###..   ring
@@ -248,34 +319,45 @@ KEY = (
     0x00,  # ........
 )
 
-LAMP = (
-    0x00,  # ........
-    0x18,  # ...##...   handle
+LAMP_OFF = (
+    0x3C,  # ..####..   a hollow octagon: a spotlight lying dark
+    0x42,  # .#....#.
+    0x81,  # #......#
+    0x81,  # #......#
+    0x81,  # #......#
+    0x81,  # #......#
+    0x42,  # .#....#.
     0x3C,  # ..####..
-    0x7E,  # .######.   dome
-    0xFF,  # ########   lens
-    0x66,  # .##..##.   beam
-    0x24,  # ..#..#..
-    0x00,  # ........
+)
+
+LAMP_ON = (
+    0x3C,  # ..####..   filled: the same spotlight burning
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x3C,  # ..####..
 )
 
 NEST = (
     0x00,  # ........
-    0xFF,  # ########   rim
-    0x81,  # #......#
-    0xBD,  # #.####.#   something inside
-    0xBD,  # #.####.#
-    0x81,  # #......#
+    0x30,  # ..##....   the lip, broken and off-centre
+    0x7C,  # .#####..
+    0xFE,  # #######.
+    0xDF,  # ##.#####   the brood, uneven
     0xFF,  # ########
-    0x00,  # ........
+    0x7E,  # .######.
+    0x2C,  # ..#.##..   it does not sit square
 )
 
 PLAYER = (
     0x00,  # ........
-    0x00,  # ........
-    0x3C,  # ..####..   head, seen from above - no hat, no face
+    0x3C,  # ..####..   the lamp, worn on the helmet
     0x3C,  # ..####..
-    0x3C,  # ..####..
+    0x7E,  # .######.   head, seen from above - no hat, no face
+    0x7E,  # .######.
     0xFF,  # ########   shoulders, full width - the kit
     0xFF,  # ########
     0xDB,  # ##.##.##   arms clear of the body
@@ -284,9 +366,9 @@ PLAYER = (
     0x7E,  # .######.   hips
     0x66,  # .##..##.   legs, planted wide
     0x66,  # .##..##.
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
+    0x00,  # ........   one clear row, so the mark is not feet
+    0xFF,  # ########   the mark: the only figure with ground under him
+    0xFF,  # ########
 )
 
 WALL_DIM_00 = (
@@ -663,8 +745,10 @@ WORKER = (
 #: Every bitmap by name, for the tools and tests that want to
 #: walk them all.
 BITMAPS = {
+    "BATTEN": BATTEN,
     "BODY": BODY,
-    "CLEG": CLEG,
+    "CLEG_A": CLEG_A,
+    "CLEG_B": CLEG_B,
     "DOORWAY_00": DOORWAY_00,
     "DOORWAY_01": DOORWAY_01,
     "DOORWAY_02": DOORWAY_02,
@@ -681,9 +765,13 @@ BITMAPS = {
     "DOORWAY_13": DOORWAY_13,
     "DOORWAY_14": DOORWAY_14,
     "DOORWAY_15": DOORWAY_15,
+    "DOOR_LOCKED": DOOR_LOCKED,
+    "DOOR_OPEN": DOOR_OPEN,
     "FOLLOWER": FOLLOWER,
+    "HOUSING": HOUSING,
     "KEY": KEY,
-    "LAMP": LAMP,
+    "LAMP_OFF": LAMP_OFF,
+    "LAMP_ON": LAMP_ON,
     "NEST": NEST,
     "PLAYER": PLAYER,
     "WALL_DIM_00": WALL_DIM_00,

@@ -643,6 +643,22 @@ class Building:
         """
         return self.roster
 
+    @property
+    def most_lamps(self) -> int:
+        """The most dropped spotlights one room can be holding at once.
+
+        **The whole building's**, not a room's, because a spotlight moves: a
+        swap leaves the one you were carrying where you stand, so every light
+        in the building can end up on one room's floor.
+
+        A dropped spotlight is a fixture -- it stays put, the fade may remember
+        it, and since issue #49 it is drawn on the floor like a key. It is
+        counted here because **the day `FIXTURE_COST` stops being zero, these
+        move with it** rather than waiting for somebody to remember that the
+        room has lamps in it. Today it changes no number at all.
+        """
+        return sum(len(room.spotlights) for room in self.rooms)
+
     def worst_case(self) -> int:
         """What this building can come to in one room, in T-states.
 
@@ -661,6 +677,11 @@ class Building:
         At least one is dead, because a level with no nest in it is not the
         failure this is sizing for.
 
+        **The room's authored spotlights are counted as fixtures too** (issue
+        #49). They are free today, because a fixture is priced at zero, and
+        that is exactly the reason to count them now: the arithmetic has to
+        find them the day the zero moves.
+
         **This counts the building's whole swarm**, where the runtime valve
         counts a room's -- see `Session._load`. Clegs cross doorways and go to
         light, so a room's authored population is not its worst case and a level
@@ -669,8 +690,9 @@ class Building:
         that cannot.
         """
         flies = self.population + NEST_BROOD
+        lamps = self.most_lamps
         return max(cost(clegs=flies, people=1 + self.roster - dead,
-                        fixtures=min(dead, self.most_fixtures))
+                        fixtures=min(dead, self.most_fixtures) + lamps)
                    for dead in range(1, max(1, self.roster) + 1))
 
     @property
