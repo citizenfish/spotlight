@@ -352,12 +352,33 @@ class Speaker:
     interrupt it except a priority-1 effect, and a priority-1 arrival calls
     `play` again, which stops the channel dead. Feeding 882 samples a frame
     would be the same performance with a chance of a gap in it.
+
+    **The grace window made that convenience cost something** (issue #57). A
+    click past frame 18 now punches a hole in a long effect, and playing the
+    click stops the channel -- so the effect has to be started again from the
+    frame after the hole, which is what `_tails` is for: the same sound from
+    each frame it can ever be resumed at, built on demand and kept. About 260
+    of them exist in the whole game and a run touches a handful.
+
+    **This is a Pygame stand-in and the port does not have it.** On the
+    Spectrum the player routine reads one note per interrupt from the table
+    and simply reads the next one after the click; there is no such thing as
+    resuming a sound because there was never a sound, only a sequence of
+    frames. If this class is ever ported instead of replaced, `_tails` is the
+    part to delete.
     """
 
     def __init__(self, volume: float = 0.35) -> None:
         self.volume = volume
         self.available = False
         self._sounds = {}
+        #: `(sound, frame)` -> that effect played from that frame on. Built
+        #: lazily because most of them are never needed; see the class
+        #: docstring on why they exist at all.
+        self._tails = {}
+        self._frames = {}
+        self._pygame = None
+        self._stereo = False
         self._click = None
         self._tick = None
         self._channel = None
@@ -372,7 +393,10 @@ class Speaker:
             if init is None:
                 return False
             stereo = init[2] > 1
+            self._pygame = pygame
+            self._stereo = stereo
             bank = Bank()
+            self._frames = bank.effects
             self._click = self._sound(pygame, _padded(
                 spike_buzz.click_wave(stereo=stereo)))
             self._tick = self._sound(pygame, _padded(
@@ -410,6 +434,23 @@ class Speaker:
             self._channel.play(self._tick)
         elif voice.kind == sounds.EFFECT and voice.started:
             self._channel.play(self._sounds[voice.sound])
+        elif voice.kind == sounds.EFFECT and voice.resumed:
+            # The frame after a hole: the click that punched it stopped this
+            # channel, so the rest of the effect is handed over again from
+            # where the arbiter says it now is. See the class docstring -- the
+            # target has no equivalent and needs none.
+            self._channel.play(self._tail(voice.sound, voice.index))
+
+    def _tail(self, sound: int, index: int):
+        """The effect from `index` on, as one sound. Built once, then kept."""
+        key = (sound, index)
+        tail = self._tails.get(key)
+        if tail is None:
+            data = b"".join(self._frames[sound][index:])
+            tail = self._sound(self._pygame,
+                               _stereo(data) if self._stereo else data)
+            self._tails[key] = tail
+        return tail
 
     def close(self) -> None:
         if self.available and self._channel is not None:

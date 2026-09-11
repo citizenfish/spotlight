@@ -330,23 +330,140 @@ def test_a_tick_and_an_effect_on_the_same_frame_the_tick_wins():
     assert voice.update(False, False) == sounds.NOTHING
 
 
-def test_a_click_inside_an_effect_is_dropped_and_the_effect_is_whole():
-    """The ruling itself: an effect that has started owns the voice.
+#: Every sound in the table that is short enough to be inviolable, which is
+#: every sound the grace window promises to leave alone. `SFX_WORKER_DIED` is
+#: the longest of them **and is where the number 18 comes from**.
+SHORT_SOUNDS = tuple(sound for sound, effect in sounds.EFFECTS.items()
+                     if effect.frames <= sounds.GRACE_FRAMES)
 
-    Every frame of the effect sounds; the click is dropped rather than queued;
-    and nothing anywhere near the sonar's counter is touched.
+
+def test_the_window_is_the_length_of_the_workers_death():
+    """**Eighteen is read off the table, not tuned**, and this is the line that
+    keeps it that way.
+
+    *When the sonar lands inside an effect* set the window at the length of the
+    longest sound that is a single event rather than a shape with room in it --
+    the worker's death, one of the two beats *Nests* says the body-and-nest
+    mechanic rests on. If somebody shortens that sound, this fails and the
+    window is re-argued rather than silently left behind.
     """
-    voice = _voice_playing(M.SFX_GAME_OVER)
-    frames = sounds.EFFECTS[M.SFX_GAME_OVER].frames
+    assert sounds.GRACE_FRAMES == sounds.EFFECTS[M.SFX_WORKER_DIED].frames
+    assert M.SFX_WORKER_DIED in SHORT_SOUNDS
+    # ...and the six the acceptance criteria name by hand, so that a table
+    # change cannot make the promise true by emptying the list.
+    for sound in (M.SFX_BITE, M.SFX_FREED, M.SFX_WORKER_DIED, M.SFX_DOOR,
+                  M.SFX_SPRAY, M.SFX_PICKUP):
+        assert sound in SHORT_SOUNDS
+
+
+@pytest.mark.parametrize("sound", SHORT_SOUNDS)
+def test_a_sound_that_is_one_event_is_inviolable(sound):
+    """**The half of the ruling that did not change.**
+
+    A sound of `GRACE_FRAMES` or fewer owns the voice for every frame it has:
+    a bite, a freeing, a worker's death, a door, a spray, a pickup. In 57
+    minutes of measured play not one of them lost a frame, and this is the
+    test that keeps it so. The click is dropped rather than queued, and
+    nothing anywhere near the sonar's counter is touched.
+    """
+    voice = _voice_playing(sound)
+    frames = sounds.EFFECTS[sound].frames
     played = [voice.kind]
-    for i in range(1, frames):
+    for _ in range(1, frames):
         # A click on every single frame of it, which is worse than the game can
         # do: the fastest the sonar goes is one in eight.
         played.append(voice.update(True, False))
     assert played == [sounds.EFFECT] * frames
     assert voice.clicks.dropped == frames - 1 and voice.clicks.sounded == 0
+    assert voice.frames_lost == 0, "a single event was interrupted"
     # ...and the frame after it ends, the voice is free again.
     assert voice.update(True, False) == sounds.CLICK
+
+
+def test_the_grace_window_is_pinned_in_both_directions():
+    """**The boundary, and the whole of issue #57 in six lines.**
+
+    Frame 17 of an effect is still inside the window and a click due there is
+    dropped; frame 18 is outside it and the same click is heard. Both
+    directions, because a window pinned on one side is a window that can drift
+    on the other.
+    """
+    for position, expected in ((sounds.GRACE_FRAMES - 1, sounds.EFFECT),
+                               (sounds.GRACE_FRAMES, sounds.CLICK)):
+        voice = _voice_playing(M.SFX_HATCHED)          # 30 frames, priority 0
+        for _ in range(position - 1):
+            voice.update(False, False)
+        assert voice.position == position, "the test walked to the wrong frame"
+        assert voice.update(True, False) == expected
+    # And the tick is treated exactly as the click, which is this build's
+    # extension of the ruling rather than the ruling's own words.
+    voice = _voice_playing(M.SFX_HATCHED)
+    for _ in range(sounds.GRACE_FRAMES - 1):
+        voice.update(False, False)
+    assert voice.update(False, True) == sounds.TICK
+
+
+def test_a_punctured_effect_is_not_abandoned_and_not_restarted():
+    """It loses the frame the click takes and carries on. **Not truncated.**
+
+    The alternative that was measured and rejected -- cap the ownership and
+    abandon the rest -- gives the same starvation figures and deletes 1,383
+    frames of sound. An effect here is a shape: cut `SFX_PLAYER_DIED` at frame
+    18 and what is left is a falling tone that stops, which is the beginning of
+    four other sounds. So the hole is a hole, and the sound ends exactly where
+    it always would have.
+    """
+    voice = _voice_playing(M.SFX_PLAYER_DIED)          # 40 frames
+    frames = sounds.EFFECTS[M.SFX_PLAYER_DIED].frames
+    heard = {}
+    for frame in range(1, frames):
+        # A click every eight frames: the sonar at contact, which is when this
+        # actually happens.
+        kind = voice.update(frame % 8 == 0, False)
+        if kind == sounds.EFFECT:
+            heard[frame] = voice.index
+    # The sound still ends on the frame it would have ended on...
+    assert voice.update(False, False) == sounds.NOTHING
+    assert voice.sound == M.SFX_PLAYER_DIED, "the effect was replaced"
+    # ...every frame it was heard on is the frame of the sound it should have
+    # been, in order, with holes where the clicks were...
+    assert list(heard.values()) == sorted(heard.values())
+    assert all(frame == index for frame, index in heard.items())
+    # ...and the holes are only ever past the window.
+    holes = sorted(set(range(frames)) - set(heard.values()) - {0})
+    assert holes == [24, 32] and voice.frames_lost == 2
+    assert min(holes) >= sounds.GRACE_FRAMES
+
+
+def test_the_frame_after_a_hole_tells_the_host_to_pick_the_sound_up():
+    """`resumed` exists for the host and the port does not need it.
+
+    pygame is handed a whole effect at once, so a click that stops the channel
+    has to be followed by the rest of the sound; a Z80 reads the next note off
+    the table and notices nothing. See `spike_sound.Speaker`.
+    """
+    voice = _voice_playing(M.SFX_HATCHED)
+    for _ in range(sounds.GRACE_FRAMES - 1):
+        assert not voice.resumed
+        voice.update(False, False)
+    assert voice.update(True, False) == sounds.CLICK
+    assert voice.update(False, False) == sounds.EFFECT
+    assert voice.resumed and not voice.started
+    assert voice.index == sounds.GRACE_FRAMES + 1
+    voice.update(False, False)
+    assert not voice.resumed, "the host was told to start the sound twice"
+
+
+def test_a_priority_one_effect_still_pre_empts_past_the_window():
+    """The priority rule predates this and is untouched by it."""
+    voice = _voice_playing(M.SFX_HATCHED)              # priority 0, 30 frames
+    for _ in range(sounds.GRACE_FRAMES + 4):
+        voice.update(True, False)                      # punching holes in it
+    assert voice.frames_lost, "the test never got past the window"
+    assert voice.update(False, False,
+                        [(M.SFX_WORKER_DIED, 1)]) == sounds.EFFECT
+    assert voice.sound == M.SFX_WORKER_DIED and voice.index == 0
+    assert voice.effects_cut == 1
 
 
 def test_a_dropped_click_does_not_touch_the_sonars_counter():
@@ -372,6 +489,10 @@ def test_a_dropped_click_does_not_touch_the_sonars_counter():
         voice.update(wanted, False, wants)
     assert due_drowned == due_alone, "a dropped click moved the sonar's counter"
     assert voice.clicks.dropped == sum(due_alone) - voice.clicks.sounded
+    # The grace window means some of those clicks were *heard* inside the
+    # effect, which is the new path through the arbiter: it must not touch the
+    # counter either, and this is what makes the run above exercise it.
+    assert voice.clicks.sounded and voice.frames_lost
 
 
 def test_the_next_click_lands_exactly_where_it_would_have():
@@ -464,11 +585,15 @@ def test_a_run_that_ends_while_the_sonar_is_drowned_out_still_counts_it():
     """The worst case happens at the end of a run, which is exactly when a
     figure that only closed on a heard click would forgive it."""
     voice = sounds.Voice()
-    voice.update(False, False, [(M.SFX_GAME_OVER, 1)])
-    for _ in range(20):
+    # The worker's death, because it is inviolable end to end: a longer sound
+    # would let a click through at frame 18 and stop the silence, which is the
+    # grace window working rather than the measurement failing.
+    voice.update(False, False, [(M.SFX_WORKER_DIED, 1)])
+    frames = sounds.EFFECTS[M.SFX_WORKER_DIED].frames
+    for _ in range(frames - 1):
         voice.update(True, False)
-    assert voice.clicks.quiet == 20
-    assert voice.starved(), "twenty frames of silence went unreported"
+    assert voice.clicks.quiet == frames - 1
+    assert voice.starved(), "seventeen frames of silence went unreported"
 
 
 # --- one speaker, over a real run -------------------------------------------
@@ -505,26 +630,83 @@ def test_the_effects_are_heard_in_a_real_run():
 
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_a_run_never_plays_a_frame_of_an_effect_out_of_order(seed):
-    """Every effect heard is heard from its start, in order, with no gaps.
+    """Every effect heard is heard from its start, in order, and never twice.
 
-    A cut effect stops part way -- that is the pre-emption rule -- but nothing
-    ever resumes, because nothing is queued.
+    A cut effect stops part way -- that is the pre-emption rule -- and nothing
+    is ever queued. **A punctured one skips the frame the click took** (issue
+    #57) and goes on from the next, so a gap in what is heard is allowed and a
+    repeat or a step backwards is not: playing the same frame twice would mean
+    the sonar had lengthened a sound instead of holing it.
     """
+    from spikes import bots
+
+    # A bot rather than an idle player, because a still player hears almost
+    # nothing: the idle version of this test ran 4,000 frames without a single
+    # hole in it and would have passed whatever the arbiter did.
     run = Session(seed=seed, lives=99)
+    player = bots.make("wanderer", seed=seed)
     last = None
+    holes = 0
     for _ in range(4000):
-        run.step()
+        run.step(player.intent(run))
         if run.over is not None:
             break
         voice = run.voice
         if voice.kind != sounds.EFFECT:
-            last = None
             continue
         if voice.started:
             assert voice.index == 0
+            last = -1
         else:
-            assert last is not None and voice.index == last + 1
+            assert last is not None and voice.index > last, \
+                "a frame of an effect was heard twice"
+            if voice.index > last + 1:
+                # **Every hole in a real run is where the rule says it may be**:
+                # in a sound long enough to have a middle, past its eighteenth
+                # frame. A bite, a freeing, a worker's death, a door, a spray
+                # and a pickup are all shorter than the window and none of them
+                # can appear here.
+                assert sounds.EFFECTS[voice.sound].frames > sounds.GRACE_FRAMES
+                assert last + 1 >= sounds.GRACE_FRAMES
+            holes += voice.index - last - 1
+            assert voice.resumed == (voice.index > last + 1)
         last = voice.index
+    assert holes == run.voice.frames_lost
+
+
+# --- the effect clock belongs to the interrupt -------------------------------
+
+def test_a_frame_the_game_did_not_step_still_ages_the_sound():
+    """**The defect, in the small** (issue #57). See `Voice.audio_frame`.
+
+    The clock that says how much of an effect is left is the sound player's,
+    and the sound player is the 50Hz interrupt. A frame the game did not step
+    is still a frame of sound, so it is still twenty milliseconds of the
+    effect, and the arbiter must not go on guarding a sound the speaker has
+    already finished.
+    """
+    voice = _voice_playing(M.SFX_PLAYER_DIED)          # 40 frames
+    frames = sounds.EFFECTS[M.SFX_PLAYER_DIED].frames
+    for held in range(1, frames):
+        assert voice.audio_frame() == sounds.EFFECT
+        assert voice.index == held
+    # The whole sound has now played out in held frames, so the voice is free
+    # and the very next click is heard rather than dropped.
+    assert voice.audio_frame() == sounds.NOTHING
+    assert voice.update(True, False) == sounds.CLICK
+    assert voice.clicks.dropped == 0
+
+
+def test_held_frames_do_not_count_as_clicks_lost():
+    """Nothing is asked for in a frame the game did not step, so nothing can be
+    dropped in one: the sonar's counter is inside the session and did not
+    advance either. A held frame ages the sound and says nothing else."""
+    voice = _voice_playing(M.SFX_GAME_OVER)
+    for _ in range(25):
+        voice.audio_frame()
+    assert voice.clicks.dropped == 0 and voice.clicks.quiet == 0
+    assert voice.ticks.dropped == 0
+    assert voice.frames_lost == 0, "a held frame was counted as a hole"
 
 
 def test_the_starvation_figures_are_in_every_run_report():
@@ -620,23 +802,27 @@ def test_a_click_is_only_ever_lost_to_an_effect_that_owns_the_voice(bot):
         assert dropped or run.frame < 4000
 
 
-#: **The finding, measured rather than assumed** -- see the module docstring of
-#: the report this slice was written from. Over seven bots and five seeds,
-#: 6,991 clicks sounded and 571 were dropped (7.6%); the longest the sonar went
-#: quiet without asking to was **87 frames -- 1.74 seconds** -- with the nearest
-#: Cleg at an interval of 11, and the worst at contact rates was 49 frames with
-#: six clicks lost in a row.
+#: **The finding, measured rather than assumed**, and then the ruling it forced.
+#: Slice F measured the first arbitration over seven bots and five seeds --
+#: 172,011 frames, 57 minutes -- and found 571 of 7,562 clicks dropped (7.6%),
+#: the sonar quiet for **87 frames, 1.74 seconds**, and **six clicks lost in a
+#: row at contact**: a motionless player with a fly on them and nothing in the
+#: second before the bite. *Questions#Prompt 3* says a bite is never a
+#: surprise, so that was the figure the ruling turned on and not the 87.
 #:
-#: That is past the twelve frames *When the sonar lands inside an effect* named
-#: when it closed, **so the ruling reopens**, and the answer is the design's:
-#: let the effect finish, with a cap. **Nothing here has been tuned to hide
-#: it**, which is what the issue asked for in as many words.
+#: **Re-measured over the same runs with the grace window** (issue #57): 409
+#: dropped (5.4%), worst silence 44 frames at an interval of 43 -- which is one
+#: click lost at the edge of hearing, where the next was never due sooner and
+#: is the floor for any rule that ever drops one -- worst run of lost clicks
+#: **three**, and runs of three or more down from 50 to 4.
 #:
 #: The ceiling below is a regression guard and not a blessing: it catches a
-#: change that makes the starvation much worse, and it does not fail if the
-#: design later fixes it -- at which point this constant and its note should go
-#: with the fix.
-MEASURED_WORST_QUIET = 87
+#: change that makes the starvation much worse. It is kept at 120 rather than
+#: dropped to the new 44, because a single run can legitimately end inside a
+#: long silence at the edge of hearing and this test is not the place to find
+#: that out.
+MEASURED_WORST_QUIET = 44
+MEASURED_WORST_RUN = 3
 QUIET_CEILING = 120
 
 
@@ -649,9 +835,15 @@ def test_how_long_the_sonar_goes_quiet_is_measured_every_run(bot):
     frames and bites arrive fastest when the sonar does, so can a *run* of
     effects silence the warning for long enough to matter?
 
-    It can. See `MEASURED_WORST_QUIET`. This test does not enforce the ruling's
-    twelve frames, because enforcing it would mean tuning something, and the
-    issue is explicit that this slice reports and stops.
+    It can, and what it cost was six clicks in a row in the second before a
+    bite. The grace window is the answer (issue #57) and the figures are in
+    `MEASURED_WORST_QUIET` above.
+
+    **What this test guards is the run of lost clicks, not the frames.** A
+    limit in frames cannot be met by any build that drops a click at all, since
+    one drop at the edge of hearing is 46 frames of silence by arithmetic; how
+    many clicks in a row the player lost, at the rate they were coming, is the
+    figure the ruling was made on and the one that can regress.
     """
     from spikes import spike_driver, bots
 
@@ -666,10 +858,14 @@ def test_how_long_the_sonar_goes_quiet_is_measured_every_run(bot):
             # arithmetic and is nothing like four lost at contact.
             assert figures["sonar_quiet_interval"] > 0
         worst = max(worst, run.voice.clicks.quiet)
+        assert run.voice.clicks.longest_run <= MEASURED_WORST_RUN, (
+            f"{bot} on seed {seed} lost "
+            f"{run.voice.clicks.longest_run} clicks in a row; the grace "
+            f"window was ruled on a worst case of {MEASURED_WORST_RUN}")
     assert worst <= QUIET_CEILING, (
         f"{bot} starved the sonar for {worst} frames, far past the "
         f"{MEASURED_WORST_QUIET} this slice measured and the "
-        f"{sounds.QUIET_LIMIT} the ruling allows")
+        f"{sounds.QUIET_LIMIT} the ruling flags")
 
 
 def test_silence_in_an_empty_room_is_not_starvation():

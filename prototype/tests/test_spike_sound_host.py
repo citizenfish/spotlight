@@ -135,6 +135,66 @@ def test_a_cut_effect_is_short_in_the_render():
     assert heard[-1][1] == M.SFX_WORKER_DIED
 
 
+def test_a_punctured_effect_renders_as_a_hole_and_not_as_a_delay(tmp_path):
+    """**What the grace window sounds like** (issue #57): the click is in the
+    file where the click happened, the frame it took is missing, and every
+    frame after it is the frame of the sound it always was.
+
+    The alternative -- the effect resuming where it left off and running a
+    frame late -- would be the same sound stretched, which is a different
+    sound. The render is built from the recorded decisions, so this is the
+    file, not a description of it.
+    """
+    voice = sounds.Voice()
+    heard = []
+    voice.update(False, False, [(M.SFX_HATCHED, 0)])     # 30 frames
+    heard.append(voice.decision())
+    for _ in range(sounds.EFFECTS[M.SFX_HATCHED].frames - 1):
+        # A click on every frame: inside the window they are dropped, past it
+        # every single one is heard.
+        voice.update(True, False)
+        heard.append(voice.decision())
+    kinds = [d[0] for d in heard]
+    assert kinds[:sounds.GRACE_FRAMES] == [sounds.EFFECT] * sounds.GRACE_FRAMES
+    assert set(kinds[sounds.GRACE_FRAMES:]) == {sounds.CLICK}
+    assert voice.update(False, False) == sounds.NOTHING, \
+        "the effect ran on past its length"
+
+    bank = spike_sound.Bank()
+    data = b"".join(bank.frame(d) for d in heard)
+    frames = spike_sound.effect_frames(M.SFX_HATCHED)
+    block = len(spike_sound.SILENT_FRAME)
+    for i in range(sounds.GRACE_FRAMES):
+        assert data[i * block:(i + 1) * block] == frames[i]
+    assert data[sounds.GRACE_FRAMES * block:
+                (sounds.GRACE_FRAMES + 1) * block] == bank.click
+
+
+def test_the_live_speaker_picks_a_punctured_sound_up_where_it_left_off():
+    """A Pygame stand-in with no equivalent on the target.
+
+    pygame is handed a whole effect at once, so the click that punches the hole
+    stops the channel and the rest of the sound has to be handed over again.
+    On the Spectrum the player routine reads the next note out of the table and
+    there is nothing to resume. Tested through the tail builder rather than
+    through a device, because the suite runs with no device at all.
+    """
+    speaker = spike_sound.Speaker()
+    if not speaker.open():
+        return                          # no mixer here; nothing to resume with
+    tail = speaker._tail(M.SFX_HATCHED, 20)
+    again = speaker._tail(M.SFX_HATCHED, 20)
+    assert tail is again, "a tail was rebuilt instead of kept"
+    frames = spike_sound.effect_frames(M.SFX_HATCHED)
+    expected = sum(len(f) for f in frames[20:]) // 2
+    # The mixer may have opened in stereo, in which case every sample is
+    # doubled; either way the tail is the rest of the sound and nothing else.
+    assert tail.get_length() > 0
+    assert expected in (int(tail.get_length() * spike_sound.RATE + 0.5),
+                        int(tail.get_length() * spike_sound.RATE))
+    speaker.close()
+
+
 def test_the_speaker_is_silent_and_harmless_with_no_device():
     """Sound is the first thing to go on a machine that cannot make a noise --
     and every headless run in this project depends on that being true."""

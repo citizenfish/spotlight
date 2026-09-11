@@ -380,9 +380,11 @@ class Shell:
             # they cost the port nothing at all, and the whole price of a
             # surge is the two whole-screen repaints either side of them.
             self.surging -= 1
+            self._sound_frame()
             return
         if self.held:
             self.held -= 1
+            self._sound_frame()
             if not self.held and self.run is not None \
                     and self.run.over is not None:
                 # The ending screen is what the pause was holding *off*. Fifty
@@ -427,6 +429,30 @@ class Shell:
             # has to mean one frame of plan, or the user tuning the number is
             # tuning something other than what they are looking at.
             self.surging = owed - 1
+
+    def _sound_frame(self) -> None:
+        """A frame the sound player ran and the game did not (issue #57).
+
+        **The effect clock belongs to the interrupt, not to the game step.**
+        On the target the player routine is driven by the 50Hz interrupt and
+        does not care that the game logic is paused; here the shell holds
+        frames for a moment's pause and for a surge, and during them nothing
+        was ageing the sound. The mixer was playing it all the same, because
+        the host is handed a whole effect at once, so the arbiter went on
+        guarding a sound that had already finished -- 25 frames of it after a
+        player's death, measured through this shell, with the sonar dropped
+        throughout. See `sounds.Voice.audio_frame`.
+
+        The speaker is asked as well as the clock, for the one case where a
+        click punctured the effect on the frame before the hold began: the
+        channel is playing the click, and the effect has to be picked up again
+        part-way or its tail is lost. Costs nothing on any other frame.
+        """
+        if self.run is None or self.run.voice is None:
+            return
+        self.run.voice.audio_frame()
+        if self.speaker is not None:
+            self.speaker.play(self.run.voice)
 
     def show_ending(self) -> None:
         run = self.run

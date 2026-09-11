@@ -320,6 +320,14 @@ class Moments:
 
         Called by the host loop and by nothing inside the game. Whoever takes it
         is agreeing to not step the session for that many frames.
+
+        **And to go on running the sound player through them** (issue #57).
+        The speaker is not part of the game step on the target -- it is the
+        50Hz interrupt, which does not stop because the game logic paused -- so
+        a host that holds frames must call `sounds.Voice.audio_frame` for each
+        one. The shell did not, and a player's death went on owning the voice
+        for twenty-five frames after the sound had finished, with every sonar
+        click in them dropped to protect a silence. See `spike1.Shell.frame`.
         """
         owed, self.pause = self.pause, 0
         return owed

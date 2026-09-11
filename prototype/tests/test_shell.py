@@ -134,6 +134,95 @@ def test_other_keys_do_not_restart_from_the_ending(shell):
     assert shell.state == spike1.ENDED
 
 
+# --- a pause does not extend a sound's ownership (issue #57) ----------------
+
+def _dead_but_not_out(shell):
+    """Start a run, take the player's last drop of blood, keep a life back.
+
+    A death with lives left is the case that matters: it carries a 25-frame
+    pause and then the game **carries on**, which is what makes the frames
+    after it playable rather than an ending screen.
+    """
+    shell.key(pygame.K_SPACE)
+    shell.run.lives = 5
+    for _ in range(10):
+        shell.frame(dx=1)
+    shell.run.blood = 0
+    shell.frame()
+    return shell.run.voice
+
+
+def test_a_pause_does_not_extend_an_effects_ownership():
+    """**The defect, in the place it actually happened** (issue #57).
+
+    `M_PLAYER_DIED` is a 40-frame sound with a 25-frame pause on it. The shell
+    does not step the game during a pause, so the arbiter's clock stood still
+    -- but the host had already handed the whole sample to the mixer and it
+    played out in real time. The arbiter therefore went on guarding a sound
+    that had finished, for up to half a second of play in which every sonar
+    click was dropped to protect a silence.
+
+    Measured on this shell before the fix: 25 held frames advanced nothing, and
+    39 of the sound's 40 frames were still owned when play resumed although
+    only 14 were still audible. On the target it could never have happened,
+    because the player routine runs off the interrupt and the interrupt does
+    not stop because the game logic paused.
+    """
+    from spikes import sounds
+    from spikes import moments as M
+
+    shell = spike1.Shell(Screen())
+    voice = _dead_but_not_out(shell)
+    frames = sounds.EFFECTS[M.SFX_PLAYER_DIED].frames
+    assert voice.sound == M.SFX_PLAYER_DIED and voice.index == 0
+    started_on = shell.run.frame
+    held = shell.held
+    assert held == 25, "the death's pause is not what this test is about"
+
+    for expected in range(1, held + 1):
+        shell.frame()
+        assert voice.index == expected, \
+            "a held frame did not age the sound: the clock is on the game step"
+    assert voice.left == frames - 1 - held
+
+    # ...and what is left is exactly what is left to hear. Play on to the end
+    # of the sound and the voice is free on the frame the sample stops, not
+    # twenty-five frames later.
+    for _ in range(voice.left):
+        shell.frame()
+    assert voice.left == 0
+    # One frame for the death itself, 25 held, and the rest played: exactly the
+    # sound's length in real frames, which is all the speaker ever had.
+    assert 1 + held + (shell.run.frame - started_on) == frames, \
+        "the sound outlived the player routine by more than the pause"
+
+
+def test_the_two_fixes_do_not_cover_for_each_other():
+    """The grace window alone would **not** have fixed the pause, and this says
+    so in numbers rather than leaving it to be assumed.
+
+    With the clock on the game step, a death's sound is at frame 1 when play
+    resumes, so the window would still have dropped every click for another
+    seventeen played frames -- a third of a second of the sonar, after the
+    sound it was protecting had finished. With the clock on the interrupt the
+    sound comes out of the pause already past its window, so the first click
+    due is heard.
+    """
+    from spikes import sounds
+
+    shell = spike1.Shell(Screen())
+    voice = _dead_but_not_out(shell)
+    for _ in range(shell.held):
+        shell.frame()
+    assert voice.position >= sounds.GRACE_FRAMES, \
+        "a click due on the first played frame after the pause is still lost"
+    # And what the arbiter still owns is only what is still audible: the held
+    # frames came off the sound, not off the guard.
+    assert voice.position + voice.left == \
+        sounds.EFFECTS[voice.sound].frames
+    assert voice.left == sounds.EFFECTS[voice.sound].frames - 1 - 25
+
+
 def test_a_whole_session_prints_nothing(capsys):
     """Start to finish with no debug key touched: stdout stays empty."""
     shell = spike1.Shell(Screen())

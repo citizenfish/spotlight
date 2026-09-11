@@ -287,16 +287,21 @@ SUMMARY = (
     # not move by one when it lands; what it costs instead is two whole-screen
     # repaints apiece, and this is how many times a run paid them.
     ("surges", "surges", 6),
-    # **What the one speaker costs the sonar** (issue #54). `quiet` is the
-    # figure the closed ruling named: frames from a click that was dropped to
-    # the next one that was heard, which is silence the sonar did not ask for
-    # rather than the 46-frame gap it asks for at the edge of hearing. Past
-    # twelve -- a quarter of a second -- the ruling reopens, and the driver
-    # says so on stderr as well as here.
+    # **What the one speaker costs the sonar** (issue #54, remade by #57).
+    # `quiet` is the figure the first ruling named -- frames from a dropped
+    # click to the next one heard, which is silence the sonar did not ask for
+    # rather than the 46-frame gap it asks for at the edge of hearing -- and
+    # `inrow` is the one the grace window was actually ruled on: **how many
+    # clicks in a row the player lost, at the rate they were coming**, which is
+    # a statement about information rather than about time. `sfxlost` is what
+    # the window costs on the other side: frames punched out of the long
+    # sounds. The two are meant to be read together.
     ("clicks", "sonar_clicks", 6),
     ("clkdrop", "sonar_clicks_dropped", 7),
     ("quiet", "sonar_quiet_frames", 5),
+    ("inrow", "sonar_drops_in_a_row", 5),
     ("sfx", "effects_sounded", 4),
+    ("sfxlost", "effect_frames_lost", 7),
 )
 
 

@@ -247,10 +247,13 @@ def metrics(run) -> dict:
     # the figure the closed ruling asked this slice to take rather than assume:
     # an effect owns the voice for its length, so a click landing inside one is
     # dropped, and nobody had measured whether a *run* of effects can starve
-    # the sonar. `sonar_quiet_frames` is the one to read -- frames from a
-    # dropped click to the next one heard -- against `sounds.QUIET_LIMIT`. The
-    # keys are always present, `None` when the run had no voice, for the same
-    # reason the repaint columns are.
+    # the sonar. It could, so the grace window followed (issue #57):
+    # `sonar_drops_in_a_row` is the figure that ruling was made on and
+    # `effect_frames_lost` is what it costs the long sounds, with
+    # `sonar_quiet_frames` -- frames from a dropped click to the next one
+    # heard -- read against `sounds.QUIET_LIMIT` as a flag. The keys are always
+    # present, `None` when the run had no voice, for the same reason the
+    # repaint columns are.
     voice = (run.voice.stats() if run.voice is not None
              else {key: None for key in sounds.SOUND_METRICS})
 
@@ -690,16 +693,20 @@ def sound_lines(run) -> list[str]:
 
     **The measurement the closed ruling asked for**, in the report of every
     run rather than in a one-off experiment. *When the sonar lands inside an
-    effect* ruled that an effect owns the voice for its whole length and a
-    click inside it is dropped, and it left exactly one thing open: whether a
-    run of effects can starve the sonar, because a bite is five frames and
-    bites arrive fastest when the sonar does.
+    effect* ruled that an effect owns the voice and a click inside it is
+    dropped, and it left exactly one thing open: whether a run of effects can
+    starve the sonar, because a bite is five frames and bites arrive fastest
+    when the sonar does. It can, so the ruling was remade (issue #57) and an
+    effect now owns the voice for its first `sounds.GRACE_FRAMES` frames only.
 
-    The number that answers it is the *unasked-for* silence -- from a click
-    that was dropped to the next one that was heard -- and not the gap between
-    clicks, which is 46 frames at the edge of hearing by design. Past
-    `sounds.QUIET_LIMIT` this says so in the note as well as on stderr, because
-    at that point the answer is a design decision and not a constant to tune.
+    Two numbers say what that costs, and they pull against each other:
+    **clicks lost in a row** is what the rule was made against -- silence with
+    a fly on you -- and `effect_frames_lost` is what the sonar took back out of
+    the long sounds to get it. The *unasked-for* silence in frames is here too
+    and is read with the interval beside it, since one drop at the edge of
+    hearing is 46 frames by arithmetic. Past `sounds.QUIET_LIMIT` this says so
+    in the note as well as on stderr; it is a run worth listening to rather
+    than a threshold anything is tuned to.
     """
     if run.voice is None:
         return []
@@ -710,18 +717,22 @@ def sound_lines(run) -> list[str]:
         f"dropped, {ticks.sounded} body ticks sounded and {ticks.dropped} "
         f"dropped, {voice.effects_sounded} effects played "
         f"({voice.effects_dropped} dropped, {voice.effects_cut} cut off by a "
-        f"louder one). The longest the sonar went quiet without asking to was "
-        f"{clicks.quiet} frames at an interval of {clicks.quiet_interval}, the "
-        f"body {ticks.quiet}; the ruling allows {sounds.QUIET_LIMIT}.")
+        f"louder one, {voice.frames_lost} frames of them lost to a click "
+        f"punching through after frame {sounds.GRACE_FRAMES}). The longest "
+        f"the sonar went quiet without asking to was {clicks.quiet} frames at "
+        f"an interval of {clicks.quiet_interval}, with at worst "
+        f"{clicks.longest_run} clicks lost in a row; the body {ticks.quiet}. "
+        f"The ruling's flag is {sounds.QUIET_LIMIT} frames.")
     if voice.starved():
         lines += _wrap(
             f"** That is past the quarter of a second *When the sonar lands "
-            f"inside an effect* closed on, so the ruling reopens as *let the "
-            f"effect finish, with a cap*. Read the interval with it: a click "
-            f"lost at 46 frames costs 46 frames of silence by arithmetic, "
-            f"while {clicks.longest_run} lost in a row at 8 is the warning "
-            f"going out with a fly on you. That is a design decision and this "
-            f"build has deliberately not tuned anything to hide it.")
+            f"inside an effect* named, which is a flag and not a failure: no "
+            f"build that ever drops a click can beat about 46 frames, because "
+            f"a click lost at the edge of hearing costs a whole interval by "
+            f"arithmetic. Read it with the interval and with the run: "
+            f"{clicks.longest_run} lost in a row at an interval of "
+            f"{clicks.quiet_interval} is the warning going out with a fly on "
+            f"you, and that is the figure the grace window was ruled on.")
     return lines
 
 

@@ -32,14 +32,20 @@ it lands in the middle of one and punches twenty milliseconds out of it. That
 was listened to and ruled in *When the sonar lands inside an effect*, and this
 module inherits the ruling:
 
-* **An effect that has started owns the voice for its whole length. A click
-  landing inside it is dropped, not queued.** So the sonar's priority is
-  absolute over the music and **not** over an effect.
+* **An effect that has started owns the voice for its first `GRACE_FRAMES`
+  frames. A click landing inside that window is dropped, not queued; a click
+  landing after it takes the frame and the effect plays on around the hole.**
+  So the sonar's priority is absolute over the music, absolute over a long
+  sound's middle, and **not** absolute over a short one.
 * **A dropped click does not touch the sonar's counter.** The next click comes
   when the counter says so. This is the load-bearing half of the rule: the
   sonar's rate *is* the distance, and a counter that restarted on a drop would
   make rate mean something else. `buzz.Sonar` is never told about any of this,
   which is how it stays true.
+* **The effect clock is the sound player's, not the game's.** `audio_frame`
+  advances it in frames the game did not step, because on the target the player
+  routine runs off the 50Hz interrupt and the interrupt does not stop because
+  the game logic paused. See `Voice.audio_frame` for the defect this fixed.
 
 Three more rules the ruling does not cover, all built deliberately:
 
@@ -49,6 +55,17 @@ Three more rules the ruling does not cover, all built deliberately:
    written here and pinned by a test *so that it is not settled by accident*,
    and if it ever turns out to swallow a bite the player needed, this is the
    paragraph to argue with.
+
+   **The grace window gave that rule a case it did not have before**, and it is
+   flagged here rather than left to be found: a click can now be heard while an
+   effect is running, so a *new* effect raised on that same frame is dropped by
+   this rule even when it is a priority-1 arrival that would otherwise have cut
+   in. **Measured over the seven bots and five seeds, it never once happened
+   in 57 minutes**, because a click and a new effect landing on the same frame
+   past the eighteenth frame of a third sound is a coincidence of three things.
+   It is built this way because the alternative -- a fresh effect beating the
+   click that just beat it -- would make which of the two wins depend on
+   whether something unrelated was already sounding.
 2. **Ownership is against the clicks, not against another effect.** A
    priority-1 effect pre-empts a sounding priority-0 one and cuts it off; a
    priority-0 arriving during anything is dropped; a priority-1 arriving during
@@ -57,9 +74,10 @@ Three more rules the ruling does not cover, all built deliberately:
    priority is what another effect wins by.
 3. **The body's tick is treated exactly as the sonar's click.** It is the same
    shape of thing -- one frame, unpitched, a rate rather than a shape. It beats
-   a fresh effect and it is dropped inside a running one. **The ruling was made
-   about the click; extending it to the tick is this slice's**, and it is
-   flagged here so it is findable if it is wrong.
+   a fresh effect, it is dropped inside the grace window of a running one, and
+   it punches through after it. **The ruling was made about the click;
+   extending it to the tick is this slice's**, and it is flagged here so it is
+   findable if it is wrong.
 
 **Nothing is ever queued.** A loser is not heard, and the state this costs is
 one running effect, its remaining frames and its priority -- three bytes, which
@@ -408,12 +426,16 @@ EFFECT = 3
 #: decision and not a constant to tune here. Nothing in this module acts on it;
 #: it is reported and that is all.
 #:
-#: **And it was exceeded on the first measurement.** Over seven bots and five
-#: seeds, 7.6% of clicks were dropped and the worst silence was 87 frames --
-#: 1.74 seconds -- with a Cleg nine cells off, from a death and a hatching
-#: falling back to back. At contact rates the worst was 49 frames with six
-#: clicks lost in a row. So the ruling reopens, and the report says so in every
-#: run rather than this file quietly making the effects shorter.
+#: **It was exceeded on the first measurement, and the ruling was remade.**
+#: Over seven bots and five seeds, 7.6% of clicks were dropped and the worst
+#: silence was 87 frames -- 1.74 seconds -- with a Cleg nine cells off, from a
+#: death and a hatching falling back to back. At contact rates the worst was 49
+#: frames with six clicks lost in a row. The answer was `GRACE_FRAMES` below,
+#: and the figure here is still what it was: a limit **in frames** cannot be
+#: met by any build that ever drops a click, because one drop at the edge of
+#: hearing is 46 frames of silence by arithmetic. It is a flag on a run worth
+#: listening to, not a target, and the figure the ruling was actually made
+#: against is *clicks lost in a row* -- `Drought.longest_run`.
 #:
 #: One thing the measurement showed that the ruling could not have known: **a
 #: single dropped click costs a whole interval of silence by arithmetic**, so
@@ -421,6 +443,59 @@ EFFECT = 3
 #: at contact. A limit stated in frames alone cannot tell those apart, which is
 #: why `Drought` carries the interval alongside the frames.
 QUIET_LIMIT = 12
+
+#: How long an effect owns the voice against the two clicking voices. A click
+#: or a tick due on frame 18 or later of a sounding effect takes that frame;
+#: before it, it is dropped as it always was. The effect is **not** abandoned
+#: and **not** restarted -- it loses the one frame and carries on -- so nothing
+#: is ever truncated.
+#:
+#: **Eighteen is read off the table above, not tuned**: it is the length of
+#: `SFX_WORKER_DIED`, the longest sound in the game that is a single event
+#: rather than a shape with room in it. That is what lets the rule state itself
+#: -- *a sound that is one event is inviolable; a sound long enough to have a
+#: middle can be interrupted in the middle* -- and it is why the number will
+#: still be right when the table changes. A test pins the two together so that
+#: shortening the worker's death moves the window with it.
+#:
+#: **What it fixed.** The ruling as first built gave an effect its whole length,
+#: and measuring it across seven bots and five seeds found the case the design
+#: has a written promise about: a motionless player with a fly on top of them,
+#: the sonar at its fastest, and **six clicks lost in a row** in the second
+#: before a bite. *Questions#Prompt 3* says a bite is never a surprise, so that
+#: is not an audio fault, it is a broken promise. Re-measured over the same
+#: recorded demand -- 35 runs, 172,011 frames -- the window takes drops from
+#: 7.6% to 5.4% (571 clicks to 409), the worst run of lost clicks from six to
+#: three, and runs of three or more from 50 to 4. It costs 252 frames of effect,
+#: all of them in `SFX_HATCHED` (186, at worst 3 holes in one),
+#: `SFX_PLAYER_DIED` (50, at worst 4), `SFX_DELIVERED` (12),
+#: `SFX_NEST_TURNED` (3) and `SFX_TORCH_OUT` (1). **No bite, freeing,
+#: worker's death, door, spray or pickup lost a frame**, because none of them
+#: is longer than the window.
+#:
+#: **Ideas tried and put back**, because obvious ideas get had twice:
+#:
+#: * *Cap ownership at 18 and abandon the rest of the sound.* Same starvation
+#:   figures, and it deletes 1,383 frames of effect and cuts 177 sounds off
+#:   mid-shape. An effect here is a shape -- `SFX_PLAYER_DIED` is 620->150Hz,
+#:   a rasp, then 90->62Hz -- and cutting it at frame 18 leaves a falling tone
+#:   that stops, which is the beginning of four other sounds. Truncation does
+#:   not shorten a sound, it deletes which sound it was.
+#: * *Let the click punch through whenever the sonar is fast.* The best numbers
+#:   on the page and the worst damage: the rule's trigger and the bite's trigger
+#:   are the same event, so it holes 70 of 404 bites -- it protects the sonar
+#:   exactly when it destroys the beat.
+#: * *Shorten the hatch and the death instead.* Real, and cheaper, but it
+#:   prices the two sounds one building happens to make often. Note that
+#:   shortening a sound to inside this window makes it **inviolable**, so the
+#:   two changes together are worse than this one alone.
+#: * *Delay the click until the effect ends.* 357 clicks delayed, worst
+#:   lateness 29 frames, and 202 still lost anyway because a second came due
+#:   while the first waited. A delayed click is also a lie about distance.
+#:
+#: On the target the whole rule is `CP 18` and a branch, on a register the
+#: player routine already holds.
+GRACE_FRAMES = 18
 
 
 class Drought:
@@ -529,7 +604,7 @@ SOUND_METRICS = (
     "sonar_quiet_interval", "sonar_drops_in_a_row", "body_ticks",
     "body_ticks_dropped", "body_quiet_frames", "body_quiet_interval",
     "body_drops_in_a_row", "effects_sounded", "effects_dropped",
-    "effects_cut", "sound_frames",
+    "effects_cut", "sound_frames", "effect_frames_lost",
 )
 
 
@@ -547,8 +622,9 @@ class Voice:
     """
 
     __slots__ = ("kind", "sound", "index", "left", "priority", "started",
-                 "clicks", "ticks", "effects_sounded", "effects_dropped",
-                 "effects_cut", "frames_sounding")
+                 "resumed", "clicks", "ticks", "effects_sounded",
+                 "effects_dropped", "effects_cut", "frames_sounding",
+                 "frames_lost")
 
     def __init__(self) -> None:
         #: What the speaker is doing this frame: NOTHING, CLICK, TICK, EFFECT.
@@ -559,6 +635,13 @@ class Voice:
         self.sound = -1
         self.index = 0
         self.started = False
+        #: This frame the effect is heard again after a frame a click or a tick
+        #: took off it. **The host needs this and the target does not**: a
+        #: Spectrum's player routine reads one note per interrupt and simply
+        #: reads the next one, while `spike_sound.Speaker` hands pygame a whole
+        #: sound at a time and has to be told to pick the sound up part-way.
+        #: See the note on the puncture in `spike_sound.Speaker.play`.
+        self.resumed = False
         self.left = 0
         self.priority = 0
         self.clicks = Drought()
@@ -571,6 +654,12 @@ class Voice:
         #: is costing more than it buys.
         self.effects_cut = 0
         self.frames_sounding = 0
+        #: Frames of an effect lost to a click or a tick punching through after
+        #: the grace window -- the whole price of `GRACE_FRAMES`, in the unit
+        #: the alternatives were priced in. Holes, not truncations: the sound
+        #: goes on afterwards. Measured at 252 over seven bots and five seeds,
+        #: against the 1,383 frames the truncating version deleted.
+        self.frames_lost = 0
 
     # --- the frame ---------------------------------------------------------
 
@@ -595,16 +684,18 @@ class Voice:
         clicks lost at contact is not the same event as one lost at the edge of
         hearing. See `Drought`.
         """
+        was = self.kind
         self.started = False
-        running = self.left > 0
+        self.resumed = False
 
         # **The two clicking voices are settled first, and against the
         # running effect rather than against the effect table.** An effect
-        # already sounding owns the voice, so they are dropped inside one; with
-        # nothing sounding they take the frame outright, and anything raised on
-        # this frame never starts.
-        heard_click = click and not running
-        heard_tick = tick and not click and not running
+        # inside its grace window owns the voice, so they are dropped there;
+        # past it, and with nothing sounding at all, they take the frame
+        # outright and anything raised on this frame never starts.
+        owned = self.left > 0 and self.position < GRACE_FRAMES
+        heard_click = click and not owned
+        heard_tick = tick and not click and not owned
 
         for sound, priority in wants:
             self._request(sound, priority, blocked=heard_click or heard_tick)
@@ -620,15 +711,63 @@ class Voice:
             self.kind = EFFECT
         else:
             self.kind = NOTHING
-        if self.kind == EFFECT:
+        if self.left > 0:
+            # **The effect's clock runs whether or not the effect was heard**,
+            # which is the whole of the grace window: a click past frame 18
+            # takes the frame *off* the sound rather than delaying it, so the
+            # effect ends where it always would have and carries a hole. The
+            # first version advanced the clock only when the effect sounded,
+            # and that quietly stretched a punctured sound by a frame per hole
+            # -- the same sound, longer, which is not what was ruled.
+            #
             # `index` is derived from what is left rather than counted
             # separately, so there is one number to be wrong about: the frame
             # being played now is the one the note and the host both read, and
             # a pre-emption that resets `left` resets the position with it.
-            self.index = EFFECTS[self.sound].frames - self.left
+            self.index = self.position
             self.left -= 1
+            if self.kind != EFFECT:
+                self.frames_lost += 1
+        self.resumed = (self.kind == EFFECT and not self.started
+                        and was != EFFECT)
         if self.kind != NOTHING:
             self.frames_sounding += 1
+        return self.kind
+
+    def audio_frame(self) -> int:
+        """One frame in which the sound player ran and the game did not step.
+
+        **The effect clock belongs to the interrupt, not to the game step**,
+        and this is where a host says so. On the target the player routine is
+        driven by the 50Hz interrupt, which does not stop because the game
+        logic paused; here the shell holds whole frames for a moment's pause
+        (`moments.Moment.pause`) and for a mains surge, and during them nothing
+        calls `update`.
+
+        **The defect this fixed, measured rather than argued.** A player's
+        death is a 40-frame sound with a 25-frame pause on it. The host hands
+        the whole sample to the mixer on the frame it starts, so it plays out
+        in real time through the hold -- but the arbiter's clock stood still,
+        so when play resumed it went on guarding the voice for all 39 remaining
+        frames when only 14 of them were still audible. **Half a second of
+        playable game in which the sonar was dropped to protect a silence.**
+        Found by reading the code and then reproduced through the shell, which
+        is how the figure 25 above is a measurement and not an estimate.
+
+        No click or tick is arbitrated here and neither `Drought` is touched:
+        the two counters are inside the session and did not advance either, so
+        nothing was asked for and nothing was lost. This only ages the sound.
+        """
+        self.started = False
+        was = self.kind
+        if self.left > 0:
+            self.index = self.position
+            self.left -= 1
+            self.kind = EFFECT
+            self.frames_sounding += 1
+        else:
+            self.kind = NOTHING
+        self.resumed = self.kind == EFFECT and was != EFFECT
         return self.kind
 
     def _request(self, sound: int, priority: int, blocked: bool) -> None:
@@ -661,6 +800,16 @@ class Voice:
         self.effects_sounded += 1
 
     # --- what the host asks it ---------------------------------------------
+
+    @property
+    def position(self) -> int:
+        """Which frame of the running effect is the next one to be played.
+
+        Zero on the frame it starts. It is what `GRACE_FRAMES` is compared
+        against, and on the target it is the counter the player routine already
+        holds -- which is why the whole rule is a compare and a branch.
+        """
+        return EFFECTS[self.sound].frames - self.left
 
     @property
     def sounding(self) -> bool:
@@ -706,6 +855,7 @@ class Voice:
             "effects_dropped": self.effects_dropped,
             "effects_cut": self.effects_cut,
             "sound_frames": self.frames_sounding,
+            "effect_frames_lost": self.frames_lost,
         }
 
     def starved(self, limit: int = QUIET_LIMIT) -> bool:
