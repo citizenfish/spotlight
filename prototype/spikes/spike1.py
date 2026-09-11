@@ -81,7 +81,8 @@ from spotlight.core.screen import Screen
 from spotlight.frontend.display import Display
 
 from . import (
-    lighting, session as session_mod, screens, sources, spike_sound, surge,
+    lighting, session as session_mod, screens, sounds, sources, spike_sound,
+    surge, tune,
 )
 from .session import Intent, Session
 
@@ -303,6 +304,20 @@ class Shell:
         #: which the game is not stepped, owned by the shell, invisible to the
         #: session. See `frame`.
         self.surging = 0
+        #: **The theme plays on the title screen and nowhere else** (issue
+        #: #55). The ostinato belongs to the run and is inside the session; the
+        #: ending screen is silence and a count, and it stays that way. The
+        #: title has no Clegs on it, so the theme is heard at the only load
+        #: this game ever gives it: none.
+        #:
+        #: It is arbitrated by a `Voice` of its own rather than played
+        #: directly, because *music is the bottom of the arbitration order* and
+        #: a second path to the speaker is the drift that let the effects be
+        #: silent for a whole slice without anybody noticing. Nothing else ever
+        #: raises a sound on the title screen, so the voice has nothing to do
+        #: but hand the frame to the music -- which is the point: it is the
+        #: same rule, not a special case.
+        self.title_voice = sounds.Voice(tune.Music(tune.THEME))
         screens.draw_title(screen)
 
     # --- input --------------------------------------------------------------
@@ -336,6 +351,10 @@ class Shell:
         self.state = PLAY
         self._torch = self._spray = False
         self.held = self.surging = 0
+        # The theme stops where it stops. It is not faded out and it is not
+        # resumed: the next title screen starts it again from bar one, because
+        # a title screen is a beginning.
+        self.title_voice.music.play(tune.THEME)
 
     def frame(self, dx: int = 0, dy: int = 0) -> None:
         """One frame of whatever state we are in.
@@ -393,7 +412,16 @@ class Shell:
                 self.state = ENDED
                 self.show_ending()
             return
+        if self.state == TITLE:
+            # The theme, on the one screen it plays on. Nothing is raised
+            # here, so every frame of it is a frame the music is given.
+            self.title_voice.update(False, False)
+            if self.speaker is not None:
+                self.speaker.play(self.title_voice)
+            return
         if self.state != PLAY:
+            # The ending screen: no tune, no click, nothing. Silence and a
+            # count is what the design asks for and what it keeps.
             return
         self.run.step(Intent(dx=dx, dy=dy, torch=self._torch,
                              spray=self._spray))

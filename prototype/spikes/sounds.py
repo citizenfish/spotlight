@@ -117,6 +117,7 @@ the only way this voice has of saying that a rising line is not good news.
 
 from dataclasses import dataclass
 
+from . import tune as tune_mod
 from .moments import (
     MOMENTS, SFX_ALL_OUT, SFX_BITE, SFX_DELIVERED, SFX_DOOR, SFX_FREED,
     SFX_GAME_OVER, SFX_HATCHED, SFX_NEST_TURNED, SFX_PICKUP, SFX_PLAYER_DIED,
@@ -605,7 +606,7 @@ SOUND_METRICS = (
     "body_ticks_dropped", "body_quiet_frames", "body_quiet_interval",
     "body_drops_in_a_row", "effects_sounded", "effects_dropped",
     "effects_cut", "sound_frames", "effect_frames_lost",
-)
+) + tune_mod.MUSIC_METRICS
 
 
 class Voice:
@@ -624,9 +625,21 @@ class Voice:
     __slots__ = ("kind", "sound", "index", "left", "priority", "started",
                  "resumed", "clicks", "ticks", "effects_sounded",
                  "effects_dropped", "effects_cut", "frames_sounding",
-                 "frames_lost")
+                 "frames_lost", "music", "clegs")
 
-    def __init__(self) -> None:
+    def __init__(self, music=None) -> None:
+        #: The bottom of the arbitration order (issue #55), or None for a run
+        #: with no music in it. **It is owned here and asked last**, on a frame
+        #: nothing else wanted, because *music sits below everything* is a
+        #: sentence in a note until one object enforces it -- and a second
+        #: place that decided when the speaker was free would be the drift this
+        #: class exists to end. See `tune.Music`.
+        self.music = music
+        #: The Cleg count the last frame was priced against. Kept so that a
+        #: frame the game did not step is priced at the load that was on screen
+        #: when it stopped, and so that a caller of `audio_frame` does not have
+        #: to know what the music needs.
+        self.clegs = 0
         #: What the speaker is doing this frame: NOTHING, CLICK, TICK, EFFECT.
         self.kind = NOTHING
         #: Which effect, and how far into it -- `index` 0 is the frame it
@@ -664,7 +677,8 @@ class Voice:
     # --- the frame ---------------------------------------------------------
 
     def update(self, click: bool, tick: bool, wants=(),
-               sonar_interval: int = 1, tick_interval: int = 1) -> int:
+               sonar_interval: int = 1, tick_interval: int = 1,
+               clegs: int = 0) -> int:
         """Arbitrate one frame. Returns what the speaker does.
 
         `click` and `tick` are what the two counters wanted, raw: `buzz.Sonar`
@@ -683,6 +697,13 @@ class Voice:
         something: silence in an empty room is the design working, and four
         clicks lost at contact is not the same event as one lost at the edge of
         hearing. See `Drought`.
+
+        `clegs` is how many are on screen, and it is the music's whole input
+        besides the clock (issue #55): the frame's leftover is what is not
+        spent drawing them, so **the score drops away as the building turns
+        against you and comes back when things calm** without anybody
+        implementing it. It changes no decision above the music, which is the
+        same promise the two intervals make.
         """
         was = self.kind
         self.started = False
@@ -732,6 +753,12 @@ class Voice:
                         and was != EFFECT)
         if self.kind != NOTHING:
             self.frames_sounding += 1
+        # **Last, and only on a frame nothing else took.** The whole of
+        # *music yields to everything* is this line and the `free` argument:
+        # there is no queue and no catching up, and the sequencer's position
+        # advances inside `Music.update` whether or not the note was heard, so
+        # a silenced tune keeps its place rather than stretching.
+        self._music(clegs)
         return self.kind
 
     def audio_frame(self) -> int:
@@ -768,7 +795,19 @@ class Voice:
         else:
             self.kind = NOTHING
         self.resumed = self.kind == EFFECT and was != EFFECT
+        # **The music runs through a held frame too**, and for the same reason
+        # the effect clock does: the player routine is on the 50Hz interrupt
+        # and the interrupt does not stop because the game logic paused. A
+        # death's pause is half a second, and a tune that stopped for it and
+        # picked up where it left off would be a tune that stretches.
+        self._music(self.clegs)
         return self.kind
+
+    def _music(self, clegs: int) -> None:
+        """Give the music the frame, if there is anything left of it."""
+        self.clegs = clegs
+        if self.music is not None:
+            self.music.update(clegs, free=self.kind == NOTHING)
 
     def _request(self, sound: int, priority: int, blocked: bool) -> None:
         """One raised sound, against whatever owns the voice.
@@ -827,20 +866,40 @@ class Voice:
         return EFFECTS[self.sound].note(self.index)
 
     def decision(self) -> tuple:
-        """This frame as three integers, small enough to record for a whole run.
+        """This frame as five integers, small enough to record for a whole run.
 
-        `(kind, sound id, frame within the effect)`. A host renders a run's
-        audio from a list of these, which is how the WAV is a recording of the
-        performance the game gave rather than a second performance derived from
-        the event log -- those are not the same thing and only one of them is
-        evidence.
+        `(kind, sound id, frame within the effect, music period, half-cycles)`.
+        The last two are the music's frame (issue #55) and are zero unless it
+        was heard -- **two integers, because that is the whole of what the
+        port's player routine holds for music**: a delay constant and a count
+        it decrements.
+
+        A host renders a run's audio from a list of these, which is how the WAV
+        is a recording of the performance the game gave rather than a second
+        performance derived from the event log -- those are not the same thing
+        and only one of them is evidence.
         """
+        music = (self.music.slice if self.music is not None
+                 else tune_mod.SILENCE)
         return (self.kind, self.sound if self.kind == EFFECT else -1,
-                self.index if self.kind == EFFECT else 0)
+                self.index if self.kind == EFFECT else 0,
+                music.period, music.halves)
 
     def stats(self) -> dict:
-        """The starvation figures, for the run report. All integers."""
+        """The starvation figures and the dropout, for the run report.
+
+        All integers. The music's five are four counts and a total -- heard,
+        taken by something louder, starved by the frame, resting between
+        pulses, and the half-cycles that came out -- and they are here rather
+        than in a block of their own because they are the bottom of the same
+        arbitration: a frame the sonar took and a frame the building took are
+        both frames without music in them, and telling them apart is the whole
+        of judging the dropout.
+        """
+        music = (self.music.stats() if self.music is not None
+                 else {key: None for key in tune_mod.MUSIC_METRICS})
         return {
+            **music,
             "sonar_clicks": self.clicks.sounded,
             "sonar_clicks_dropped": self.clicks.dropped,
             "sonar_quiet_frames": self.clicks.quiet,

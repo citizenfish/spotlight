@@ -105,8 +105,22 @@ python -m spikes.spike_driver --bot listener --seed 1 --wav runs/listener.wav
 
 | Flag | What it does |
 | --- | --- |
-| `--bank DIR` | One WAV per effect, plus the sonar at its three rates and a body's tick from fresh to about to turn, and an `effects.wav` of all fourteen in order. Runs no seeds and writes no report. |
+| `--bank DIR` | One WAV per effect, plus the sonar at its three rates and a body's tick from fresh to about to turn, an `effects.wav` of all fourteen in order, and the four music files below. Runs no seeds and writes no report. |
 | `--wav FILE` | Renders that run's audio alongside its two reports, from the decisions the speaker actually made frame by frame. With `--seeds N` the seed goes in the name. |
+
+The music is one more thing down the same channel, and it is bottom of the order
+(issue #55): the theme on the title screen, the ostinato in play, and **a frame
+with a click, a tick or an effect in it is a frame with no music in it.** What
+is left of the frame after the fixed work and the Clegs is what the music gets
+— `52,416 − 19,584 − 830n` T-states, where the 830 is `building.CLEG_COST` and
+is read from there rather than copied — and it renders whole half-cycles of the
+note in play until that runs out, so the score breaks up as the room fills and
+comes back when it empties. It takes a full room: the music is gone entirely
+only past 35 Clegs in one room, and the busiest room measured over seven bots
+and five seeds held 25. `theme.wav` and `ostinato.wav` are the tunes with
+the building quiet; `ostinato-under-load.wav` is the room filling to the port
+model's worst case; `ostinato-with-sonar.wav` is a swarm arriving over the music
+and going away again, and is the file the dropout should be judged on.
 
 Both work with no audio device at all: the files are written and nothing is
 played. The run render is a *recording* — it comes from what the arbiter decided

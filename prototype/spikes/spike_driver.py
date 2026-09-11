@@ -302,6 +302,14 @@ SUMMARY = (
     ("inrow", "sonar_drops_in_a_row", 5),
     ("sfx", "effects_sounded", 4),
     ("sfxlost", "effect_frames_lost", 7),
+    # **The dropout** (issue #55). `music` is frames the ostinato was heard on
+    # and `nomus` is frames nothing else wanted and the building had already
+    # spent -- the second is the one the design's claim rests on, and the two
+    # are meant to be read as a ratio rather than singly. A seed whose swarm
+    # converges should show `nomus` climbing while `music` falls; a quiet run
+    # should show `nomus` at zero.
+    ("music", "music_frames_heard", 6),
+    ("nomus", "music_frames_starved", 6),
 )
 
 

@@ -27,8 +27,8 @@ counts rather than people, which is exactly why a run could report four workers
 from spotlight.core.constants import COLS
 
 from . import (
-    lighting, rescue as rescue_mod, session as session_mod, sounds, sources,
-    surge,
+    building as building_mod, lighting, rescue as rescue_mod,
+    session as session_mod, sounds, sources, surge, tune,
 )
 from .layout import PLAY_ROWS
 from .rescue import HEIGHT as WORKER_HEIGHT
@@ -723,6 +723,7 @@ def sound_lines(run) -> list[str]:
         f"an interval of {clicks.quiet_interval}, with at worst "
         f"{clicks.longest_run} clicks lost in a row; the body {ticks.quiet}. "
         f"The ruling's flag is {sounds.QUIET_LIMIT} frames.")
+    lines += music_lines(run)
     if voice.starved():
         lines += _wrap(
             f"** That is past the quarter of a second *When the sonar lands "
@@ -734,6 +735,43 @@ def sound_lines(run) -> list[str]:
             f"{clicks.quiet_interval} is the warning going out with a fly on "
             f"you, and that is the figure the grace window was ruled on.")
     return lines
+
+
+def music_lines(run) -> list[str]:
+    """What became of the music. Issue #55, and it is the dropout, measured.
+
+    Three ways of losing a frame and they mean different things, so they are
+    reported apart rather than as one silence:
+
+    * **taken** -- a sonar click, a body tick or an effect had the frame. This
+      is the arbitration working and it is the smaller of the two thinnings.
+    * **no time** -- nothing else wanted the frame and the building had already
+      spent it. **This is the dropout**, and it is the one the design has been
+      leaning on since 2026-09-06: the score drops away as the room fills and
+      comes back when it empties, which nobody implemented.
+    * **resting** -- the tune itself is between pulses. Not a loss at all, and
+      it is here so that the other two are read against the frames the music
+      actually wanted.
+
+    `half-cycles` is the figure that says how much of the tune survived rather
+    than how many frames it appeared in: a frame that afforded one flip is a
+    click and not a pitch, and a run can have a great many frames of music in
+    it and very little music.
+    """
+    if run.voice is None or run.voice.music is None \
+            or run.voice.music.tune is None:
+        return []
+    music = run.voice.music
+    wanted = music.heard + music.taken + music.starved
+    return _wrap(
+        f"Music: the {music.tune.name} was heard on {music.heard} frames of "
+        f"the {wanted} it wanted, in {music.halves} half-cycles. "
+        f"{music.taken} frames went to something louder and {music.starved} "
+        f"had no time left in them for a whole half-cycle of the note in play "
+        f"-- that second figure is the dropout, and it is "
+        f"{tune.SPENDABLE_TSTATES:,} T-states less {tune.FIXED_TSTATES:,} "
+        f"fixed less {building_mod.CLEG_COST:,} a Cleg, with nothing rounded "
+        f"up.")
 
 
 def note(run, bot: str = "", label: str = "",

@@ -37,7 +37,7 @@ from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
     moments as moments_mod, player as player_mod, rescue as rescue_mod,
     scene, sounds, sources, spray as spray_mod, sprites, surge as surge_mod,
-    tally as tally_mod, tiles,
+    tally as tally_mod, tiles, tune as tune_mod,
 )
 from .layout import PLAY_BOTTOM, PLAY_TOP
 from .lighting import LightField
@@ -443,7 +443,14 @@ class Session:
         #: a setting anybody should want. With no voice the game is silent: the
         #: alternative would be a second copy of the arbitration order living
         #: in the session, which is the drift this slice exists to end.
-        self.voice = sounds.Voice() if sound else None
+        #: **The ostinato, from the first frame of a run** (issue #55). The
+        #: theme belongs to the title screen and the ending screen is silent,
+        #: so this is the only tune the session ever starts -- and it is handed
+        #: to the voice rather than kept beside it, because *music is the
+        #: bottom of the arbitration order* has to be one object's rule or it
+        #: is nobody's.
+        self.voice = (sounds.Voice(tune_mod.Music(tune_mod.OSTINATO))
+                      if sound else None)
         #: Where the next hatchling's temperament comes from. Its own chain,
         #: run on from the starting swarm's, so no fly in the building shares a
         #: seed with another and a brood is as varied as an authored swarm.
@@ -1018,8 +1025,15 @@ class Session:
             # starvation figures: a sonar with no Cleg in reach is meant to be
             # silent, and a click lost at contact is not the same event as one
             # lost at the edge of hearing.
+            # **The Clegs on screen, and only those** (issue #55). The music
+            # takes what the frame has left after they are drawn, and the port
+            # draws the room the player is standing in and no other -- so a
+            # swarm in the room next door costs the frame nothing and must not
+            # thin the music. It is the one number the music reads and it
+            # decides nothing above the music.
             self.voice.update(wants_click, wants_tick, self.moments.sounds(),
-                              self.sonar.interval, self.ticker.interval)
+                              self.sonar.interval, self.ticker.interval,
+                              clegs=len(self.place.swarm.clegs))
             self.click = self.voice.kind == sounds.CLICK
             self.tick = self.voice.kind == sounds.TICK
         else:

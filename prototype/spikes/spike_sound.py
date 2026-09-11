@@ -60,7 +60,7 @@ import struct
 import sys
 import wave
 
-from . import buzz, rescue, sounds, spike_buzz
+from . import buzz, rescue, sounds, spike_buzz, tune
 
 #: Sample rate, and the amplitude of the one bit. Both are `spike_buzz`'s, so
 #: an effect and a click sit at the same loudness -- **everything in this game
@@ -157,6 +157,106 @@ class Synth:
         return _pack(levels)
 
 
+class MusicSynth:
+    """The music, a frame at a time, carrying the beeper's own bit between them.
+
+    Issue #55. A frame of music is two integers -- a delay constant and a count
+    of **whole half-cycles** the frame's leftover afforded -- and this turns
+    them into samples. It holds one piece of state, which is the state a
+    beeper has: **which way the bit is currently set.**
+
+    **The rest of the frame is the bit held, not silence.** A beeper has no
+    amplitude and no zero; between flips the speaker cone simply stays where it
+    was put. Rendering the unspent part of a frame as zeroes would be an
+    amplitude the machine has not got, and it would turn the dropout into a
+    50Hz amplitude modulation -- a buzz that is an artefact of the rendering
+    rather than a property of the engine. Holding the level is what the machine
+    does and it is what this does.
+
+    **It is silent until the music first sounds**, so a run played without
+    music renders byte for byte as it did before this slice: there is no bit to
+    hold if nothing ever flipped one.
+
+    Cached by `(period, halves, level)`, which is a few dozen blocks in the
+    whole game -- seven pitches, a handful of affordable counts and two levels.
+    Rendering a run frame by frame without it is eight million samples of
+    Python for a three-minute run.
+    """
+
+    __slots__ = ("level", "active", "_cache")
+
+    def __init__(self) -> None:
+        #: +1 or -1: which way the bit is set. It starts low, as a machine
+        #: that has not yet made a noise does.
+        self.level = -1
+        #: Has the music ever sounded? Until it has, a frame with no music in
+        #: it is true silence rather than a held level.
+        self.active = False
+        self._cache = {}
+
+    def frame(self, period: int, halves: int) -> bytes:
+        """One frame: `halves` half-cycles of `period`, then the bit held."""
+        if halves <= 0:
+            return self.held()
+        self.active = True
+        key = (period, halves, self.level)
+        block = self._cache.get(key)
+        if block is None:
+            block = self._build(period, halves)
+            self._cache[key] = block
+        # An odd number of flips leaves the bit the other way up, which is why
+        # the level is part of the key: the same note in the same frame is a
+        # different block depending on where the last one left the speaker.
+        if halves % 2:
+            self.level = -self.level
+        return block
+
+    def held(self) -> bytes:
+        """A frame with no music in it: the bit where the last frame left it."""
+        if not self.active:
+            return SILENT_FRAME
+        return _pack([AMPLITUDE * self.level] * FRAME_SAMPLES)
+
+    def took(self, block: bytes) -> None:
+        """Another voice had the frame; take the bit as that voice left it.
+
+        There is one speaker and one bit. A click or an effect drives it too,
+        so the music picks up from wherever that sound stopped rather than from
+        where the music itself last was -- which is the difference between a
+        joint and a step in the middle of a file.
+        """
+        if not self.active or len(block) < 2:
+            return
+        last = struct.unpack("<h", block[-2:])[0]
+        self.level = 1 if last > 0 else -1
+
+    def _build(self, period: int, halves: int) -> bytes:
+        # Fifty samples at the top of the table and two hundred at the bottom,
+        # so a half-cycle is never rounded away to nothing here. A note added
+        # above about 3.5kHz would be, and would need the `max(1, ...)` that
+        # `Synth._tone` carries for the effects -- which is a different
+        # rendering and would break the whole-half-cycle arithmetic this
+        # engine is judged on. The tune table does not go near it.
+        half = samples_of(tune.half_of(period))
+        level = self.level
+        levels = []
+        for _ in range(halves):
+            # **The flip comes first.** The leftover buys flips, and a frame
+            # that affords one flips once and then holds for the rest of the
+            # frame -- which is a click, and is exactly what the dropout has
+            # left at eighteen Clegs.
+            level = -level
+            levels.extend([AMPLITUDE * level] * half)
+        # The budget cannot afford a whole frame of tone by construction --
+        # the leftover is at most `ENTITY_CEILING` T-states and a frame is
+        # `FRAME_TSTATES` -- so this never truncates. Sliced anyway, because a
+        # table change that broke that should make a quiet file rather than an
+        # exception.
+        levels = levels[:FRAME_SAMPLES]
+        levels.extend([AMPLITUDE * level] * (FRAME_SAMPLES - len(levels)))
+        return _pack(levels)
+
+
 def effect_frames(sound: int) -> list:
     """One effect as a list of frames of audio, in order.
 
@@ -196,18 +296,39 @@ class Bank:
         self.click = _padded(spike_buzz.click_wave(stereo=False))
         self.tick = _padded(spike_buzz.tick_wave(stereo=False))
         self.effects = {sound: effect_frames(sound) for sound in sounds.EFFECTS}
+        #: The music's bit (issue #55). **This is the one thing in here that
+        #: carries state from frame to frame**, and it has to: the music is
+        #: rendered as it is played rather than looked up, because a frame of
+        #: it depends on how many half-cycles the frame could afford and on
+        #: which way the last flip left the speaker. So `frame` must be called
+        #: in the order the decisions were made -- which is how it is called in
+        #: every path there is, and what a caller replaying a run out of order
+        #: would break.
+        self.music = MusicSynth()
 
     def frame(self, decision: tuple) -> bytes:
-        """The audio for one recorded decision. Always a whole frame."""
-        kind, sound, index = decision
+        """The audio for one recorded decision. Always a whole frame.
+
+        **In order.** See `self.music`: everything above the music is a lookup
+        and the music is a performance.
+        """
+        kind, sound, index, period, halves = decision
         if kind == sounds.CLICK:
-            return self.click
-        if kind == sounds.TICK:
-            return self.tick
-        if kind == sounds.EFFECT:
+            block = self.click
+        elif kind == sounds.TICK:
+            block = self.tick
+        elif kind == sounds.EFFECT:
             frames = self.effects[sound]
-            return frames[index] if 0 <= index < len(frames) else SILENT_FRAME
-        return SILENT_FRAME
+            block = (frames[index] if 0 <= index < len(frames)
+                     else SILENT_FRAME)
+        else:
+            # **Nothing louder wanted the frame, so the music has it** -- or
+            # it has nothing to play, or the building took the time, and all
+            # three come out of `MusicSynth` because all three leave the bit
+            # where it was.
+            return self.music.frame(period, halves)
+        self.music.took(block)
+        return block
 
     def whole(self, sound: int) -> bytes:
         return b"".join(self.effects[sound])
@@ -290,6 +411,96 @@ def tick_wave(bank: Bank | None = None) -> bytes:
     return b"".join(out)
 
 
+# --- the tunes, rendered so the dropout can be judged ----------------------
+
+def tune_wave(which, clegs: int = 0, loops: int = 1) -> bytes:
+    """A whole tune at a fixed load, through the real sequencer.
+
+    `clegs` is how many are on screen for every frame of it, so `0` is the tune
+    with the building quiet and `tune.WORST_CLEGS` is the tune the port model
+    says cannot be heard at all. Nothing here decides anything: the note comes
+    from the table, the leftover from the budget, and the half-cycles from the
+    two of them.
+    """
+    music = tune.Music(which)
+    synth = MusicSynth()
+    out = []
+    for _ in range(which.frames * loops):
+        slice_ = music.update(clegs, free=True)
+        out.append(synth.frame(slice_.period, slice_.halves))
+    return b"".join(out)
+
+
+def tune_under_load(which, worst: int = tune.WORST_CLEGS) -> bytes:
+    """The tune with the room filling up, from nothing to the worst case.
+
+    **The file the ruling is about.** The Cleg count climbs evenly across one
+    pass of the tune, so what is heard is the leftover being eaten: the bass
+    goes first, because a half-cycle of A2 is the longest thing in the table,
+    then the middle of the tune, and at the worst case nothing at all. No fade
+    and no envelope -- every step of it is `52,416 - fixed - 830n` and an
+    integer division, where the 830 is `building.CLEG_COST` read through
+    `tune.leftover`.
+
+    **The climb is twice as long as it was**, because the worst case moved
+    from eighteen Clegs to thirty-six on 2026-09-11 when the music stopped
+    keeping its own doubled copy of a fly's cost. The file therefore spends
+    much more of its length with the tune intact, which is the honest picture:
+    a room has to be genuinely full before the leftover runs out.
+
+    It is a *demonstration* and not a measurement: a swarm does not arrive at a
+    constant rate. The measurement is a run render, where the count is whatever
+    was in the room.
+    """
+    music = tune.Music(which)
+    synth = MusicSynth()
+    out = []
+    frames = which.frames
+    for frame in range(frames):
+        clegs = frame * (worst + 1) // frames
+        slice_ = music.update(clegs, free=True)
+        out.append(synth.frame(slice_.period, slice_.halves))
+    return b"".join(out)
+
+
+def tune_with_sonar(which, bank: "Bank | None" = None) -> bytes:
+    """The tune with a swarm closing over it and going away again.
+
+    **The file the whole exercise exists for**, and the one the audio sketch
+    named: the design has claimed since 2026-09-06 that *the music thinning out
+    is itself a warning*, and this is what that sounds like. Two separate
+    things thin it and both are real here, arbitrated by `sounds.Voice`:
+
+    1. **The sonar takes the frame outright.** A click is four milliseconds of
+       a twenty-millisecond frame, but the frame is the unit of arbitration, so
+       a frame with a click in it is a silent frame for the music.
+    2. **The frame runs out of time**, which is the dropout, and it is much the
+       larger of the two.
+
+    The swarm closes across the first half and goes back out across the second,
+    because *the score comes back when things calm* is half of the claim and a
+    file that only ever gets worse cannot show it. The distance drives a real
+    `buzz.Sonar`, so the rate is the game's own; the count and the distance are
+    a script and are not a measurement of anything.
+    """
+    bank = bank or Bank()
+    music = tune.Music(which)
+    voice = sounds.Voice(music)
+    sonar = buzz.Sonar()
+    frames = which.frames
+    out = []
+    for frame in range(frames):
+        # Out and back: at the middle of the file the swarm is on top of you.
+        toward = frame if frame * 2 < frames else frames - frame
+        near = 2 * toward * (buzz.REACH - 1) // frames
+        distance = buzz.REACH - 1 - near
+        clegs = 2 * toward * tune.WORST_CLEGS // frames
+        voice.update(sonar.update(distance), False, (),
+                     sonar.interval, buzz.NEVER, clegs=clegs)
+        out.append(bank.frame(voice.decision()))
+    return b"".join(out)
+
+
 #: The three distances the sonar is rendered at, and what to call them. The
 #: edge of hearing is one cell inside `buzz.REACH`, because at the reach itself
 #: it is silent by definition.
@@ -333,6 +544,17 @@ def bank_files(out_dir: str) -> list:
                                sonar_wave(distance, bank=bank)))
     paths.append(write_wav(os.path.join(out_dir, "tick.wav"),
                            tick_wave(bank=bank)))
+    # The two tunes, and then the two files that are about the dropout rather
+    # than about the tune (issue #55). `ostinato-with-sonar.wav` is the one the
+    # design's four-year-old claim is judged on.
+    paths.append(write_wav(os.path.join(out_dir, "theme.wav"),
+                           tune_wave(tune.THEME)))
+    paths.append(write_wav(os.path.join(out_dir, "ostinato.wav"),
+                           tune_wave(tune.OSTINATO)))
+    paths.append(write_wav(os.path.join(out_dir, "ostinato-under-load.wav"),
+                           tune_under_load(tune.OSTINATO)))
+    paths.append(write_wav(os.path.join(out_dir, "ostinato-with-sonar.wav"),
+                           tune_with_sonar(tune.OSTINATO, bank=bank)))
     return paths
 
 
@@ -382,6 +604,13 @@ class Speaker:
         self._click = None
         self._tick = None
         self._channel = None
+        #: The music's bit and the frames built from it (issue #55). Same
+        #: synth as the file render uses, so the window and the WAV cannot
+        #: disagree about what a frame of music is.
+        self._music = MusicSynth()
+        self._music_sounds = {}
+        self._click_block = SILENT_FRAME
+        self._tick_block = SILENT_FRAME
 
     def open(self) -> bool:
         """Prepare the voice. Returns whether there is anything to hear."""
@@ -397,6 +626,8 @@ class Speaker:
             self._stereo = stereo
             bank = Bank()
             self._frames = bank.effects
+            self._click_block = bank.click
+            self._tick_block = bank.tick
             self._click = self._sound(pygame, _padded(
                 spike_buzz.click_wave(stereo=stereo)))
             self._tick = self._sound(pygame, _padded(
@@ -429,9 +660,13 @@ class Speaker:
         if not self.available or voice is None:
             return
         if voice.kind == sounds.CLICK:
+            self._music.took(self._click_block)
             self._channel.play(self._click)
         elif voice.kind == sounds.TICK:
+            self._music.took(self._tick_block)
             self._channel.play(self._tick)
+        elif voice.kind == sounds.NOTHING:
+            self._play_music(voice)
         elif voice.kind == sounds.EFFECT and voice.started:
             self._channel.play(self._sounds[voice.sound])
         elif voice.kind == sounds.EFFECT and voice.resumed:
@@ -440,6 +675,41 @@ class Speaker:
             # where the arbiter says it now is. See the class docstring -- the
             # target has no equivalent and needs none.
             self._channel.play(self._tail(voice.sound, voice.index))
+
+    def _play_music(self, voice) -> None:
+        """One frame of music, on the frame nothing else wanted.
+
+        **A Pygame stand-in, and a cruder one than `_tails`.** The mixer is
+        handed one frame of samples at a time, so the music is only as
+        continuous as the host loop is punctual, and a frame the loop was late
+        for is a gap the target would not have. On the Spectrum there is no
+        such thing as handing over a frame of music: the player routine flips
+        the bit with whatever time is left and the next interrupt finds it
+        ready to carry on. **If this class is ever ported rather than replaced,
+        this method and `_tails` are the two parts to delete.**
+
+        Nothing is played for a frame with no music in it -- the channel is
+        left alone, which is what a held bit sounds like through a mixer that
+        has no concept of one.
+        """
+        if voice.music is None:
+            return
+        slice_ = voice.music.slice
+        if not slice_.sounding:
+            return
+        key = (slice_.period, slice_.halves, self._music.level)
+        sound = self._music_sounds.get(key)
+        if sound is None:
+            data = self._music.frame(slice_.period, slice_.halves)
+            sound = self._sound(self._pygame,
+                                _stereo(data) if self._stereo else data)
+            self._music_sounds[key] = sound
+        else:
+            # Keep the bit in step even on a cache hit: the level is part of
+            # the key, so the block is right, but the synth still has to know
+            # which way this frame left the speaker.
+            self._music.frame(slice_.period, slice_.halves)
+        self._channel.play(sound)
 
     def _tail(self, sound: int, index: int):
         """The effect from `index` on, as one sound. Built once, then kept."""

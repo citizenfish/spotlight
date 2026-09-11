@@ -62,16 +62,26 @@ def test_the_two_built_voices_are_padded_to_a_frame_and_not_stretched():
     assert not any(bank.click[len(raw):]), "the pad is not silence"
 
 
-def test_the_bank_writes_the_eighteen_files_headless(tmp_path):
+def test_the_bank_writes_every_file_headless(tmp_path):
     """`--bank` on a machine with no audio device at all: it writes the files
-    and says nothing."""
+    and says nothing.
+
+    Twenty-three now (issue #55): the nineteen the effects round wrote, plus
+    the two tunes and the two files that are about the dropout rather than
+    about the tune. `ostinato-with-sonar.wav` is the one the design's claim
+    that *the music thinning out is itself a warning* gets judged on, so a
+    bank without it is a bank that cannot answer the question it exists for.
+    """
     paths = spike_sound.bank_files(str(tmp_path))
     names = {os.path.basename(p) for p in paths}
     for name in M.SOUND_NAMES:
         assert f"{name.lower().replace('_', '-', 1)}.wav" in names
     assert {"sonar-edge.wav", "sonar-halfway.wav", "sonar-contact.wav",
             "tick.wav"} <= names
-    assert len(paths) == 19, "fourteen effects, three sonar rates, a tick, a set"
+    assert {"theme.wav", "ostinato.wav", "ostinato-under-load.wav",
+            "ostinato-with-sonar.wav"} <= names
+    assert len(paths) == 23, \
+        "fourteen effects, three sonar rates, a tick, a set, and four of music"
     for path in paths:
         assert _samples(path) > 0
 
@@ -210,7 +220,7 @@ def test_the_speaker_is_silent_and_harmless_with_no_device():
 def test_the_driver_writes_a_bank_and_a_run_wav(tmp_path, capsys):
     """Both flags, end to end, headless."""
     assert spike_driver.main(["--bank", str(tmp_path / "bank")]) == 0
-    assert len(list((tmp_path / "bank").iterdir())) == 19
+    assert len(list((tmp_path / "bank").iterdir())) == 23
 
     wav = tmp_path / "run.wav"
     assert spike_driver.main([
