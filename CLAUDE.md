@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 24 tests, headless-safe
+pytest                     # 1286 tests, headless-safe
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -102,9 +102,19 @@ pyproject and the package is not installed — `prototype/pytest.ini` sets
 
 ## Current state
 
-Scaffolded, with a walking skeleton: a 50Hz loop that moves a light around the
-attribute grid. `core/game.py` is **not** a design — it exists to prove the loop
-runs end to end, and should be replaced by the first real spec from the vault.
+A playable prototype with a face and a voice, tagged `look-1` (2026-09-11).
+Two rooms, seven people to walk out, a swarm, and the light bargain the design
+rests on. The look-and-feel round gave it textured walls, a colour per room,
+redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
+music, and the mains surge.
+
+**The game itself is untouched by that round**: the same seed produces the same
+run, event for event, as it did before any of it. That was the standing clause
+and it was checked on every slice.
+
+`core/game.py` is **not** a design — it is a walking skeleton that proves the
+loop runs end to end, and it should be replaced by the first real spec from the
+vault. The game that runs lives in `spikes/`.
 
 Decisions **not yet made** (record them in the vault when they are, then update
 this file):
