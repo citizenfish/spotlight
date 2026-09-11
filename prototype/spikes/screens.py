@@ -25,6 +25,16 @@ Both screens draw through `core.Screen` like everything else -- 8x8 glyphs from
 the game's own font, one ink per cell -- so they are the same two colours per
 cell the Spectrum will have, and neither is a Pygame text overlay that would
 have to be rebuilt at port time.
+
+**The words are not touched, and that is the larger half of issue #56.** Two
+people have now read this screen cold, one of whom does not play games like
+this, and both of them found it doing its job. What issue #56 redrew is the
+frame -- the title became a double-height logo and everything below it moved
+down one row -- and `test_screens.py` pins `STORY`, `CONTROLS`, `WARNING` and
+all three prompts character for character, so a later tidy-up has to argue with
+a failing test rather than with nobody. The strongest temptation in a look round
+is to rewrite prose that is already working, and for most testers this screen is
+the only instructions they will ever read.
 """
 
 from spotlight.core.constants import (
@@ -33,9 +43,21 @@ from spotlight.core.constants import (
 from spotlight.core.screen import Screen, attr_byte
 
 from . import font
+from .logo_gen import BITMAPS as LOGO
 
-#: The title, spaced out. There is no larger font, so the space is the size.
+#: The title, spaced out. It used to be drawn in the 8x8 font, where the space
+#: was the only size there was; since issue #56 it is drawn as double-height
+#: glyphs and **the string is still what decides the columns** -- one glyph per
+#: non-space character, at the column that character occupies in the centred
+#: string. That is not a trick to save code. The letter-spacing here is the
+#: spacing a first-time reader called legible at 1:1, and deriving the logo from
+#: the string is what guarantees it stays that spacing rather than a new one
+#: that happens to look similar.
 TITLE = "S P O T L I G H T"
+
+#: The cell row the logo's top half sits on; its bottom half is the row under
+#: it. Everything below moved down one row to make space, which the screen had.
+LOGO_TOP = 1
 
 #: What the game is, in plain words, before any control is named. A stranger
 #: who reads only this should know what they are being asked to do.
@@ -98,25 +120,74 @@ def mmss(seconds: int) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
+def draw_logo(screen: Screen, top: int = LOGO_TOP) -> None:
+    """`SPOTLIGHT` in double-height block letters, two cell rows tall.
+
+    Issue #56. The title used to be one row of the 8x8 font with a space
+    between each letter, which is a caption rather than a logo -- and on a
+    machine whose two most famous games both drew their titles as double-height
+    text it was the one place this build was not doing the hardware justice.
+
+    **The columns come from `TITLE`.** Each non-space character is drawn at the
+    column it occupies in the centred string, so the letter-spacing is the one
+    that was read and approved rather than a new one invented here. Change the
+    string and the logo moves with it; there is no second layout to keep in
+    step.
+
+    **Drawn as two 8x8 halves, one per cell row**, through the same
+    `font.draw_glyph` everything else on this screen uses. That is not a
+    convenience: an 8x16 glyph on the Spectrum is written as two cell-aligned
+    eight-byte runs anyway, because the display file is addressed by cell row,
+    so this is the shape the port's routine already has to take.
+
+    **Attributes on both rows of every glyph**, bright yellow on black. A glyph
+    that coloured only its top half would be half a word in white -- the cells
+    are cleared to white ink by `draw_title` -- and that is exactly the sort of
+    thing an attribute-grid machine punishes.
+
+    The table is imported from `logo_gen`, which nothing on the play path
+    imports: 128 bytes that are paid for once, on a screen that is not the game.
+    (The decision note and issue #56 both say 144, which is nine glyphs'
+    worth; there are eight, because `T` is drawn once and used twice. See
+    `test_screens.test_the_logo_costs_eight_glyphs_not_nine`.)
+    """
+    attr = _attr(YELLOW, bright=True)
+    col = centre(TITLE)
+    for i, char in enumerate(TITLE):
+        if char == " ":
+            continue
+        rows = LOGO[f"LOGO_{char}"]
+        cx = col + i
+        font.draw_glyph(screen, cx, top, rows[:8])
+        font.draw_glyph(screen, cx, top + 1, rows[8:])
+        screen.set_attr(cx, top, attr)
+        screen.set_attr(cx, top + 1, attr)
+
+
 def draw_title(screen: Screen) -> None:
-    """The first thing a tester sees, and for many of them the only instructions."""
+    """The first thing a tester sees, and for many of them the only instructions.
+
+    Every row below the logo moved down one when the logo arrived (issue #56)
+    and nothing was re-wrapped, re-centred or reworded on the way: story on 5-9,
+    controls on 12-14, the bargain on 17-19, the prompt on 22.
+    """
     screen.clear(_attr(WHITE))
-    write(screen, centre(TITLE), 2, TITLE, YELLOW, bright=True)
+    draw_logo(screen)
 
     for i, line in enumerate(STORY):
-        write(screen, 2, 4 + i, line, WHITE)
+        write(screen, 2, 5 + i, line, WHITE)
 
     for i, (key, verb) in enumerate(CONTROLS):
-        write(screen, 2, 11 + i, key, YELLOW, bright=True)
-        write(screen, _VERB_COL, 11 + i, verb, WHITE)
+        write(screen, 2, 12 + i, key, YELLOW, bright=True)
+        write(screen, _VERB_COL, 12 + i, verb, WHITE)
 
     for i, line in enumerate(WARNING):
-        write(screen, 1, 16 + i, line, CYAN)
+        write(screen, 1, 17 + i, line, CYAN)
 
     # Flashing, because it is the one thing that has to be noticed and the
     # attribute flash bit costs nothing on the target. It is also the only
     # movement on an otherwise static screen.
-    write(screen, centre(START_PROMPT), 21, START_PROMPT, WHITE, bright=True,
+    write(screen, centre(START_PROMPT), 22, START_PROMPT, WHITE, bright=True,
           flash=True)
 
 

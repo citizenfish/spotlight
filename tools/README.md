@@ -18,6 +18,14 @@ python tools/bitmaps.py --python prototype/spikes/bitmaps_gen.py \
     --asm spectrum/src/bitmaps.asm assets/sprites assets/tiles
 ```
 
+The title logo is the same tool over a separate tree, into a separate pair of
+files, because it is 128 bytes that must not be resident during play:
+
+```sh
+python tools/bitmaps.py --python prototype/spikes/logo_gen.py \
+    --asm spectrum/src/logo.asm assets/logo
+```
+
 Both outputs are **committed**, so a clone builds without running the tool, and
 `prototype/tests/test_bitmaps_tool.py` regenerates them into a temporary path
 and compares byte for byte. If art and code have drifted, the suite fails.

@@ -1,0 +1,193 @@
+; logo.txt
+;
+; The title screen's word SPOTLIGHT, as a double-height block face:
+; eight glyphs of 8x16, drawn two cell rows tall at the same columns
+; the spaced string "S P O T L I G H T" already occupies. Issue #56,
+; from the vault's Art Direction, section "The title logo".
+;
+; WHY A FONT AND NOT A PICTURE. Manic Miner and Jet Set Willy both
+; drew their titles as double-height text rather than storing a
+; screen. Eight glyphs at sixteen bytes is 128 bytes, against 6,912
+; for a bitmap that could be neither recoloured nor re-laid-out. The
+; colour is an attribute per cell, applied to both rows by the
+; drawing code, so this file holds no hue -- as no asset here does.
+;
+; EIGHT, NOT NINE: T appears twice in the word and is drawn once.
+;
+; HEIGHT ONLY, NOT WIDTH, and this is the constraint that shaped the
+; letters. Doubling the width as well would be 288 bytes and, at two
+; cells a letter plus a cell of air between them, the spaced form
+; would not fit in 32 columns. The spacing is the one thing a
+; first-time reader praised about this screen -- "legible at 1:1, all
+; of it, first time" -- so the airiness was kept and the weight went
+; into the height instead.
+;
+; So every glyph fills its 8 pixels of width edge to edge, and the
+; letter-spacing comes entirely from the blank cell between letters.
+; That is why there is no one-pixel margin here, unlike font.py's
+; 8x8 glyphs: those sit next to each other and would touch.
+;
+; Fifteen drawn rows and a blank sixteenth, so the block face has a
+; baseline and the two cell rows of a glyph do not run into row 3.
+;
+; NOT RESIDENT DURING PLAY. The logo is paid for once, on a screen
+; that is not the game; on the Spectrum it lives outside the resident
+; set, and here a test holds the play path to not importing it.
+;
+; Authored here and generated into prototype/spikes/logo_gen.py and
+; spectrum/src/logo.asm by tools/bitmaps.py -- separately from the
+; sprites and tiles, which is what keeps it out of the table the
+; game's drawing code imports. Comments start with ';' rather than
+; '#', which is what a row of eight set pixels starts with.
+
+name: LOGO_S
+size: 8x16
+..####..   the top curve, three pixels thick
+.######.
+###..###
+###.....
+###.....
+####....   the waist turns back on itself
+.#####..
+..#####.
+.....###   and comes down the other side
+......##
+......##
+###..###
+###..###
+.######.
+..####..
+........   the baseline row every glyph ends on
+
+name: LOGO_P
+size: 8x16
+######..
+#######.
+###..###
+###...##
+###...##
+###..###
+#######.
+######..   the bowl closes here
+###.....   and the stem runs the rest of the way down
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+........
+
+name: LOGO_O
+size: 8x16
+..####..
+.######.
+###..###
+##....##   two-pixel sides, so the counter stays open at 1:1
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+###..###
+.######.
+..####..
+........
+
+name: LOGO_T
+size: 8x16
+########   a full-width arm -- the spacing is the blank cell either side
+########
+..####..   a four-pixel stem, centred
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+........
+
+name: LOGO_L
+size: 8x16
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+###.....
+########   the foot, and it reaches the full width like T's arm
+########
+........
+
+name: LOGO_I
+size: 8x16
+########   serifed top and bottom, or it would read as the stem of a T
+########
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+..####..
+########
+########
+........
+
+name: LOGO_G
+size: 8x16
+..####..
+.######.
+###..###
+##....##
+##......
+##......
+##......
+##..####   the spur, which is the whole difference from O
+##..####
+##....##
+##....##
+##....##
+###..###
+.######.
+..####..
+........
+
+name: LOGO_H
+size: 8x16
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+########   the crossbar, on the seam between the two cell rows
+########
+##....##
+##....##
+##....##
+##....##
+##....##
+##....##
+........
