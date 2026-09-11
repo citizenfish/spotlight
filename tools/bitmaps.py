@@ -20,8 +20,11 @@ exists, all of them scars:
   what a wall looks like.
 
 **Bit order is the Spectrum's own: bit 7 is the leftmost pixel**, one byte per
-row, rows top to bottom -- which is what `core.Screen` models and what the
-display file wants, so no converter anywhere reverses anything.
+eight pixels of a row, rows top to bottom -- which is what `core.Screen` models
+and what the display file wants, so no converter anywhere reverses anything. A
+16-wide row is therefore **two** bytes, left cell first, and it stays two bytes
+rather than becoming one 16-bit number: the display file is made of bytes and
+a 16-bit value would be one the Z80 has to take apart again.
 
 **Deterministic on purpose.** Blocks come out sorted by name and there is no
 timestamp in the header, because a timestamp would make every regeneration a
@@ -69,14 +72,30 @@ NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 HEADER_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$")
 SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
 
-#: Everything is 8 pixels wide because an attribute cell is, and a sprite that
-#: was not would need a second format rather than more data.
+#: The default width: an attribute cell is 8 pixels across, so nearly
+#: everything is.
 WIDTH = 8
 
-#: People and doors are 8x16; everything else is 8x8. A third height would be a
-#: third drawing routine on the Z80, so it is refused here rather than
-#: discovered there.
-HEIGHTS = (8, 16)
+#: Every size a bitmap is allowed to be, and the list is short on purpose:
+#: **each one is a drawing routine on the Z80**, so a new size is a decision
+#: and not a drawing. It is refused here rather than discovered at port time.
+#:
+#: * `8x8` -- objects, tiles and the stipples, cell-aligned.
+#: * `8x16` -- people and doors, two cells tall, positioned by pixel.
+#: * `16x8` -- **the two-cell class, added 2026-09-11 for BODY** (issue #59).
+#:   Two cells wide and cell-aligned, so a row is two whole bytes and neither
+#:   of them needs shifting or masking. A body does not move, which is what
+#:   pays for the alignment: there is no pre-shift table because there is
+#:   nothing to pre-shift. See *A body is laid out across two cells*.
+#:
+#: `16x16` is not here. Four cells of one drawable is a memory decision nobody
+#: has taken, and admitting it silently would take it.
+SIZES = ((8, 8), (8, 16), (16, 8))
+
+#: The widths and heights `SIZES` allows, so a wrong one can be named as a
+#: wrong width or a wrong height before it is named as a wrong pair.
+WIDTHS = tuple(sorted({w for w, _h in SIZES}))
+HEIGHTS = tuple(sorted({h for _w, h in SIZES}))
 
 
 class BitmapError(ValueError):
@@ -104,13 +123,14 @@ class Block:
         self.name = name
         self.width = width
         self.height = height
-        #: One byte per row, bit 7 leftmost.
+        #: One row per entry, bit 7 leftmost: a byte for an 8-wide block, a
+        #: tuple of two bytes for a 16-wide one. `row_bytes` normalises it.
         self.rows = tuple(rows)
         #: The grid as authored, one string per row -- carried through into the
         #: generated files so that the bytes there can still be read as a
         #: picture without opening the asset.
         self.art = tuple(art)
-        #: Whatever the author wrote after column 8 on each row.
+        #: Whatever the author wrote after the grid on each row.
         self.notes = tuple(notes)
         self.source = source
         self.line = line
@@ -211,16 +231,26 @@ def _header_size(headers, source, start):
         raise BitmapError(source, line, 1,
                           f"size {value!r} is not WxH, e.g. 8x16")
     width, height = int(match.group(1)), int(match.group(2))
-    if width != WIDTH:
+    if width not in WIDTHS:
         raise BitmapError(
             source, line, 1,
-            f"width {width} -- everything is {WIDTH} wide, because an "
-            f"attribute cell is")
+            f"width {width} -- a bitmap is {WIDTH} wide because an attribute "
+            f"cell is, or 16 for the two-cell class, so it must be one of "
+            f"{WIDTHS}")
     if height not in HEIGHTS:
         raise BitmapError(
             source, line, 1,
             f"height {height} -- people and doors are 8x16 and everything "
             f"else is 8x8, so it must be one of {HEIGHTS}")
+    if (width, height) not in SIZES:
+        # Both halves are legal and the pair is not -- 16x16 is the one that
+        # matters, because four cells of one drawable is a memory decision
+        # rather than a drawing.
+        raise BitmapError(
+            source, line, 1,
+            f"size {width}x{height} -- each size is a drawing routine on the "
+            f"Z80, so they are "
+            f"{', '.join(f'{w}x{h}' for w, h in SIZES)} and no others")
     return width, height
 
 
@@ -247,11 +277,20 @@ def _parse_row(line: str, number: int, source: str, width: int):
         raise BitmapError(
             source, number, width + 1,
             "a row comment must be separated from the grid by a space")
-    bits = 0
-    for i, char in enumerate(grid):
-        if char == INK:
-            bits |= 1 << (width - 1 - i)
-    return bits, grid, rest.strip()
+    # **One byte per eight pixels, left to right.** An 8-wide row is a bare
+    # integer, because that is what every caller has always been given; a
+    # 16-wide row is a tuple of its two bytes rather than one 16-bit number,
+    # because the display file is made of bytes and a row of a two-cell sprite
+    # is two of them, written into two cells. A 16-bit value here would be a
+    # number the Z80 has to take apart again.
+    octets = []
+    for start in range(0, width, WIDTH):
+        bits = 0
+        for i, char in enumerate(grid[start:start + WIDTH]):
+            if char == INK:
+                bits |= 1 << (WIDTH - 1 - i)
+        octets.append(bits)
+    return (octets[0] if len(octets) == 1 else tuple(octets)), grid, rest.strip()
 
 
 # --- reading a tree ---------------------------------------------------------
@@ -295,6 +334,15 @@ def _asset_files(path: str):
 
 # --- emitting ---------------------------------------------------------------
 
+def row_bytes(row) -> tuple:
+    """One row's bytes, whether it came out of an 8-wide block or a 16-wide one.
+
+    An 8-wide row is stored as a bare integer and a 16-wide one as a pair, so
+    everything that walks a table needs one line to stop caring which it has.
+    """
+    return row if isinstance(row, tuple) else (row,)
+
+
 def _sources_line(paths) -> str:
     """The source directories, as the generated header names them."""
     return ", ".join(p.replace(os.sep, "/").rstrip("/") for p in paths)
@@ -320,8 +368,9 @@ def python_module(blocks, paths) -> str:
         "",
         f"    python tools/bitmaps.py --python <this file> {command}",
         "",
-        "Bit 7 is the leftmost pixel, one byte per row, rows top to bottom --",
-        "the Spectrum's own order, which is what `core.Screen` models.",
+        "Bit 7 is the leftmost pixel, rows top to bottom -- the Spectrum's",
+        "own order, which is what `core.Screen` models. A row is one byte,",
+        "or a tuple of two for the 16-wide class, left cell first.",
         "",
         "There is no timestamp here on purpose: this file is committed, and a",
         "test regenerates it and compares byte for byte, so any diff at all is",
@@ -331,9 +380,16 @@ def python_module(blocks, paths) -> str:
     ]
     for block in blocks:
         out.append(f"{block.name} = (")
-        for bits, art, note in zip(block.rows, block.art, block.notes):
+        for row, art, note in zip(block.rows, block.art, block.notes):
             comment = f"  # {art}" + (f"   {note}" if note else "")
-            out.append(f"    0x{bits:02X},{comment}")
+            octets = row_bytes(row)
+            # A row of the two-cell class comes out as its own tuple, so the
+            # table says which bytes are one row and a reader cannot mistake
+            # sixteen bytes for a sixteen-row sprite. Anything that draws it
+            # fails loudly on the shape rather than quietly on the height.
+            value = (f"0x{octets[0]:02X}," if len(octets) == 1 else
+                     "(" + ", ".join(f"0x{b:02X}" for b in octets) + "),")
+            out.append(f"    {value}{comment}")
         out.append(")")
         out.append("")
     out.append("#: Every bitmap by name, for the tools and tests that want to")
@@ -360,16 +416,22 @@ def asm_module(blocks, paths) -> str:
         ";",
         f";     python tools/bitmaps.py --asm <this file> {command}",
         ";",
-        "; Bit 7 is the leftmost pixel, one byte per row, rows top to bottom.",
+        "; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight",
+        "; pixels -- so a 16-wide row is two bytes, left cell first.",
         "; No timestamp: the file is committed and a test compares it byte for",
         "; byte, so any diff is art and code having drifted.",
         "",
     ]
     for block in blocks:
         out.append(f"{block.name}:")
-        for bits, art, note in zip(block.rows, block.art, block.notes):
+        for row, art, note in zip(block.rows, block.art, block.notes):
             comment = f"; {art}" + (f"   {note}" if note else "")
-            out.append(f"        DEFB ${bits:02X}                   {comment}")
+            # Two bytes on one line for a 16-wide row, because the row is the
+            # unit the sprite routine reads and splitting it over two lines
+            # would hide that. `ljust` keeps the comment column where it has
+            # always been, so a 16-wide block does not reflow the file.
+            operand = "DEFB " + ",".join(f"${b:02X}" for b in row_bytes(row))
+            out.append(f"        {operand.ljust(27)}{comment}")
         out.append("")
     return "\n".join(out)
 

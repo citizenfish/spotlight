@@ -93,6 +93,23 @@ WIDTH, HEIGHT = 8, 16
 #: What a trapped worker shouts, and how wide it is in cells.
 CALL = "HELP"
 
+#: How far the word may step sideways to get out of somebody's way, and in
+#: what order it tries: **stay put first, then alternate right and left**
+#: (issue #59). Three cells either way, which is the same three the edge clamp
+#: is already allowed to move it, so the word never goes further from the
+#: caller to dodge a person than it already does to stay on screen.
+#:
+#: It alternates rather than sweeping one way so that the shift is as small as
+#: it can be -- a word two cells right of the caller still points at them, and
+#: a word three cells away that could have been one is a bearing made worse for
+#: nothing.
+CALL_STEPS = (0, 1, -1, 2, -2, 3, -3)
+
+#: The same, for a word anchored to a doorway rather than to a person: it may
+#: only step **into the room**, never back toward the door, because the one
+#: thing that word must not do is cover the fixture it is naming.
+CALL_STEPS_INWARD = (0, 1, 2, 3)
+
 #: Frames between one worker's calls, and how long a call is on screen.
 #:
 #: Twelve seconds apart and four tenths of a second long. Five seconds was tried
@@ -238,6 +255,26 @@ WAITING, FOLLOWING, SAVED, DEAD = 0, 1, 2, 3
 #: number chosen by the person who built the doorway rather than by the person
 #: measuring it, and phase 2 would then have to fight it.
 TAIL_SPACING = 12
+
+
+def clear_run(left: int, row: int, occupied=(), steps=(0,)) -> list | None:
+    """Four cells on `row`, at the first offset in `steps` that lands clear.
+
+    `None` if every offset is blocked, so the caller decides what a room with
+    nowhere to write in it does -- this returns no answer rather than a bad
+    one.
+
+    The run is clamped into the play area at every offset, which is the rule
+    that comes first: **a shout is never clipped.** Four cells of green with
+    the last letter cut off the edge is a plain bug and not a placement
+    question (issue #59).
+    """
+    for step in steps:
+        start = max(0, min(COLS - len(CALL), left + step))
+        run = [(start + i, row) for i in range(len(CALL))]
+        if not any(cell in occupied for cell in run):
+            return run
+    return None
 
 
 class Worker:
@@ -532,15 +569,57 @@ class Worker:
         # quiet, which is the one thing a shout must never do.
         return min(CALL_PERIOD, period)
 
-    def call_cells(self) -> list[tuple[int, int]]:
-        """Where the word sits: above their head, or below if there is no room."""
+    def call_cells(self, occupied=()) -> list[tuple[int, int]]:
+        """Where the word sits: above their head, clear of everybody, on screen.
+
+        **Ruled 2026-09-11 (issue #59), because nobody had ever said where the
+        word goes** -- and a word that is drawn *somewhere* ends up in all the
+        wrong places at once. A cold reader found it in three of them in one
+        session.
+
+        The three rules, in the order they are applied:
+
+        1. **It is never clipped.** Four cells of green with the last letter cut
+           off the edge is a plain bug and not a placement question, so the run
+           is clamped into the play area -- one compare per axis, shifting it by
+           at most three cells. The trade is said rather than buried: a caller
+           within three cells of a side wall gets the word *beside* them rather
+           than over them, which is a small withdrawal from *exact* and is taken
+           deliberately, because the alternative on offer is not an exact shout
+           but an unreadable one.
+
+        2. **It goes above the caller's head**, and below only when the row
+           above is off the top of the play area. That is what every note in
+           the vault already said and what the drawing did not do.
+
+        3. **It is never in a cell a person is drawn in.** `occupied` is those
+           cells. **This is the damaging one and it is not cosmetic**: a sign
+           forces its cell's ink, so a shout landing on the player's feet paints
+           the one mark in the game that means *this is you* in the colour that
+           means *somebody else needs reaching*. The reader duly read the player
+           as a bystander shouting for help and a corpse as the player.
+
+        The search for a clear place is small and fixed: the word steps along
+        its row, one cell at a time, alternating right and left, out to the same
+        three cells the clamp is already allowed; then the same on the other
+        row. On the Z80 that is a short table of offsets and four cell compares
+        per candidate, once per shout per frame, and there are at most three
+        shouts at a time. If nothing is clear -- a room crowded enough that
+        there is nowhere -- it takes the plain place above the head, because a
+        word in a bad place is still a call and no word at all is a worker gone
+        quiet, which is the one thing a shout must never do.
+        """
         head = self.y // CELL
-        row = head - 1
-        if row < 0:
-            row = (self.y + HEIGHT - 1) // CELL + 1
-        row = max(0, min(PLAY_ROWS - 1, row))
-        left = max(0, min(COLS - len(CALL), self.x // CELL - 1))
-        return [(left + i, row) for i in range(len(CALL))]
+        above = head - 1
+        below = (self.y + HEIGHT - 1) // CELL + 1
+        rows = [above, below] if above >= 0 else [below, above]
+        rows = [max(0, min(PLAY_ROWS - 1, row)) for row in rows]
+        left = self.x // CELL - 1
+        for row in rows:
+            run = clear_run(left, row, occupied, CALL_STEPS)
+            if run is not None:
+                return run
+        return clear_run(left, rows[0])
 
 
 class Rescue:

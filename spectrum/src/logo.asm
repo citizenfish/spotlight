@@ -4,7 +4,8 @@
 ;
 ;     python tools/bitmaps.py --asm <this file> assets/logo
 ;
-; Bit 7 is the leftmost pixel, one byte per row, rows top to bottom.
+; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight
+; pixels -- so a 16-wide row is two bytes, left cell first.
 ; No timestamp: the file is committed and a test compares it byte for
 ; byte, so any diff is art and code having drifted.
 

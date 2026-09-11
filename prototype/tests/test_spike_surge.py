@@ -31,7 +31,7 @@ from spikes import (
 from spikes.layout import PLAY_ROWS, STRIP_TOP
 from spikes.session import Intent, Session
 from spotlight.core.constants import (
-    BLACK, CELL, COLS, GREEN, MAGENTA, RED, SCREEN_W, WHITE,
+    BLACK, CELL, COLS, GREEN, MAGENTA, RED, SCREEN_W, WHITE, YELLOW,
 )
 from spotlight.core.screen import Screen, unpack_attr
 
@@ -543,7 +543,9 @@ def test_a_wall_sharing_the_players_cell_blinks_with_him():
                [(scene.NEAR, wall[0], wall[1], surge.P_PLAYER)])
     acx, acy = surge.attr_cell(scene.NEAR, *wall)
     ink, _paper, _bright, flash = unpack_attr(screen.attrs[acy * COLS + acx])
-    assert flash and ink == WHITE
+    # And the patch takes the player's ink, not the wall's -- which since issue
+    # #59 is how you can tell it is the player's patch at all.
+    assert flash and ink == YELLOW
 
 
 # --- one chooser per cell, so clash is still impossible ---------------------
@@ -554,7 +556,33 @@ def test_the_priority_order_is_the_design_table():
     rather than a colour of its own."""
     assert (surge.P_PLAYER, surge.P_WORKER, surge.P_NEST, surge.P_CLEG,
             surge.P_KEY, surge.P_DOOR, surge.P_WALL) == (0, 1, 2, 3, 4, 5, 6)
-    assert surge.HUE[:7] == (WHITE, GREEN, RED, RED, MAGENTA, MAGENTA, WHITE)
+    assert surge.HUE[:7] == (YELLOW, GREEN, RED, RED, MAGENTA, MAGENTA, WHITE)
+
+
+def test_the_player_is_not_drawn_in_the_colour_the_walls_are_drawn_in():
+    """**The mark you have to find first was the quietest thing on the plan**
+    (issue #59).
+
+    He was white, on a plan whose walls are white and are most of it, and the
+    green and red marks are bigger and louder than a 2x2 patch. A reader given
+    a still said they found themselves *by being the one that blinks*, which
+    means the flash was carrying the whole load. It still flashes -- that is
+    asserted above -- and now the colour is pulling with it rather than
+    against it.
+
+    **Yellow is the only ink free**, and it is free because the plan draws no
+    floor: green is a person, red is a fly or a nest, magenta is the way out,
+    white is the building, and cyan and yellow are the two rooms' floors.
+    """
+    assert surge.HUE[surge.P_PLAYER] == YELLOW
+    assert surge.HUE[surge.P_PLAYER] != surge.HUE[surge.P_WALL], \
+        "the player is drawn in the colour most of the plan is drawn in"
+    assert surge.FLASHES[surge.P_PLAYER], "the mark lost its blink"
+    # Every hue on the plan means one thing: no two kinds share an ink except
+    # the pairs that are deliberately one meaning (fly and nest, key and door).
+    assert len({surge.HUE[k] for k in
+                (surge.P_PLAYER, surge.P_WORKER, surge.P_NEST, surge.P_DOOR,
+                 surge.P_WALL)}) == 5
 
 
 @pytest.mark.parametrize("kind", [surge.P_PLAYER, surge.P_WORKER,

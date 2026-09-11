@@ -21,7 +21,9 @@ the play path to not importing it.
 
 Bitmaps are `.txt` files of named ASCII grids: `;` starts a comment, a block is
 a `name:` and a `size:` followed by its rows of `#` and `.`, and anything after
-column 8 on a row is a comment on that row. `tools/bitmaps.py` generates the
+the grid on a row is a comment on that row. A block is `8x8`, `8x16` or — for
+the body alone — `16x8`; **each size is a drawing routine on the Z80**, so a new
+one is a decision rather than a drawing. `tools/bitmaps.py` generates the
 prototype's tables and the port's `DEFB` tables from them — **this directory is
 the source, and nothing that draws declares bytes of its own.**
 

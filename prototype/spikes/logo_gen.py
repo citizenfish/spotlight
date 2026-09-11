@@ -4,8 +4,9 @@ Source: assets/logo. Regenerate with::
 
     python tools/bitmaps.py --python <this file> assets/logo
 
-Bit 7 is the leftmost pixel, one byte per row, rows top to bottom --
-the Spectrum's own order, which is what `core.Screen` models.
+Bit 7 is the leftmost pixel, rows top to bottom -- the Spectrum's
+own order, which is what `core.Screen` models. A row is one byte,
+or a tuple of two for the 16-wide class, left cell first.
 
 There is no timestamp here on purpose: this file is committed, and a
 test regenerates it and compares byte for byte, so any diff at all is

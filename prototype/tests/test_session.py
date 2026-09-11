@@ -404,7 +404,12 @@ def test_a_death_is_announced_from_where_they_fell():
     assert dying.state == rescue_mod.DEAD, \
         "the shortest clock was not the first to run out"
     assert dying in run.shouting, "the death was not announced"
-    for cell in dying.call_cells():
+    # The cells the session placed the word in, not a second answer to the
+    # same question: since issue #59 the placement depends on where everybody
+    # is standing, and `draw` reads these too.
+    word = run.shout_runs[run.shouting.index(dying)]
+    assert len(word) == len(rescue_mod.CALL)
+    for cell in word:
         assert cell in run.call_cells
         cx, cy = cell
         assert run.field.level_at(cx, cy) == lighting.LIT
@@ -1343,3 +1348,149 @@ def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
         # And the two frames really are different pictures on the screen.
         other = sprites.CLEG_FRAMES[1 - wing]
         assert want != other
+
+
+# --- the body is laid down, and nothing that reads it moved (issue #59) -----
+
+def test_a_body_is_drawn_across_the_cell_it_has_always_been_read_at():
+    """**The stored position does not move; only the drawing snaps to a cell.**
+
+    This is the guarantee the whole slice rests on. The tally, the doused
+    check, the nest's turn and the flash all read `Worker.cell()`, and if
+    laying the body down had moved that, a spray charge would miss a corpse the
+    player was standing on and a nest would appear a cell away from the body it
+    grew out of.
+    """
+    from spikes import sprites
+    from spotlight.core.constants import SCREEN_W
+
+    run = Session(seed=1, lives=99)
+    while not run.rescue.bodies(run.here):
+        run.step()
+        assert run.frame < 12000, "nobody died"
+    body = run.rescue.bodies(run.here)[0]
+    fell = (body.x, body.y)
+    cell = body.cell()
+
+    screen = Screen()
+    run.place.opening.hold(True)
+    run.step()
+    run.draw(screen)
+
+    assert (body.x, body.y) == fell, "drawing moved the body"
+    assert body.cell() == cell, "the cell every mechanic reads moved"
+    cells = sprites.body_cells(*cell, run.place.room.is_solid)
+    assert cell in cells, "the drawing is not over the cell it is read at"
+    # And there really is a body on the screen, in those cells and no others.
+    inked = {(px // CELL, py // CELL)
+             for py in range(cell[1] * CELL, cell[1] * CELL + CELL)
+             for px in range(SCREEN_W) if screen.point(px, py)}
+    assert set(cells) <= inked
+
+
+def test_a_body_that_turns_is_the_same_body_in_the_same_cell():
+    """A nest is drawn where the body's feet were, and the body visibly shrinks
+    from two cells to one. **That is a tell the player has to be able to see
+    happen**, so the two have to be anchored to the same cell."""
+    from spikes import rescue as rescue_mod, sprites
+
+    run = Session(seed=1, lives=99)
+    while not run.rescue.bodies(run.here):
+        run.step()
+        assert run.frame < 12000, "nobody died"
+    body = run.rescue.bodies(run.here)[0]
+    cell = body.cell()
+    was = len(sprites.body_cells(*cell, run.place.room.is_solid))
+    while body.age < rescue_mod.BODY_FRAMES:
+        run.step()
+    assert body in run.rescue.nests(run.here), "the body did not turn"
+    assert body.cell() == cell, "the nest is not where the body was"
+    # The shrink, in cells: two while it was a body, one now it is a nest,
+    # both anchored to the cell it fell in.
+    assert was == 2 and len(sprites.NEST) // CELL == 1, \
+        "a body no longer visibly shrinks when it turns"
+
+
+# --- where the shout is drawn (issue #59) ----------------------------------
+
+def _shout_cells(run):
+    """Every cell a word is written in this frame, both kinds of shout."""
+    return {cell for run_ in run.shout_runs for cell in run_} | \
+        {cell for run_ in run.door_calls for cell in run_}
+
+
+def test_no_shout_is_ever_written_on_a_person_or_off_the_screen():
+    """The three rules at once, over whole runs in both rooms.
+
+    **A sign forces its cell's ink**, so a word landing on somebody paints them
+    green -- and the frame that started this was the player, with his own foot
+    mark recoloured to the colour that means *a voice*, standing under somebody
+    else's word. It is not a cosmetic fault: it is the one mark that says
+    *this is you* saying something else.
+    """
+    from spikes import sprites
+    from spikes.layout import PLAY_ROWS
+    from spotlight.core.constants import COLS
+
+    for seed in (1, 3, 7):
+        run = Session(seed=seed, lives=99)
+        for _ in range(2500):
+            run.step()
+            if run.over is not None:
+                break
+            people = set(run.player.occupied_cells())
+            for worker in run.rescue.alive_waiting(run.here):
+                people |= worker.cells()
+            for worker in run.rescue.tail:
+                if worker.room == run.here:
+                    people |= worker.cells()
+            for body in run.rescue.bodies(run.here):
+                people.update(sprites.body_cells(*body.cell(),
+                                                 run.place.room.is_solid))
+            for cx, cy in _shout_cells(run):
+                assert 0 <= cx < COLS and 0 <= cy < PLAY_ROWS, \
+                    f"a shout was clipped at ({cx}, {cy})"
+                assert (cx, cy) not in people, \
+                    f"a shout was written on somebody at ({cx}, {cy})"
+
+
+def test_no_shout_is_ever_written_across_a_doorway():
+    """**A label that hides its own referent has failed at the only job it
+    has.**
+
+    The word over a doorway is how the player is told there is a way through
+    and somebody behind it. It was printing on the doorway's own column, so in
+    the far room it covered the way home and clipped its own first letter.
+    """
+    for seed in (1, 3, 7):
+        run = Session(seed=seed, lives=99)
+        doors = {(door.column, cy) for place in run.places
+                 for door in place.room.doorways for cy in door.rows}
+        for _ in range(2500):
+            run.step()
+            if run.over is not None:
+                break
+            for cell in _shout_cells(run):
+                assert cell not in doors, \
+                    f"a shout covered the doorway cell {cell}"
+
+
+def test_a_shout_at_either_edge_of_the_screen_is_beside_the_caller_not_cut():
+    """Both edges, deliberately, because the clamp is one compare per axis and
+    a clamp with the comparison the wrong way round works perfectly at one end.
+
+    The trade is real and is taken on purpose: within three cells of a side
+    wall the word is beside the caller rather than over them. An inexact shout
+    beats an unreadable one.
+    """
+    from spikes import rescue as rescue_mod
+    from spotlight.core.constants import COLS
+
+    for x in (0, 4, (COLS - 1) * CELL, (COLS - 1) * CELL + 4):
+        worker = rescue_mod.Worker(x, 48)
+        cells = worker.call_cells()
+        assert len(cells) == len(rescue_mod.CALL)
+        assert all(0 <= cx < COLS for cx, _cy in cells), x
+        # ...and it is still within three cells of the caller, so it is a
+        # bearing to somebody rather than a word in the corner.
+        assert min(abs(cx - x // CELL) for cx, _cy in cells) <= 3

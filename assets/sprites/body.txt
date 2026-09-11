@@ -1,10 +1,65 @@
 ; body.txt
 ;
-; Somebody who died. 8x16, because it is a person: seen from directly
-; above, somebody lying down has the same plan as somebody standing
-; up, so the tell cannot be the outline and it is the pose. Every
-; living figure is symmetric about its centre column; this one is not,
-; anywhere.
+; Somebody who died. 16 wide and 8 tall, cell-aligned, lying across
+; two cells of one row -- the only thing in the game that is wider
+; than it is tall, and that, not its pose, is what says it is dead.
+;
+; Why the box changed, 2026-09-11 (issue #59). It was 8x16 and the
+; tell was the pose: every living figure is symmetric about its
+; centre column and this one was not, anywhere. The reasoning was
+; sound and the premise was false. Seen from directly above, a
+; fallen person is LONGER than a standing one, and an eight-pixel
+; box cannot express length -- a lying figure in an 8-wide box is
+; exactly as long as a standing figure is wide. So pose was the only
+; tell the box left, and pose is a sprite-sheet property: it reads
+; perfectly at 8x scale on a white sheet and does not survive to a
+; stippled floor at the size the figure actually appears. A cold
+; reader given the built game picked a corpse for a person twice in
+; one session and was confident both times -- once calling it the
+; person they were hunting, once calling the player a bystander.
+; That is the worst misread this game has available, because it
+; turns the thing you are avoiding into the thing you are spending
+; light to find. The fix had to be the box.
+;
+; Two cheaper answers were drawn and refused before this one, and
+; they are recorded because obvious ideas get had twice:
+;
+;   * A heap -- low, wide, no head, inside the same 8x16 box. It
+;     stops reading as a person immediately, and it spends the
+;     nest's tell: a nest is told from a body by being one cell
+;     tall rather than two, and a heap is one cell tall. Trading a
+;     body/person confusion for a body/nest confusion is a move and
+;     not a fix.
+;   * A sprawl with the limbs flung wider. At 1:1 it reads as a
+;     Cleg -- a small star-shaped blob.
+;
+; Three properties this drawing has to keep, and does:
+;
+;   * TWO CELLS OF AREA, so a nest visibly shrinks when a body
+;     turns into one. The shrink is now a change of shape as well
+;     as of size.
+;   * NOTHING IN A STANDING FIGURE'S BOTTOM TWO ROWS. The old body
+;     drew two pixels of splayed leg on row 14, which is why the
+;     player's foot mark had to be described as an unbroken run of
+;     five pixels rather than as the only ink down there. This
+;     draws nothing there at all.
+;   * ASYMMETRIC. The player's lamp was deliberately kept symmetric
+;     to protect this. It is no longer THE tell -- the aspect ratio
+;     is -- but it has not been spent either.
+;
+; Which cell it lies into is an authoring rule and not a guess:
+; into the cell with floor in it; if both neighbours are floor, the
+; way the room is wider; if a wall refuses that cell, back the other
+; way, which is the rule the spray footprint already uses; and if
+; both neighbours are wall -- a one-cell gap -- only the head end is
+; drawn, in the body's own cell, which reads as somebody huddled in
+; a doorway and is the honest picture of what happened. The rule
+; lives in `spikes.sprites.body_cells`; the decision is
+; *2026-09-11 A body is laid out across two cells*.
+;
+; No pre-shift table, because it is cell-aligned: a body does not
+; move and a dead man has no use for sub-cell precision. Sixteen
+; bytes of art, which is what the 8x16 drawing cost.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -13,20 +68,12 @@
 ; silently ate the player's shoulders.
 
 name: BODY
-size: 8x16
-........
-........
-.##.....   the head, rolled off the centre line
-####....
-.###....
-..###...   shoulders
-..######   one arm flung out
-..###...   trunk
-#####...   the other arm, lower and bent
-..###...
-..###...
-..###...
-.#####..   hips
-##...##.   legs, splayed unevenly
-#.....##
-........
+size: 16x8
+......##........   the arm, flung back over the head
+..####.#........
+.######.####....   the head, off the axis, and a shoulder
+.#####.#########   the trunk, lying across the join
+..###.##########
+......####.###..   hips, and one leg trailing
+.........##...##   the other leg, splayed differently
+................

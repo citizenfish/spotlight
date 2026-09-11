@@ -78,7 +78,7 @@ python -m spikes.spike_driver --gallery runs/gallery
 | --- | --- |
 | `--snap 0,300,900` | Saves those frames of the run as PNGs, into `--out`, named after the same run as its `.json` and `.txt`. Implies `--draw`. |
 | `--scales 1,3` | Which scales to write (the default). 1:1 is the only honest view of the pixels; x3 is what a person can actually look at. |
-| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet, and each room both fully lit and as it looks a few seconds into a run. Runs no seeds and writes no report. |
+| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet, each room both fully lit and as it looks a few seconds into a run, and the frames a bot cannot produce on its own — a spotlight burning on the floor, a moment's flash, the mains surge, and **a body in a played room beside somebody standing up**. Runs no seeds and writes no report. |
 
 A snapshot is named by its session frame. **Frame 0 is the run before it has
 run** — the walls are drawn but no light has been applied yet, so it comes out

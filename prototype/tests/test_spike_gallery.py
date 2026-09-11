@@ -73,7 +73,13 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # finding yourself is the precondition for reading the plan at all.
     for sheet in ("surge", "surge-flashed"):
         assert f"{sheet}_x1.png" in names and f"{sheet}_x3.png" in names
-    assert len(paths) == len(names) == 20 + 4 * len(scene.BUILDING.rooms)
+    # **A body in a played room** (issue #59). The sprite sheet is where a
+    # sprite is named and the played screen is where it is judged, and the body
+    # is the drawing that proved it: sprawled and obvious on the sheet for three
+    # rounds, a person-shaped smudge in a room.
+    body = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-body"
+    assert f"{body}_x1.png" in names and f"{body}_x3.png" in names
+    assert len(paths) == len(names) == 22 + 4 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -137,11 +143,15 @@ def test_the_sprite_sheet_draws_every_sprite():
     for n, sprite in enumerate(sprites.SPRITES.values()):
         cx, cy = gallery.block_at(n)
         px, py = (cx + 3) * CELL, gallery.sprite_top(cy, len(sprite))
-        for dy, bits in enumerate(sprite):
-            for dx in range(sprites.WIDTH):
-                want = 1 if bits & (0x80 >> dx) else 0
-                got = screen.pixels[(py + dy) * SCREEN_W + px + dx]
-                assert got == want, f"sprite {n} differs at row {dy}"
+        for dy, row in enumerate(sprite):
+            # A row is one byte, or two for the body, which is the only thing
+            # on the sheet that is sixteen pixels across.
+            for octet, bits in enumerate(sprites.row_bytes(row)):
+                for dx in range(sprites.WIDTH):
+                    want = 1 if bits & (0x80 >> dx) else 0
+                    at = (py + dy) * SCREEN_W + px + octet * sprites.WIDTH + dx
+                    assert screen.pixels[at] == want, \
+                        f"sprite {n} differs at row {dy}"
 
 
 def test_every_sprite_on_the_sheet_stands_on_its_own_caption():
@@ -160,19 +170,75 @@ def test_every_sprite_on_the_sheet_stands_on_its_own_caption():
             f"{name} does not stand on its caption"
 
 
-def test_the_people_get_twice_the_height_of_the_objects():
-    """**Size is how the game tells a person from a thing** -- a sprite may not
-    choose its own colour, so 8x16 against 8x8 is the whole distinction. A
-    sheet that tidied everything to one size would hide the property the art
-    most has to get right.
+def test_the_sheet_shows_three_sizes_because_the_game_has_three():
+    """**Size is how the game tells a person from a thing**, and since issue
+    #59 **orientation is how it tells a person on their feet from one on the
+    floor**. A sprite may not choose its own colour, so the boxes are the whole
+    distinction, and a sheet that tidied everything to one size would hide the
+    property the art most has to get right.
 
     A door is 8x16 without being a person, and the sheet shows that too: it is
     the person-shaped hole you walk out through, and it is the size it is for
     that reason.
+
+    The body lies along the bottom of its block, sixteen across and eight down,
+    beside three figures that stand up in theirs.
     """
-    tall = set(sprites.PEOPLE) | set(sprites.DOORS)
+    tall = set(sprites.STANDING) | set(sprites.DOORS)
     for name, sprite in sprites.SPRITES.items():
-        assert len(sprite) == (16 if name in tall else 8), name
+        want = (8, 16) if name in tall else (16, 8) if name == "body" else (8, 8)
+        assert (sprites.width_of(sprite), len(sprite)) == want, name
+
+
+def test_the_body_is_photographed_beside_somebody_standing_up():
+    """**The picture the sprite sheet could not take** (issue #59).
+
+    A corpse and a living figure in one frame, on the floor they are actually
+    seen on, at the light the game gives them. On the sheet they are in
+    different blocks with their names underneath, which is why three rounds of
+    review passed a drawing a cold reader then misread twice in one session.
+
+    What is asserted here is that the frame really contains the comparison:
+    both figures, both lit, and the body wider than it is tall where the player
+    is taller than he is wide. Whether it *reads* is a human's judgement and
+    this test does not pretend to make it.
+    """
+    screen = gallery.body_room(scene.NEAR)
+    # The picture is taken from a run the function makes itself, so the
+    # geometry is read back off the screen rather than out of the session.
+    inked = {(cx, cy)
+             for cy in range(PLAY_ROWS) for cx in range(COLS)
+             if any(screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx]
+                    for dy in range(CELL) for dx in range(CELL))}
+    assert inked, "the picture is empty"
+    # The player is somewhere in it, with his bar under his feet: an unbroken
+    # run of eight pixels is the one mark nothing else in the room has.
+    bars = [(px, py) for py in range(PLAY_ROWS * CELL)
+            for px in range(0, SCREEN_W - 8, 8)
+            if all(screen.point(px + dx, py) for dx in range(8))]
+    assert bars, "the player is not in the picture"
+    # ...and a body: a run of ink sixteen pixels wide on one row of cells,
+    # which no standing figure can make.
+    wide = [(px, py) for py in range(PLAY_ROWS * CELL)
+            for px in range(SCREEN_W - 16)
+            if all(screen.point(px + dx, py) for dx in range(9))]
+    assert wide, "there is no body in the picture"
+
+
+def test_the_photographed_body_is_lit_enough_to_be_looked_at():
+    """A body drawn on a dark cell is black ink on black paper.
+
+    The function raises rather than returning that picture, and this is the
+    assertion that says so -- a sheet nobody can check is worse than no sheet.
+    """
+    screen = gallery.body_room(scene.NEAR)
+    # Ink that is the same as its paper shows nothing, so a picture of a body
+    # needs at least one cell of play area whose ink differs from its paper.
+    from spotlight.core.screen import unpack_attr
+    visible = [cell for cell in range(COLS * PLAY_ROWS)
+               if unpack_attr(screen.attrs[cell])[0]
+               != unpack_attr(screen.attrs[cell])[1]]
+    assert visible, "nothing in the play area is visible at all"
 
 
 # --- the tile sheet ---------------------------------------------------------

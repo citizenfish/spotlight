@@ -1,6 +1,6 @@
 """Trapped workers, and reaching them: the objective at its smallest."""
 
-from spikes import rescue as R, scene
+from spikes import player as P, rescue as R, scene
 from spikes.tally import Tally
 
 #: Everybody in the building, in the shape a `Rescue` is authored from:
@@ -231,6 +231,96 @@ def test_every_scene_worker_can_be_heard_inside_the_room():
     for w in R.Rescue(ALL_WORKERS).workers:
         for cx, cy in w.call_cells():
             assert 0 <= cx < COLS and 0 <= cy < PLAY_ROWS
+
+
+# --- where the word is drawn, ruled 2026-09-11 (issue #59) -----------------
+#
+# **Nobody had ever said where the word goes**, and a word drawn *somewhere*
+# ends up in all the wrong places at once: in the row under the player's feet,
+# off the right-hand edge, and across the doorway home -- three faults a cold
+# reader found in one session. These pin the three rules.
+
+def test_the_word_steps_aside_rather_than_landing_on_a_person():
+    """**The damaging one, and it is not cosmetic.**
+
+    A sign forces its cell's ink, so a shout written over the player paints the
+    one mark in the game that says *this is you* in the colour that means
+    *somebody else needs reaching*. The reader duly read the player as a
+    bystander shouting for help. The word moves; the person does not.
+    """
+    worker = R.Worker(80, 48)
+    plain = worker.call_cells()
+    # Somebody standing exactly where the word would have gone.
+    standing = {plain[0], plain[1]}
+    moved = worker.call_cells(standing)
+    assert moved != plain, "the word was written over somebody"
+    assert not (set(moved) & standing)
+    assert len(moved) == len(R.CALL)
+
+
+def test_a_caller_beside_the_player_still_gets_a_word_and_not_on_him():
+    """The measured case: the player standing next to somebody shouting.
+
+    A person is eight pixels wide and may straddle two cell columns, so
+    stepping aside by one cell is not always enough -- which is why the word
+    keeps stepping until it is clear rather than stepping once and hoping.
+    """
+    worker = R.Worker(80, 48)
+    for player_x in range(64, 112, 3):
+        player = P.Player(player_x, 32)
+        cells = worker.call_cells(player.occupied_cells())
+        assert not (set(cells) & player.occupied_cells()), \
+            f"the word landed on the player standing at x={player_x}"
+        assert len(cells) == len(R.CALL)
+
+
+def test_the_word_stays_on_the_row_above_the_head_if_it_possibly_can():
+    """Stepping sideways is the first answer, and the other row the second.
+
+    *Over the head* is what every note in the vault already says, so the search
+    exhausts the row above before it considers the row below -- a word beside
+    somebody still points at them; a word under their feet is in the row the
+    player's own mark lives in.
+    """
+    worker = R.Worker(80, 48)
+    above = worker.call_cells()[0][1]
+    blocked = {(cx, above) for cx in range(8, 12)}
+    assert all(cy == above for _cx, cy in worker.call_cells(blocked)), \
+        "the word changed row while there was still room on this one"
+
+
+def test_a_word_that_can_go_nowhere_is_still_drawn():
+    """A worker who has gone quiet is the one thing a shout must never be.
+
+    If a room is crowded enough that every candidate is occupied, the word
+    takes the plain place above the head: a call in a bad place is still a
+    call, and an absence is not a signal.
+    """
+    from spikes.layout import PLAY_ROWS
+    from spotlight.core.constants import COLS
+    worker = R.Worker(80, 48)
+    everywhere = {(cx, cy) for cx in range(COLS) for cy in range(PLAY_ROWS)}
+    cells = worker.call_cells(everywhere)
+    assert cells == worker.call_cells(), "a crowded room silenced a worker"
+
+
+def test_no_placement_of_a_shout_is_ever_clipped():
+    """Rule 1, over every position a worker can be in and every obstruction.
+
+    Being clamped is what the trade is: at the very edge of a room the word is
+    *beside* the caller rather than over them, by up to three cells. That is a
+    small withdrawal from *exact* and it is taken deliberately, because the
+    alternative on offer is not an exact shout but an unreadable one.
+    """
+    from spikes.layout import PLAY_ROWS
+    from spotlight.core.constants import CELL, COLS
+    for x in range(0, COLS * CELL, 5):
+        for y in (0, 8, 48, (PLAY_ROWS - 2) * CELL):
+            worker = R.Worker(x, y)
+            for occupied in ((), {(cx, y // CELL - 1) for cx in range(COLS)}):
+                for cx, cy in worker.call_cells(occupied):
+                    assert 0 <= cx < COLS and 0 <= cy < PLAY_ROWS, \
+                        f"a shout at ({x}, {y}) left the play area"
 
 
 # --- the clock (issue #13) -------------------------------------------------

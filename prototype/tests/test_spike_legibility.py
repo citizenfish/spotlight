@@ -10,7 +10,7 @@ in fill rather than in outline.** Neither was caught by looking, because the
 sheet is where art is *named* and the played screen is where it is *judged*.
 So the rule goes here, where the next redraw has to get past it.
 
-Four assertions, over every pair of the four figures and over the door pair:
+Five assertions, over every pair of the four figures and over the door pair:
 
 1. Some row differs by **at least three pixels** -- the measured failure was
    two.
@@ -19,6 +19,23 @@ Four assertions, over every pair of the four figures and over the door pair:
 3. The **topmost drawn row** differs, or the ink in rows 0-2 differs by at
    least three pixels -- the top of a figure is what you see first in a glow.
 4. A pair of states that means something differs in **outline**, not in fill.
+5. **A figure that means something different differs in *aspect*, and never in
+   pose.** Added 2026-09-11 (issue #59), and it is the line that would have
+   caught the third failure of exactly this kind.
+
+**Assertion 5 is the general form of 1 to 4.** All four of those compare two
+drawings *inside one box*, and they can only ever be as strong as the box
+allows: the body was 8x16, it passed every one of them against all three living
+figures, and a cold reader still called it a person twice in one session and
+was confident both times. What it differed by was **pose** -- a head lolled off
+the axis, an arm flung higher than the other -- and pose is a sprite-sheet
+property that does not survive to six pixels across on a stippled floor. The
+box was the problem, not the drawing in it, and no assertion that reads eight
+bytes against eight bytes can say so.
+
+`test_the_old_body_passes_the_first_three_assertions_and_fails_the_fifth`
+keeps the old bytes and proves both halves of that sentence, so nobody has to
+take it on trust.
 
 And two clauses about the player's two marks, one for each ground he has to be
 seen against: `test_the_mark_on_lit_floor_is_five_pixels_of_solid_ink` and
@@ -141,8 +158,21 @@ def assertion_3(a, b) -> bool:
     return sum(bits(x ^ y) for x, y in zip(a[:3], b[:3])) >= 3
 
 
+def aspect(sprite) -> tuple:
+    """A drawing's box: how wide and how tall, in pixels."""
+    return SP.width_of(sprite), len(sprite)
+
+
 def pairs():
-    for one, two in combinations(SP.PEOPLE, 2):
+    """Every pair of figures that shares a box, and so is told apart inside it.
+
+    The three on their feet. **A body is not compared this way since issue
+    #59** and could not be: assertions 1 to 3 read one byte against another,
+    and there is no meaningful pairing of a 16x8 row with an 8x16 one. It is
+    covered by assertion 5, which is a stronger claim than any of them --
+    differing in the box is the largest difference two drawings can have.
+    """
+    for one, two in combinations(SP.STANDING, 2):
         yield one, two, SP.SPRITES[one], SP.SPRITES[two]
 
 
@@ -187,7 +217,7 @@ def test_every_pair_of_figures_differs_where_the_eye_lands_first():
             f"{one} and {two} look the same at the top, where a glow finds them"
 
 
-def test_all_six_pairs_pass_all_three():
+def test_all_three_pairs_pass_all_three():
     """Said once as a whole, because the contract is the conjunction.
 
     A drawing that satisfied two assertions out of three would still be the
@@ -199,6 +229,114 @@ def test_all_six_pairs_pass_all_three():
             (assertion_1, assertion_2, assertion_3), start=1)
             if not check(a, b)]
         assert not failed, f"{one} against {two} fails assertion(s) {failed}"
+
+
+# --- assertion 5: aspect, not pose ------------------------------------------
+
+#: The body as it was drawn from 2026-09-07 to 2026-09-11: 8x16, and told from
+#: a living figure by its **pose**. Kept here, and nowhere else, because the
+#: tests below are the argument that it was not enough -- and because an idea
+#: this obvious gets had twice. It is the drawing two cold readers approved on
+#: the sprite sheet and a third misread twice in one played session.
+OLD_BODY = (
+    0x00, 0x00,
+    0x60,       # .##.....   the head, rolled off the centre line
+    0xF0,       # ####....
+    0x70,       # .###....
+    0x38,       # ..###...   shoulders
+    0x3F,       # ..######   one arm flung out
+    0x38,       # ..###...   trunk
+    0xF8,       # #####...   the other arm, lower and bent
+    0x38, 0x38, 0x38,
+    0x7C,       # .#####..   hips
+    0xC6,       # ##...##.   legs, splayed unevenly
+    0x83,       # #.....##
+    0x00,
+)
+
+
+def test_a_figure_that_means_something_different_differs_in_aspect():
+    """Assertion 5, over every pair of the four figures.
+
+    The three on their feet mean the same *kind* of thing -- a person standing
+    up -- and are told apart inside one box by assertions 1 to 3. The body
+    means the opposite thing, the one figure in the game you are trying not to
+    find, and it is told from all three **by the box**: sixteen wide and eight
+    tall against eight wide and sixteen tall.
+
+    Seen from above, a fallen person is *longer* than a standing one. An
+    eight-pixel box cannot express length, which is why pose was the only tell
+    available while the box was 8x16 and why pose was never going to be enough.
+    """
+    for one, two in combinations(SP.PEOPLE, 2):
+        a, b = SP.SPRITES[one], SP.SPRITES[two]
+        if aspect(a) != aspect(b):
+            continue
+        assert one in SP.STANDING and two in SP.STANDING, (
+            f"{one} and {two} share a box and mean different things, so the "
+            f"only thing left to tell them apart is what is drawn in it")
+        assert all(check(a, b) for check in
+                   (assertion_1, assertion_2, assertion_3))
+
+
+def test_the_dead_and_the_living_never_share_a_box():
+    """Said as its own line, because it is the whole of the 2026-09-11 ruling.
+
+    *Size says whether a thing is a person* still stands. *Pose says whether it
+    is alive* is withdrawn, and **orientation says whether it is upright** in
+    its place.
+    """
+    for name in SP.STANDING:
+        assert aspect(SP.SPRITES[name]) != aspect(SP.BODY), \
+            f"{name} and a corpse are the same shape of box again"
+    assert aspect(SP.BODY) == (16, 8)
+
+
+def test_the_old_body_passes_the_first_three_assertions_and_fails_the_fifth():
+    """**The pin, and the thing that was wrong before.**
+
+    The contract was green on the day a reader called a corpse the person they
+    were hunting. This is why: the old body satisfied every assertion the
+    contract had, against all three living figures, because all three
+    assertions compare drawings inside one box and the box was the fault.
+
+    Both halves are asserted. If assertion 5 is ever weakened, the second half
+    of this fails and whoever weakened it reads the first half.
+    """
+    for name in SP.STANDING:
+        other = SP.SPRITES[name]
+        assert len(OLD_BODY) == len(other)
+        failed = [n for n, check in enumerate(
+            (assertion_1, assertion_2, assertion_3), start=1)
+            if not check(OLD_BODY, other)]
+        assert not failed, (
+            f"the old body failed assertion(s) {failed} against {name}, so "
+            f"this test no longer says what it was written to say")
+        assert aspect(OLD_BODY) == aspect(other), \
+            "the old body shared a box with the living, which was the fault"
+
+
+def test_a_one_cell_heap_would_be_refused_because_it_spends_the_nests_tell():
+    """Recorded because it was drawn, looked at and rejected (issue #59).
+
+    The cheap answer to *a body reads as a person* is to stop drawing a person:
+    a low wide heap inside one cell stops reading as one immediately. It is
+    refused because **a nest is told from a body by being one cell tall**, and
+    a body becoming a nest is a thing the player has to be able to see happen.
+    Trading a body/person confusion for a body/nest confusion is a move and not
+    a fix.
+
+    The second refusal has no test because it is a judgement a test cannot
+    make: a sprawl with the limbs flung wider reads at 1:1 as a Cleg.
+    """
+    def cells_of(sprite):
+        """The area of a drawing in whole attribute cells, drawn aligned."""
+        return (SP.width_of(sprite) // 8) * (len(sprite) // 8)
+
+    assert cells_of(SP.BODY) == 2, "a body is two cells, or a nest is its size"
+    assert cells_of(SP.NEST) == 1
+    assert cells_of(SP.BODY) > cells_of(SP.NEST), \
+        "a body no longer visibly shrinks when it turns into a nest"
 
 
 # --- assertion 4: outline, not fill -----------------------------------------
@@ -299,17 +437,23 @@ def test_the_mark_on_lit_floor_is_five_pixels_of_solid_ink():
     The one clear row above it is not decoration: without it the bar reads as
     feet rather than as ground.
 
-    **One correction to the design note, found by writing this.** It says the
-    bottom two rows are ones "every other figure leaves blank", and that is
-    true of three of the four: the BODY as drawn in `assets/sprites/body.txt`
-    puts its lower splayed leg on row 14, four rows of trunk rather than three.
-    (The vault's BODY listing has one trunk row fewer and its legs a row
-    higher; the asset is the source and BODY is not touched by this slice, so
-    the asset stands and the claim is narrowed here instead.) What is still
-    exactly true is the thing the mark rests on: **the player is the only
-    figure with an unbroken run of five pixels down there**, and the last row
-    of the box is his alone. Two pixels of splayed leg is a floor dot; eight
-    pixels of ink is ground.
+    **The narrow claim is the one pinned, and it stays pinned** (issue #59).
+    The design note used to say the bar sits in "the bottom two rows, which
+    every other figure leaves blank", and that was true of three figures out of
+    four: the old 8x16 BODY put its lower splayed leg on row 14. Laying the
+    body down was expected to make the wider claim true again -- and **it does
+    not, quite, and the difference is worth writing down rather than
+    discovering later.** A body's box is eight rows, so it has no row 14 or 15
+    of its own; but it is drawn in one cell row, and the second-from-bottom row
+    of that cell holds four pixels of trailing leg. A body lying in the cell
+    row a player is standing in therefore still puts ink on the same *pixel*
+    row as the top half of his bar.
+
+    What is exactly true, on the screen rather than in the box, is the thing
+    the mark rests on and the thing this pins: **the player is the only figure
+    with an unbroken run of five pixels in the bottom two rows of its box, and
+    the last row is his alone.** Two pixels of splayed leg, or two pairs of
+    them, is a floor dot; eight pixels of ink is ground.
     """
     bar = [row for row in SP.PLAYER[-2:]]
     assert all(longest_run(row) >= 5 for row in bar), \
@@ -318,10 +462,12 @@ def test_the_mark_on_lit_floor_is_five_pixels_of_solid_ink():
     for name in SP.PEOPLE:
         if name == "player":
             continue
-        other = SP.SPRITES[name]
-        assert other[-1] == 0x00, \
+        # A 16-wide row is two bytes and either of them could hold a run, so
+        # the rows are flattened rather than assumed to be single bytes.
+        rows = [SP.row_bytes(row) for row in SP.SPRITES[name][-2:]]
+        assert not any(rows[-1]), \
             f"{name} draws on the last row, which is the player's alone"
-        assert max(longest_run(row) for row in other[-2:]) < 5, \
+        assert max(longest_run(b) for row in rows for b in row) < 5, \
             f"{name} has a mark of its own where the player's bar is"
 
 
@@ -335,10 +481,17 @@ def test_the_lamp_is_the_mark_that_needs_no_floor():
     head, which is where a glow finds a figure first.
 
     It is centred, so it says nothing about facing, and symmetric, because a
-    lamp in one hand would quietly cost the BODY its only tell.
+    lamp in one hand would have quietly cost the BODY the only tell it had at
+    the time. That tell is no longer the one doing the work -- the aspect ratio
+    is -- and the lamp stays symmetric anyway: a property bought once should
+    not be given away later by accident.
+
+    **The clause is about figures on their feet.** A body has no head at the
+    top of its box, because it is not upright, and the arm flung back over its
+    head is the first row of that box on purpose.
     """
     assert SP.PLAYER[1] == SP.PLAYER[2] == 0x3C, "the lamp is not four centred"
-    for name in SP.PEOPLE:
+    for name in SP.STANDING:
         if name == "player":
             continue
         assert SP.SPRITES[name][:2] == (0x00, 0x00), \

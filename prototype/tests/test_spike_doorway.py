@@ -573,14 +573,20 @@ def _make_them_shout(run, room):
     return False
 
 
-def test_a_call_from_the_next_room_is_drawn_over_the_connecting_doorway():
-    """**The one genuinely new rule.**
+def test_a_call_from_the_next_room_is_drawn_beside_the_connecting_doorway():
+    """**The one genuinely new rule**, and where the word goes since issue #59.
 
     The sonar reports the nearest Cleg in the room you are in, so without this
     the room behind you falls silent the moment you leave it. It is also how the
-    door is found: a first-timer sees `HELP` appear over a gap in the east wall
-    and understands there are people through there, which is why the door needs
-    no colour of its own.
+    door is found: a first-timer sees `HELP` appear beside a gap in the east
+    wall and understands there are people through there, which is why the door
+    needs no colour of its own.
+
+    **Beside the doorway, on this room's side of it, and never across it.** It
+    used to start at the doorway's own column, which in the far room printed the
+    word straight over the way home: the first letter read as clipped, and a
+    word sat on the one fixture that tells the player where the way back is. A
+    label that hides its own referent has failed at the only job it has.
     """
     run = Session(seed=1)
     assert _make_them_shout(run, scene.FAR), "nobody in the far room called"
@@ -589,8 +595,12 @@ def test_a_call_from_the_next_room_is_drawn_over_the_connecting_doorway():
     cells = run.door_calls[0]
     assert len(cells) == len(rescue_mod.CALL)
     assert all(cy == door.middle for _cx, cy in cells)
-    assert (door.column, door.middle) in cells, \
-        "the word is not over the doorway"
+    assert all(0 <= cx < COLS for cx, _cy in cells), "the word is clipped"
+    assert (door.column, door.middle) not in cells, \
+        "the word is printed across the doorway it is naming"
+    # Beside it, and touching it: the word runs from the doorway into the room.
+    assert min(abs(cx - door.column) for cx, _cy in cells) == 1, \
+        "the word is not beside the doorway"
     # ...and it lifts its own cells out of the dark, like any other shout.
     for cx, cy in cells:
         assert run.field.level_at(cx, cy) == lighting.LIT

@@ -290,7 +290,13 @@ class Doorway:
 
     @property
     def middle(self) -> int:
-        """The row a word written over this doorway sits on."""
+        """The row a word naming this doorway sits on.
+
+        *Beside* it rather than over it since issue #59 -- the word is written
+        on this room's side of the gap, on this row, because a label that
+        covers the fixture it is naming has failed at the only job it has. The
+        column is chosen in `Session._calls_through_doors`; this is the row.
+        """
         return self.rows[len(self.rows) // 2]
 
     def cells(self) -> list[tuple[int, int]]:

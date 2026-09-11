@@ -54,7 +54,8 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, moments, player as player_mod, screens, scene, sprites
+from . import bots, lighting, moments, player as player_mod, screens, scene
+from . import sprites
 from . import session as session_mod, tiles
 from . import spike_snap
 from .building import EAST
@@ -147,12 +148,18 @@ def draw_sprite_sheet(screen: Screen) -> None:
     """Every sprite in the game, on a grid, named in the game's own font.
 
     **The sizes are shown, not stated.** Each block is two cell rows tall, so
-    the 8x16 people fill it and the 8x8 objects fill half of it, and the
-    difference between a person and a thing is visible in the picture rather
-    than only in the caption. That difference is load-bearing -- `sprites` tells
-    entities apart by size first and silhouette second, because a sprite may not
-    choose its own colour -- so a sheet that lined everything up neatly would be
-    hiding the one property the art has to get right.
+    the 8x16 people fill it, the 8x8 objects fill half of it and the 16x8 body
+    lies along the bottom of it, and the difference between a person, a thing
+    and a corpse is visible in the picture rather than only in the caption.
+    That difference is load-bearing -- `sprites` tells entities apart by size
+    first and silhouette second, because a sprite may not choose its own colour
+    -- so a sheet that lined everything up neatly would be hiding the one
+    property the art has to get right.
+
+    **And the sheet is not evidence** (issue #59). It showed a sprawled body
+    for three rounds while the played screen showed a person-shaped smudge, so
+    a picture of this sheet does not settle whether a sprite reads. That is
+    what `body_room` is for.
 
     Labelled in the game's font rather than anything prettier, for the same
     reason the rest of the sheet is drawn through `core.Screen`: what a reviewer
@@ -166,19 +173,21 @@ def draw_sprite_sheet(screen: Screen) -> None:
     for n, (name, sprite) in enumerate(sprites.SPRITES.items()):
         cx, cy = block_at(n)
         # Three cells in, so the 8-pixel sprite sits over the middle of its
-        # caption rather than at one end of it.
+        # caption rather than at one end of it. The 16-wide body starts there
+        # too and takes the cell after it, which is still inside its block.
         px, py = (cx + 3) * CELL, sprite_top(cy, len(sprite))
         # clip_bottom is the play area's floor in the game and there is no play
         # area here, so it is opened up to the whole screen; without that the
         # bottom row of the grid would be cut off mid-sprite.
         sprites.draw(screen, sprite, px, py, clip_bottom=SCREEN_H)
         people = name in sprites.PEOPLE
-        for scx, scy in sprites.cells_spanned(px, py, len(sprite)):
+        for scx, scy in sprites.cells_spanned(px, py, len(sprite),
+                                              sprites.width_of(sprite)):
             screen.set_attr(scx, scy, _attr(WHITE, bright=True))
         screens.write(screen, cx, cy + 2, label(name),
                       YELLOW if people else CYAN, bright=True)
 
-    legend = (("YELLOW - PEOPLE, 8X16", YELLOW),
+    legend = (("YELLOW - PEOPLE 8X16, BODY 16X8", YELLOW),
               ("CYAN - OBJECTS 8X8, DOORS 8X16", CYAN))
     for i, (line, ink) in enumerate(legend):
         screens.write(screen, screens.centre(line), ROWS - 3 + i, line, ink,
@@ -493,6 +502,104 @@ def freed_room(index: int = scene.NEAR) -> Screen:
     return screen
 
 
+#: How long the gallery will play a run looking for somebody to have died.
+#:
+#: A body is not a thing a picture can set up: somebody has to bleed out or be
+#: eaten, and on the gallery seed the first death in the near room is around
+#: frame 3,000. The limit is generous rather than tight because what it guards
+#: against is an infinite loop, not a slow one.
+BODY_LIMIT = 6000
+
+#: How far from the body the player is stood for the portrait, in cells.
+#: Two: clear of the body's own two cells, and close enough that one torch
+#: lights both and that the pair is one glance rather than two.
+BODY_GAP = 2
+
+
+def body_room(index: int = scene.NEAR) -> Screen:
+    """**A body in a played room, beside somebody standing up** (issue #59).
+
+    The sheet is not evidence, and this picture exists because it was not. BODY
+    was drawn sprawled and obvious at sheet scale for three rounds, was
+    reviewed as such twice, and in a played room at the size it actually
+    appears it read as a person standing next to you -- twice in one session,
+    in two different rooms, confidently. **A picture of the sprite sheet cannot
+    settle whether a sprite reads**, and the rule written down after the doors
+    said so already; this is the rule getting a photograph of its own.
+
+    So: a real run, played until somebody actually dies, on the stippled floor,
+    at the light the game gives it, **with the player stood beside the corpse**
+    -- which is the comparison a reviewer has to be able to make and the one
+    the sheet cannot, because on the sheet they are in different blocks with
+    their names underneath.
+
+    **Nothing about the level or the rules moves to get it.** The statue plays,
+    so nobody is rescued and the torch is untouched until the picture is taken;
+    the body arrives on the game's own clock; and the only convenience is the
+    one `enter` and `freed_room` already use -- the player is stood somewhere,
+    then the game runs an ordinary frame.
+
+    It raises rather than returning a picture of nothing if the run produces no
+    body, or if the body would be photographed in the dark, for the same reason
+    `swapped_room` does: a sheet that quietly showed an ordinary frame would be
+    the one image on it nobody could check.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    enter(run, index)
+    # The statue, and with the torch off: it saves nobody, so the deaths happen
+    # on the level's own clock, and it spends no light before the frame that
+    # needs it.
+    playing = bots.make("statue", seed=GALLERY_SEED, light=False)
+    for _ in range(BODY_LIMIT):
+        run.step(playing.intent(run))
+        if run.over is not None:
+            break
+        if run.rescue.bodies(index):
+            break
+    bodies = run.rescue.bodies(index)
+    if not bodies:
+        raise RuntimeError(
+            f"nobody died in {BODY_LIMIT} frames of the gallery run, so the "
+            f"body would be photographed by being drawn on an empty room")
+    body = bodies[0]
+    room = scene.BUILDING[index]
+    cells = sprites.body_cells(*body.cell(), room.is_solid)
+    stand = _standing_room(room, cells)
+    if stand is None:
+        raise RuntimeError("there is nowhere to stand beside the body")
+    cx, facing = stand
+    run.player.x = cx * CELL
+    run.player.y = (cells[0][1] - 1) * CELL
+    # One ordinary frame: the torch comes on and the player turns to face the
+    # body. Turning costs a step, which is why he is stood two cells clear.
+    run.step(session_mod.Intent(dx=facing, torch=True))
+    screen = Screen()
+    run.draw(screen)
+    field = run.place.field
+    if any(field.level_at(cx, cy) == lighting.DARK for cx, cy in cells):
+        raise RuntimeError(
+            "the body is in the dark, so the picture is of an unlit floor")
+    return screen
+
+
+def _standing_room(room, cells) -> tuple | None:
+    """A column beside the body to stand the player in, and which way to face.
+
+    Either side, the near side first, and the box has to fit: a person is two
+    cells tall, so both of them have to be clear or the picture is of somebody
+    standing inside a wall.
+    """
+    left, row = cells[0]
+    right = cells[-1][0]
+    for cx, facing in ((right + BODY_GAP, -1), (left - BODY_GAP, 1)):
+        if not 0 <= cx < COLS:
+            continue
+        if any(room.is_solid(cx, row - dy) for dy in (0, 1)):
+            continue
+        return cx, facing
+    return None
+
+
 #: How long the gallery will play a run looking for a frame with a nest on it.
 #:
 #: A nest is a body twenty seconds after a death, so it is the one thing on the
@@ -634,6 +741,10 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     near = slug(scene.BUILDING[scene.NEAR].name)
     sheet(f"room-{near}-freed", freed)
     sheet(f"room-{near}-freed-flashed", freed, flashing=True)
+    # **A body, in a played room, beside somebody standing up** (issue #59).
+    # The sprite sheet said the body read for three rounds and the played
+    # screen said otherwise, so this is the picture a redraw is judged on.
+    sheet(f"room-{near}-body", body_room(scene.NEAR))
     # The mains surge (issue #53), in both halves of the cycle for the same
     # reason: the player's mark and the nests are drawn with the FLASH bit, and
     # a still can only ever show one half of it. **The half where the player is

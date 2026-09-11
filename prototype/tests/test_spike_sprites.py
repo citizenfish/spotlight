@@ -6,6 +6,18 @@ from spotlight.core.constants import CELL, COLS, SCREEN_W, YELLOW
 from spotlight.core.screen import Screen
 
 
+def octets(sprite) -> list:
+    """Every byte of a sprite, in order, whatever its width.
+
+    An 8-wide row is a bare byte and a 16-wide row is a pair of them, so a test
+    that walks the ink needs one call to stop caring which it has. **Written
+    because the alternative is silent**: `any(sprite)` is true of a blank
+    16-wide sprite, since every row of it is a non-empty tuple, and a test that
+    cannot fail is worse than no test.
+    """
+    return [b for row in sprite for b in SP.row_bytes(row)]
+
+
 def _lit_left_half(boundary_cx: int, left=(L.LIT, L.CHARGE_LIT),
                    right=(L.DIM, L.CHARGE_DIM)) -> L.LightField:
     """A field split down a cell column, so sprites can straddle a boundary.
@@ -124,34 +136,56 @@ def test_sprites_set_pixels_without_clearing_the_background():
 
 # --- silhouettes -----------------------------------------------------------
 
-def test_people_are_8x16_alive_or_dead_and_the_objects_are_8x8():
-    """The size rule lost its exception when the body became a person.
+def test_the_living_are_8x16_the_dead_are_16x8_and_objects_are_8x8():
+    """Size says whether a thing is a person; **orientation says whether it is
+    upright** (issue #59).
 
-    It used to read "people are 8x16, everything else is 8x8", and a body was
-    an 8x8 slab -- which is what made it read as debris. Seen from above,
-    somebody lying down has the same plan as somebody standing up, so size
-    cannot be the tell and pose has to be: **size says whether a thing is a
-    person, pose says whether it is still alive.**
+    It used to read "people are 8x16 whether or not they are alive, and pose
+    says which". That was half right and the wrong half was load-bearing: a
+    lying figure in an 8-wide box is exactly as long as a standing figure is
+    wide, so the box could not say a person was down and pose had to -- and
+    pose is a sprite-sheet property. A cold reader called a corpse the person
+    they were hunting and the player a bystander, in two different rooms in one
+    session.
 
     **A door is the one 8x16 thing that is not a person** (issue #49), because
     it is the person-shaped hole you walk out through. It is never confused
     with one: it does not move, and it stands in a wall.
     """
-    for name in SP.PEOPLE:
-        assert len(SP.SPRITES[name]) == 16, name
+    for name in SP.STANDING:
+        sprite = SP.SPRITES[name]
+        assert (SP.width_of(sprite), len(sprite)) == (8, 16), name
+    body = SP.SPRITES["body"]
+    assert (SP.width_of(body), len(body)) == (SP.WIDE, 8) == (16, 8), \
+        "a body is not laid down across two cells"
     for name in SP.DOORS:
-        assert len(SP.SPRITES[name]) == 16, name
+        assert (SP.width_of(SP.SPRITES[name]), len(SP.SPRITES[name])) \
+            == (8, 16), name
     objects = set(SP.SPRITES) - set(SP.PEOPLE) - set(SP.DOORS)
     assert objects, "every sprite became a person or a door"
     for name in objects:
-        assert len(SP.SPRITES[name]) == 8, name
+        assert (SP.width_of(SP.SPRITES[name]),
+                len(SP.SPRITES[name])) == (8, 8), name
+
+
+def test_the_body_is_the_only_drawable_wider_than_it_is_tall():
+    """**That is the whole of the tell**, so it is worth one line of its own.
+
+    A second wide drawable would not break anything by itself, but it would
+    mean the aspect ratio had stopped saying *this person is lying on the
+    floor* -- which is the property the redraw of 2026-09-11 bought and the
+    only thing standing between a corpse and the person you are looking for.
+    """
+    wide = [name for name, sprite in SP.SPRITES.items()
+            if SP.width_of(sprite) > len(sprite)]
+    assert wide == ["body"], f"something else is wider than it is tall: {wide}"
 
 
 def test_every_silhouette_is_distinct():
     """Colour carries no information, so shape has to."""
     seen = {}
     for name, sprite in SP.SPRITES.items():
-        key = tuple(sprite)
+        key = (SP.width_of(sprite), tuple(sprite))
         assert key not in seen, f"{name} is identical to {seen.get(key)}"
         seen[key] = name
 
@@ -191,8 +225,15 @@ def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
 
     The rest keep two blank rows, which is also what keeps the box 8x16 while
     the drawing is eleven or twelve rows of it.
+
+    **It is a rule about figures on their feet**, so the body is not in it
+    (issue #59). A figure lying down has no head at the top of its box -- its
+    head is at one end of a row -- and the rule exists to stop a hat, a brim or
+    a face making a standing figure read as front-facing. A corpse is in no
+    danger of reading as front-facing, and the arm flung back over its head is
+    the first row of its box on purpose.
     """
-    for name in SP.PEOPLE:
+    for name in SP.STANDING:
         if name == "player":
             continue
         assert SP.SPRITES[name][:2] == (0x00, 0x00), name
@@ -202,16 +243,29 @@ def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
 
 
 def test_the_living_are_symmetric_and_the_dead_are_not():
-    """The tell for a body is pose, because from above the plan is the same."""
-    def mirror(row):
-        return sum(1 << (7 - i) for i in range(8) if row & (1 << i))
+    """Asymmetry is no longer *the* tell for a body, and it has not been spent.
 
-    for name in ("player", "worker", "follower"):
+    The aspect ratio is the tell since issue #59. This is kept because the
+    player's lamp was deliberately drawn centred and symmetric in order not to
+    cost the body the only tell it had at the time, and a property paid for
+    once should not be given away later by accident. A figure symmetric about
+    its centre column reads as standing to attention; a corpse does not.
+    """
+    def mirror(row, width):
+        return sum(1 << (width - 1 - i) for i in range(width)
+                   if row & (1 << i))
+
+    for name in SP.STANDING:
         sprite = SP.SPRITES[name]
-        assert all(row == mirror(row) for row in sprite), \
+        assert all(row == mirror(row, 8) for row in sprite), \
             f"{name} is not symmetric about its centre column"
-    assert not any(row == mirror(row) for row in SP.BODY if row), \
-        "the body is symmetric somewhere, which reads as somebody standing"
+    # The body is 16 wide, so its mirror runs across both bytes of a row: the
+    # left byte reversed becomes the right one and vice versa.
+    for left, right in SP.BODY:
+        if not (left or right):
+            continue
+        assert (left, right) != (mirror(right, 8), mirror(left, 8)), \
+            "the body is symmetric somewhere, which reads as somebody standing"
 
 
 def test_a_follower_has_its_arms_down_and_a_waiting_worker_has_them_up():
@@ -223,7 +277,7 @@ def test_a_follower_has_its_arms_down_and_a_waiting_worker_has_them_up():
 
 def test_no_sprite_is_blank():
     for name, sprite in SP.SPRITES.items():
-        assert any(sprite), f"{name} is empty"
+        assert any(octets(sprite)), f"{name} is empty"
 
 
 #: The lamp family: one silhouette, three meanings, told apart by their
@@ -239,7 +293,8 @@ def test_silhouettes_differ_by_more_than_a_row_or_two():
     """Exact inequality is too weak. Shapes carrying all the information have
     to be distinguishable at a glance, not by one pixel."""
     same_size = [(n, s) for n, s in SP.SPRITES.items()
-                 if len(s) == 8 and n not in LAMP_FAMILY]
+                 if len(s) == 8 and SP.width_of(s) == 8
+                 and n not in LAMP_FAMILY]
     for i, (name_a, a) in enumerate(same_size):
         for name_b, b in same_size[i + 1:]:
             differing = sum(1 for ra, rb in zip(a, b) if ra != rb)
@@ -251,7 +306,7 @@ def test_silhouettes_differ_by_more_than_a_row_or_two():
 def test_no_sprite_is_a_solid_block():
     """A filled rectangle reads as a blob, not a thing."""
     for name, sprite in SP.SPRITES.items():
-        assert not all(row == 0xFF for row in sprite if row), name
+        assert not all(b == 0xFF for b in octets(sprite) if b), name
 
 
 def test_the_cleg_is_the_widest_thing_at_its_waist():
@@ -379,3 +434,143 @@ def test_sprites_py_declares_no_bytes_of_its_own():
               / "sprites.py").read_text()
     assert not re.search(r"0x[0-9A-Fa-f]{2},", source), \
         "sprites.py has bytes in it again; they belong in assets/sprites/"
+
+
+# --- the two-cell class: 16 wide, cell-aligned (issue #59) ------------------
+
+def _cells_with_ink(screen) -> set:
+    """Which attribute cells have any pixel set in them."""
+    return {(px // CELL, py // CELL)
+            for py in range(PLAY_ROWS * CELL) for px in range(SCREEN_W)
+            if screen.point(px, py)}
+
+
+def test_a_body_is_drawn_across_exactly_two_cells_of_one_row():
+    """The first drawable in the game that is not eight pixels wide.
+
+    Two cells of area is one of the three properties the redraw had to keep:
+    **a nest is one cell and a body is two**, so a body visibly shrinks when it
+    turns into a nest. Lose the second cell and the shrink goes with it.
+    """
+    s = Screen()
+    SP.draw(s, SP.BODY, 5 * CELL, 9 * CELL)
+    assert _cells_with_ink(s) == {(5, 9), (6, 9)}
+
+
+def test_the_right_hand_cell_of_a_body_is_the_second_byte_of_each_row():
+    """Bit 7 of the *second* byte is the ninth pixel, not the first again.
+
+    A two-byte row is where a converter or a drawing routine gets the order
+    backwards, and the failure is invisible on the left half of the sprite.
+    """
+    s = Screen()
+    SP.draw(s, SP.BODY, 0, 0)
+    # Row 2 is `.######.####....`: the second byte is 0xF0, so pixels 8-11.
+    assert [x for x in range(16) if s.point(x, 2)] == [1, 2, 3, 4, 5, 6,
+                                                       8, 9, 10, 11]
+
+
+def test_a_body_needs_no_pre_shift_because_it_is_drawn_cell_aligned():
+    """The port's reason for the class existing at all.
+
+    A body does not move, so it is drawn at a multiple of eight and each of its
+    two bytes goes into one cell whole -- no shift, no mask, no pre-shift
+    table. This is the property, checked at every column the sprite can be
+    drawn at: two cells, never three.
+    """
+    for cx in range(COLS - 1):
+        s = Screen()
+        SP.draw(s, SP.BODY, cx * CELL, 3 * CELL)
+        assert len(_cells_with_ink(s)) == 2, cx
+
+
+def test_a_body_in_a_one_cell_gap_is_drawn_as_its_head_end_alone():
+    """`columns=1`: the case where both neighbours are wall.
+
+    One cell of body reads as somebody huddled in a doorway, which is the
+    honest picture of what happened. It is the only case in which a body is one
+    cell, and it must not silently become a nest-sized heap anywhere else --
+    hence the test above that every other case is two.
+    """
+    s = Screen()
+    SP.draw(s, SP.BODY, 5 * CELL, 9 * CELL, columns=1)
+    assert _cells_with_ink(s) == {(5, 9)}
+    assert any(s.point(5 * CELL + x, 9 * CELL + 2) for x in range(8)), \
+        "the head end is the end that is drawn"
+
+
+def test_a_wide_sprite_is_clipped_at_the_right_edge_and_does_not_wrap():
+    s = Screen()
+    SP.draw(s, SP.BODY, SCREEN_W - CELL, 40)
+    for py in range(40, 48):
+        for px in range(0, CELL):
+            assert not s.point(px, py), "the body wrapped onto the left edge"
+
+
+def test_a_wide_sprite_never_writes_an_attribute_either():
+    """The clash guarantee is not weakened by a sprite being two cells wide."""
+    s = Screen()
+    before = bytes(s.attrs)
+    for x in (0, 3, 100, SCREEN_W - 4):
+        SP.draw(s, SP.BODY, x, 40)
+    assert bytes(s.attrs) == before
+
+
+# --- which cell a body lies into (issue #59) -------------------------------
+#
+# The rule is authored -- in the vault decision and in assets/sprites/body.txt
+# -- and not invented here. These pin it in the order the rule is written in.
+
+def test_a_body_lies_the_way_the_room_is_wider_when_both_sides_are_floor():
+    """With floor either side, the choice is away from the nearer wall.
+
+    A room is exactly the play area, so this is one compare against the middle
+    column, which is what it costs on the Z80.
+    """
+    assert SP.body_cells(3, 5) == ((3, 5), (4, 5)), "the left half lies east"
+    assert SP.body_cells(28, 5) == ((27, 5), (28, 5)), \
+        "the right half lies west"
+
+
+def test_a_body_lies_into_the_cell_with_floor_in_it():
+    """A wall on the preferred side sends it the other way -- the same rule the
+    spray's footprint uses when a cell is refused."""
+    wall_east = lambda cx, cy: cx == 4
+    assert SP.body_cells(3, 5, wall_east) == ((2, 5), (3, 5))
+    wall_west = lambda cx, cy: cx == 27
+    assert SP.body_cells(28, 5, wall_west) == ((28, 5), (29, 5))
+
+
+def test_a_body_in_a_one_cell_gap_keeps_its_own_cell_and_nothing_else():
+    """Both neighbours wall. It is drawn as its head end, in its own cell."""
+    walled = lambda cx, cy: cx in (2, 4)
+    assert SP.body_cells(3, 5, walled) == ((3, 5),)
+
+
+def test_a_body_at_the_screen_edge_lies_inwards():
+    """The edge refuses a cell as firmly as a wall does.
+
+    Checked here rather than left to the room, because `Room.is_solid` answers
+    for the room next door at the column past a doorway -- which is somewhere
+    this room's drawing cannot go.
+    """
+    assert SP.body_cells(0, 5) == ((0, 5), (1, 5))
+    assert SP.body_cells(COLS - 1, 5) == ((COLS - 2, 5), (COLS - 1, 5))
+
+
+def test_the_body_always_keeps_the_cell_it_fell_in():
+    """**The stored position does not move; only the drawing snaps to a cell.**
+
+    Every mechanic that reads a body -- the tally, the doused check, the nest's
+    turn, the flash -- reads `Worker.cell()`, and this is the guarantee that
+    the drawing is still over it whichever way the body lies and however the
+    walls fall.
+    """
+    for cx in range(COLS):
+        for solid in (None, lambda x, y: x == cx + 1,
+                      lambda x, y: x == cx - 1,
+                      lambda x, y: x in (cx - 1, cx + 1)):
+            cells = SP.body_cells(cx, 7, solid)
+            assert (cx, 7) in cells, (cx, cells)
+            assert 1 <= len(cells) <= 2
+            assert all(cy == 7 for _cx, cy in cells), "a body lies in one row"

@@ -46,7 +46,7 @@ nothing on screen changes while the plan is held.
 """
 
 from spotlight.core.constants import (
-    BLACK, CELL, COLS, GREEN, MAGENTA, RED, SCREEN_W, WHITE,
+    BLACK, CELL, COLS, GREEN, MAGENTA, RED, SCREEN_W, WHITE, YELLOW,
 )
 from spotlight.core.screen import attr_byte
 
@@ -245,7 +245,20 @@ P_PLAYER, P_WORKER, P_NEST, P_CLEG, P_KEY, P_DOOR, P_WALL, P_NOTHING = range(8)
 
 #: What each of them is drawn in. A key takes the hue of the door it opens,
 #: which is why it is magenta here and not a colour of its own.
-HUE = (WHITE, GREEN, RED, RED, MAGENTA, MAGENTA, WHITE, BLACK)
+#:
+#: **The player is yellow** (issue #59). He was white, on a plan whose walls
+#: are white and are most of it, so the one mark a player has to find before
+#: the plan is any use at all was the quietest thing on it -- quieter than the
+#: green and the red, which are bigger and louder. A reader given a still said
+#: they found themselves *by being the one that blinks*, which means the flash
+#: was carrying the whole load and the colour was working against it. The flash
+#: stays; it is now a second tell rather than the only one.
+#:
+#: **Yellow is the only ink free here**, and it is free because the plan draws
+#: no floor: green is a person, red is a fly or a nest, magenta is the way out,
+#: white is the building, cyan and yellow are the two rooms' floors and a plan
+#: has no floor in it. One attribute byte, and no new mechanism.
+HUE = (YELLOW, GREEN, RED, RED, MAGENTA, MAGENTA, WHITE, BLACK)
 
 #: What flashes: the player, so you find yourself first, and the nests.
 #:

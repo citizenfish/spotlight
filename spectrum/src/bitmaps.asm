@@ -4,7 +4,8 @@
 ;
 ;     python tools/bitmaps.py --asm <this file> assets/sprites assets/tiles
 ;
-; Bit 7 is the leftmost pixel, one byte per row, rows top to bottom.
+; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight
+; pixels -- so a 16-wide row is two bytes, left cell first.
 ; No timestamp: the file is committed and a test compares it byte for
 ; byte, so any diff is art and code having drifted.
 
@@ -19,22 +20,14 @@ BATTEN:
         DEFB $00                   ; ........
 
 BODY:
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $60                   ; .##.....   the head, rolled off the centre line
-        DEFB $F0                   ; ####....
-        DEFB $70                   ; .###....
-        DEFB $38                   ; ..###...   shoulders
-        DEFB $3F                   ; ..######   one arm flung out
-        DEFB $38                   ; ..###...   trunk
-        DEFB $F8                   ; #####...   the other arm, lower and bent
-        DEFB $38                   ; ..###...
-        DEFB $38                   ; ..###...
-        DEFB $38                   ; ..###...
-        DEFB $7C                   ; .#####..   hips
-        DEFB $C6                   ; ##...##.   legs, splayed unevenly
-        DEFB $83                   ; #.....##
-        DEFB $00                   ; ........
+        DEFB $03,$00               ; ......##........   the arm, flung back over the head
+        DEFB $3D,$00               ; ..####.#........
+        DEFB $7E,$F0               ; .######.####....   the head, off the axis, and a shoulder
+        DEFB $7D,$FF               ; .#####.#########   the trunk, lying across the join
+        DEFB $3B,$FF               ; ..###.##########
+        DEFB $03,$DC               ; ......####.###..   hips, and one leg trailing
+        DEFB $00,$63               ; .........##...##   the other leg, splayed differently
+        DEFB $00,$00               ; ................
 
 CLEG_A:
         DEFB $00                   ; ........

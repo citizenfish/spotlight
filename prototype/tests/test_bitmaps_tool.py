@@ -123,6 +123,35 @@ def test_people_are_8x16_and_everything_else_is_8x8():
     assert block.height == 16 and len(block.rows) == 16
 
 
+def test_the_two_cell_class_is_sixteen_wide_and_its_rows_are_pairs():
+    """16x8, added for the body (issue #59), and the first art that is not
+    eight pixels across.
+
+    A row comes out as **two bytes, left cell first**, and the row comment
+    still starts after the grid -- which is now at column 16, so the separator
+    rule is doing real work on a file a person will edit.
+    """
+    wide = ("name: WIDE\nsize: 16x8\n"
+            "##......#.......   left then right\n"
+            + "................\n" * 7)
+    block, = parse(wide)
+    assert (block.width, block.height) == (16, 8)
+    assert block.rows[0] == (0xC0, 0x80), "the two bytes are the wrong way up"
+    assert block.notes[0] == "left then right"
+    assert block.art[0] == "##......#......."
+
+
+def test_sixteen_by_sixteen_is_refused_because_nobody_has_taken_that_decision():
+    """Both halves are legal sizes and the pair is not.
+
+    Four cells of one drawable is a memory decision and a second drawing
+    routine, so it is refused here rather than discovered at port time -- the
+    same reason a third height was refused when this tool was written.
+    """
+    error = _fails("name: BIG\nsize: 16x16\n" + "." * 16 + "\n" * 16)
+    assert "16x16" in str(error)
+
+
 # --- the refusals, each naming file, line and column ------------------------
 
 def _fails(text, source="art.txt"):
@@ -254,7 +283,15 @@ def test_the_logo_is_under_the_same_rule_as_every_other_bitmap():
 def test_the_asm_and_the_python_hold_the_same_bytes():
     """**The same source feeds both machines**, and this is where that is
     checked rather than asserted. The two files are read back independently and
-    compared label by label and byte by byte."""
+    compared label by label and byte by byte.
+
+    **The comparison is of flat bytes**, because the two files do not hold them
+    in the same shape and are not meant to (issue #59). A 16-wide block is a
+    tuple per row in Python -- `(0x03, 0x00)` -- so that nothing can mistake
+    sixteen bytes for a sixteen-row sprite; the assembly is `DEFB $03,$00`, a
+    row to a line, which is what a sprite routine reads. Flattening both is
+    what makes them comparable, and the shapes are pinned separately, below.
+    """
     from spikes import bitmaps_gen
 
     from_asm: dict = {}
@@ -267,11 +304,32 @@ def test_the_asm_and_the_python_hold_the_same_bytes():
             label = line[:-1]
             from_asm[label] = []
             continue
-        match = re.fullmatch(r"DEFB \$([0-9A-F]{2})", line)
+        match = re.fullmatch(r"DEFB ((?:\$[0-9A-F]{2},)*\$[0-9A-F]{2})", line)
         assert match, f"not a plain DEFB line: {line!r}"
-        from_asm[label].append(int(match.group(1), 16))
+        from_asm[label] += [int(byte[1:], 16)
+                            for byte in match.group(1).split(",")]
 
-    assert {k: tuple(v) for k, v in from_asm.items()} == bitmaps_gen.BITMAPS
+    flat = {name: [b for row in rows for b in bitmaps.row_bytes(row)]
+            for name, rows in bitmaps_gen.BITMAPS.items()}
+    assert {k: list(v) for k, v in from_asm.items()} == flat
+
+
+def test_a_sixteen_wide_block_is_two_bytes_a_row_in_both_files():
+    """The one block that is not eight pixels across, pinned in both shapes.
+
+    A row of BODY is two bytes because it is drawn into two cells, and **the
+    order is left cell first**. Getting that backwards is invisible on the left
+    half of the sprite and is exactly the class of fault the bit-order test
+    above exists for, one level up.
+    """
+    from spikes import bitmaps_gen
+
+    body = bitmaps_gen.BITMAPS["BODY"]
+    assert len(body) == 8, "a body is eight rows tall"
+    assert all(isinstance(row, tuple) and len(row) == 2 for row in body), \
+        "a 16-wide row is not a pair of bytes"
+    assert body[2] == (0x7E, 0xF0), "the left cell's byte does not come first"
+    assert "        DEFB $7E,$F0" in GENERATED_ASM.read_text()
 
 
 def test_every_bitmap_the_game_draws_came_out_of_the_pipeline():

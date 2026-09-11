@@ -39,6 +39,7 @@ from . import (
     scene, sounds, sources, spray as spray_mod, sprites, surge as surge_mod,
     tally as tally_mod, tiles, tune as tune_mod,
 )
+from .building import EAST
 from .layout import PLAY_BOTTOM, PLAY_TOP
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
@@ -551,6 +552,10 @@ class Session:
         #: of them per doorway that has somebody shouting the other side of it.
         self.door_calls: list[list[tuple[int, int]]] = []
         self.call_cells: list[tuple[int, int]] = []
+        #: The four cells of each shout in the room on screen, as `_light`
+        #: placed them. `draw` paints these rather than asking again -- see
+        #: `_light`.
+        self.shout_runs: list[list[tuple[int, int]]] = []
         #: How many times the player has stepped through a doorway.
         self.crossings = 0
         self._painted_strip = False
@@ -1584,6 +1589,7 @@ class Session:
         self.shouting = []
         self.door_calls = []
         self.call_cells = []
+        self.shout_runs = []
         for place in self.places:
             here = place.index == self.here
             field = place.field
@@ -1600,9 +1606,23 @@ class Session:
             # nobody -- so calling out never marks a worker for the swarm.
             calling = (self.rescue.calling(self.frame, place.index)
                        if self.calls_on else [])
-            cells = [c for w in calling for c in w.call_cells()]
+            # **Where the word goes is decided once, here, and the drawing
+            # reads the answer** (issue #59). It used to be worked out twice --
+            # once for the cells the shout lifts out of the dark and once again
+            # in `draw` -- and the two now depend on where everybody is
+            # standing, so computing it twice is two chances to disagree about
+            # which four cells are green.
+            #
+            # The people are passed in because the word may not land on one:
+            # a sign forces its cell's ink, so a shout on the player's feet
+            # paints the mark that means *this is you* in the colour that means
+            # *a voice*. Only gathered when somebody is actually calling.
+            people = self._people_cells(place) if calling else frozenset()
+            runs = [w.call_cells(people) for w in calling]
+            cells = [c for run in runs for c in run]
             if here:
                 self.shouting = calling
+                self.shout_runs = runs
                 # Gated on `calls_on` like every other shout. A switch
                 # labelled "workers call for help" that leaves one kind of
                 # shouting running is a liar -- the same argument the death
@@ -1642,6 +1662,39 @@ class Session:
                 field.add(*housing, level=lighting.LIT, memory=1,
                           reveals=False)
             field.commit()
+
+    def _people_cells(self, place) -> set:
+        """Every cell a figure is drawn in, in one room (issue #59).
+
+        What it is for: **a shout may not be written in a cell somebody is
+        standing in.** A sign forces its cell's ink, so the word would recolour
+        the figure under it -- and the figure it recoloured in the session that
+        found this was the player, whose foot mark is the one thing on screen
+        that says *this is you*.
+
+        **Position rather than visibility**, deliberately: the word steps aside
+        for somebody standing in the dark as readily as for somebody lit. Tying
+        it to the light would make the word jump when the torch came on, which
+        is a worse fault than the one being fixed.
+
+        All four figures count, because all four are drawn as people: the
+        player, the waiting, the following and the dead. A body's cells are
+        where it is *drawn*, which since this issue is two cells of one row --
+        see `sprites.body_cells`.
+        """
+        room = place.index
+        cells: set = set()
+        if room == self.here:
+            cells |= self.player.occupied_cells()
+        for worker in self.rescue.alive_waiting(room):
+            cells |= worker.cells()
+        for worker in self.rescue.tail:
+            if worker.room == room:
+                cells |= worker.cells()
+        for body in self.rescue.bodies(room):
+            cells.update(sprites.body_cells(*body.cell(),
+                                            place.room.is_solid))
+        return cells
 
     def _calls_through_doors(self) -> list:
         """Where a shout from the room next door is written, if there is one.
@@ -1687,12 +1740,37 @@ class Session:
         """
         runs = []
         word = len(rescue_mod.CALL)
+        people = None
         for door in self.place.room.doorways:
             if not self.rescue.calling(self.frame, door.to):
                 continue
             row = door.middle
-            left = COLS - word if door.column else 0
-            runs.append([(left + i, row) for i in range(word)])
+            # **Beside the doorway, on this room's side of it, never across
+            # it** (issue #59). It used to start at the doorway's own column,
+            # so in the far room the word printed straight over the way home:
+            # the first letter looked clipped and a word sat on the one fixture
+            # that tells the player where the way back is. A label that hides
+            # its own referent has failed at the only job it has.
+            #
+            # Clamped like every other run, though at these columns the clamp
+            # never bites -- it is here so that a doorway one cell from the
+            # edge, which the building could author tomorrow, cannot put the
+            # word off screen.
+            left = (door.column - word if door.side == EAST
+                    else door.column + 1)
+            # And it steps further into the room if somebody is standing where
+            # it would be written -- the player stood in his own doorway is the
+            # case, and the word painting his cell green is the fault this
+            # issue is about. **Inward only**: stepping the other way would put
+            # the word back on the door.
+            steps = rescue_mod.CALL_STEPS_INWARD
+            if door.side == EAST:
+                steps = tuple(-step for step in steps)
+            if people is None:
+                people = self._people_cells(self.place)
+            run = rescue_mod.clear_run(left, row, people, steps)
+            runs.append(run if run is not None
+                        else rescue_mod.clear_run(left, row))
         return runs
 
     # --- drawing -----------------------------------------------------------
@@ -1770,15 +1848,26 @@ class Session:
         # in this room. A body is not a person any more: it is part of the
         # building, and the fade may remember it -- and it stays where it fell,
         # in the room it fell in.
-        # A body is a person, drawn in the person's own box at the person's own
-        # position: the cell of downward offset went with the 8x8 slab it was
-        # written for.
+        #
+        # **A body is laid down across two cells** (issue #59), because an
+        # eight-pixel box cannot say that a person is lying rather than
+        # standing, and a cold reader twice called a corpse the person they
+        # were hunting. **Its stored position has not moved**: `body.cell()` is
+        # the cell it has always been read at -- by the tally, by the doused
+        # check, by the nest's turn and by the flash -- and only the *drawing*
+        # snaps to that cell. Which neighbour it extends into is
+        # `sprites.body_cells`, and it is an authored rule rather than a guess.
         for body in self.rescue.bodies(self.here):
-            sprites.draw(screen, sprites.BODY, body.x, body.y)
+            cells = sprites.body_cells(*body.cell(), is_solid)
+            left, row = cells[0]
+            sprites.draw(screen, sprites.BODY, left * CELL, row * CELL,
+                         columns=len(cells))
         # A nest is drawn where the body's feet were, in the object's own 8x8
-        # box. **A nest and a body are told apart by size**, now that a body is
-        # person-sized and sprawled -- which is why the nest sprite only has to
-        # look like an object and the art is a phase-3 problem.
+        # box, which is the same cell the body is anchored to. **A nest and a
+        # body are told apart by size** -- one cell against two, and since
+        # issue #59 by shape as well, because the body is the wide one. That
+        # the shrink happens in place is the whole of the tell: the player has
+        # to be able to see a body turn into a nest.
         for nest in self.rescue.nests(self.here):
             cx, cy = nest.cell()
             sprites.draw(screen, sprites.NEST, cx * CELL, cy * CELL)
@@ -1816,8 +1905,13 @@ class Session:
 
         # "HELP", above the head of anybody shouting. Drawn whatever the light
         # is doing, because it is a voice and not a sighting.
-        for worker in self.shouting:
-            for i, (cx, cy) in enumerate(worker.call_cells()):
+        #
+        # The cells are the ones `_light` chose, not a second answer to the
+        # same question: since issue #59 the placement depends on where every
+        # figure is standing, and the cells the shout lights and the cells it
+        # paints have to be the same four.
+        for run in self.shout_runs:
+            for i, (cx, cy) in enumerate(run):
                 font.paint_glyph(screen, cx, cy,
                                  font.GLYPHS[rescue_mod.CALL[i]])
         # ...and over the doorway, for anybody shouting in the room the other

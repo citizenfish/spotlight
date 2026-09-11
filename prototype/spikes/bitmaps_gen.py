@@ -4,8 +4,9 @@ Source: assets/sprites, assets/tiles. Regenerate with::
 
     python tools/bitmaps.py --python <this file> assets/sprites assets/tiles
 
-Bit 7 is the leftmost pixel, one byte per row, rows top to bottom --
-the Spectrum's own order, which is what `core.Screen` models.
+Bit 7 is the leftmost pixel, rows top to bottom -- the Spectrum's
+own order, which is what `core.Screen` models. A row is one byte,
+or a tuple of two for the 16-wide class, left cell first.
 
 There is no timestamp here on purpose: this file is committed, and a
 test regenerates it and compares byte for byte, so any diff at all is
@@ -24,22 +25,14 @@ BATTEN = (
 )
 
 BODY = (
-    0x00,  # ........
-    0x00,  # ........
-    0x60,  # .##.....   the head, rolled off the centre line
-    0xF0,  # ####....
-    0x70,  # .###....
-    0x38,  # ..###...   shoulders
-    0x3F,  # ..######   one arm flung out
-    0x38,  # ..###...   trunk
-    0xF8,  # #####...   the other arm, lower and bent
-    0x38,  # ..###...
-    0x38,  # ..###...
-    0x38,  # ..###...
-    0x7C,  # .#####..   hips
-    0xC6,  # ##...##.   legs, splayed unevenly
-    0x83,  # #.....##
-    0x00,  # ........
+    (0x03, 0x00),  # ......##........   the arm, flung back over the head
+    (0x3D, 0x00),  # ..####.#........
+    (0x7E, 0xF0),  # .######.####....   the head, off the axis, and a shoulder
+    (0x7D, 0xFF),  # .#####.#########   the trunk, lying across the join
+    (0x3B, 0xFF),  # ..###.##########
+    (0x03, 0xDC),  # ......####.###..   hips, and one leg trailing
+    (0x00, 0x63),  # .........##...##   the other leg, splayed differently
+    (0x00, 0x00),  # ................
 )
 
 CLEG_A = (
