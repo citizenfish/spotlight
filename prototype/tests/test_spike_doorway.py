@@ -395,6 +395,187 @@ def test_a_fly_carried_across_a_doorway_stays_on_the_player():
     assert run.blood < blood, "it stopped draining when the room changed"
 
 
+# --- no two flies share a cell, through the doorway too (issue #65) ---------
+
+def _shared_cells(run, room):
+    """Cells in `room` that two or more free flies are standing on.
+
+    The player's own cell is left out, because several may feed on you at once
+    and that is the rule's one exception (`Swarm._elbow_room`).
+    """
+    place = run.places[room]
+    free = [(c.cx, c.cy) for c in place.swarm.clegs
+            if c.state != clegs_mod.ATTACHED]
+    player = ((run.player.cx, run.player.cy) if run.here == room else None)
+    return {cell for cell in free if free.count(cell) > 1 and cell != player}
+
+
+def _prime(flies):
+    """Make every one of these flies due to step on its next tick."""
+    for fly in flies:
+        fly._tick = fly.step_every - 1
+
+
+def test_a_fly_stepping_through_a_doorway_is_refused_a_cell_a_fly_next_door_holds():
+    """**The thing that was wrong** (issue #65), staged as the tester found it.
+
+    The far room's permanent light is one cell in from its doorway, so its own
+    flies gather at (1, 11) and the cells beside it, and stay. A near-room fly
+    that takes the doorway is checked against the near room's cells only --
+    the threshold it steps onto is the far room's first column, which the
+    near swarm has never heard of -- so it landed on a far-room fly at (0, 11)
+    and the light pinned the pair there for the rest of the run. Two free
+    flies shared a cell on 8 per cent of a statue's room samples, and all of
+    it was at the far room's (0, 11) and (0, 12).
+
+    The far room's flies are put where the light holds them and the near
+    room's are put in the doorway behind them, and the loop is run. Nothing
+    is monkeypatched: this is the real building, the real lures, and the
+    ordinary greedy step.
+    """
+    run = Session(seed=1)
+    far = _put_flies(run, scene.FAR, [(1, DOOR_ROW), (0, DOOR_ROW),
+                                      (0, DOOR_ROW + 1)])
+    near = _put_flies(run, scene.NEAR, [(COLS - 1, DOOR_ROW),
+                                        (COLS - 1, DOOR_ROW + 1),
+                                        (COLS - 2, DOOR_ROW - 1)])
+    _prime(far + near)
+    waited = 0
+    for _ in range(300):
+        run.step()
+        assert not _shared_cells(run, scene.FAR), \
+            f"two free flies in one cell at frame {run.frame}"
+        assert not _shared_cells(run, scene.NEAR)
+        # The staging holds: a near-room fly is standing in the doorway while
+        # the cell beyond it is held, which is exactly when it used to step.
+        held = {(c.cx, c.cy) for c in run.places[scene.FAR].swarm.clegs
+                if c.state != clegs_mod.ATTACHED}
+        if any((c.cx, c.cy) == (COLS - 1, cy) and (0, cy) in held
+               for c in run.places[scene.NEAR].swarm.clegs
+               for cy in scene.DOOR_ROWS):
+            waited += 1
+    assert waited > 0, "the staging never put a fly at a held threshold"
+
+
+def test_the_threshold_is_refused_only_while_a_fly_next_door_holds_it():
+    """The swarm's half of the rule, on its own: **the same step, refused or
+    taken, on nothing but what the room next door says.**
+
+    A fly in a doorway cell steers at a lure on the threshold. With no room
+    next door (`held_beyond=None`, which is every swarm ticked alone) it
+    steps, as it did before; told the cell is held, it waits in the doorway
+    instead, exactly as it would for a cell of its own room.
+    """
+    threshold = (COLS, DOOR_ROW)
+
+    def with_a_door(cx, cy):
+        # The room's grid, plus the one cell past it that a doorway opens.
+        return (cx, cy) != threshold and not (0 <= cx < COLS)
+
+    lure = [(COLS, DOOR_ROW, 8, 0)]
+    for held, expected in ((None, threshold),
+                           (lambda cx, cy: (cx, cy) == threshold,
+                            (COLS - 1, DOOR_ROW))):
+        swarm = clegs_mod.Swarm([clegs_mod.Cleg(COLS - 1, DOOR_ROW, seed=1)])
+        fly = swarm.clegs[0]
+        _prime([fly])
+        for _ in range(3):
+            swarm.tick(lure, (5, 5), with_a_door, 64, held_beyond=held)
+        assert (fly.cx, fly.cy) == expected
+
+
+def test_the_room_next_door_is_asked_only_at_the_edge():
+    """**The trap the designer flagged**: not both rooms' cells on every step
+    of every fly. The leak is at the doorway column and the port pays for the
+    other room's list only there.
+
+    The swarm is run on an open room with a lure on its far edge so the flies
+    cross it end to end, every step recorded; every cell the room next door
+    was asked about is on an edge column or past it, and none is interior.
+    """
+    from tests.test_spike_clegs import OPEN
+
+    asked = []
+
+    def record(cx, cy):
+        asked.append((cx, cy))
+        return False
+
+    swarm = clegs_mod.Swarm([clegs_mod.Cleg(0, 4 + i, seed=1 + i)
+                             for i in range(4)])
+    # A lure on each edge column in turn, with the flies started a few cells
+    # short of it -- inside every fly's notice -- so they walk onto the edge.
+    for start, edge in ((COLS - 6, COLS - 1), (5, 0)):
+        for i, fly in enumerate(swarm.clegs):
+            fly.cx, fly.cy, fly.goal = start + i, 4 + i, None
+        lure = [(edge, 6, 255, 0)]
+        for _ in range(300):
+            swarm.tick(lure, (5, 20), OPEN, 64, held_beyond=record)
+            if any(c.cx == edge for c in swarm.clegs):
+                break
+        assert any(c.cx == edge for c in swarm.clegs), \
+            "nothing reached the edge, so the test asked nothing"
+    assert asked, "the edge was reached and the room next door never asked"
+    assert all(cx in (-1, 0, COLS - 1, COLS) for cx, _ in asked), \
+        f"asked about an interior cell: {sorted(set(asked))[:5]}"
+
+
+def test_the_session_sees_the_same_cell_from_both_rooms():
+    """The session's half of the rule: one cell, two names, both translated.
+
+    A fly *leaving* the near room steps onto column `COLS`, which is the far
+    room's column 0; a fly that *arrived* this frame is still in the near
+    room's list at column `COLS` until the hand-over at the end of the frame,
+    and a far-room fly stepping onto its own column 0 has to see it. The
+    rooms tick in a fixed order, so without the second translation the leak
+    would have moved to whichever room ticks second rather than closed.
+    """
+    run = Session(seed=1)
+    run.step()
+    near, far = run.places[scene.NEAR], run.places[scene.FAR]
+    from_near = run._held_beyond(near)
+    from_far = run._held_beyond(far)
+
+    # Leaving: a far-room fly on the landing holds the near room's threshold.
+    sitter = _put_flies(run, scene.FAR, [(0, DOOR_ROW)])[0]
+    assert from_near(COLS, DOOR_ROW)
+    assert not from_near(COLS, DOOR_ROW + 1)
+    assert not from_near(COLS, 3), "there is no doorway on that row"
+    # Attached flies do not hold ground; that is the rule at home too.
+    sitter.state = clegs_mod.ATTACHED
+    assert not from_near(COLS, DOOR_ROW)
+    sitter.state = clegs_mod.HUNTING
+
+    # Arriving: a near-room fly that has stepped onto the threshold and not
+    # yet been handed over holds the far room's landing cell.
+    crosser = _put_flies(run, scene.NEAR, [(COLS, DOOR_ROW + 1)])[0]
+    assert from_far(0, DOOR_ROW + 1)
+    assert not from_far(0, DOOR_ROW - 1)
+    assert not from_far(1, DOOR_ROW + 1), "column 1 is nobody's threshold"
+    # And the far room's own threshold is the near room's last column.
+    crosser.cx = COLS - 1
+    assert from_far(-1, DOOR_ROW + 1)
+    assert not from_far(-1, DOOR_ROW)
+
+
+def test_the_player_in_the_doorway_next_door_is_not_held_ground():
+    """Several flies may feed on you at once, and one stepping through the
+    doorway onto you must not be refused by the ones already there -- the
+    same exception `Swarm._elbow_room` makes at home, made across the wall.
+    """
+    run = at_door(Session(seed=1), room=scene.FAR)
+    run.step()
+    assert run.here == scene.FAR
+    cell = (run.player.cx, run.player.cy)
+    assert cell[0] == 0, "the staging should stand the player on the landing"
+    fly = _put_flies(run, scene.FAR, [cell])[0]
+    from_near = run._held_beyond(run.places[scene.NEAR])
+    assert not from_near(COLS, cell[1]), "refused a fly the way onto the player"
+    # Anywhere the player is not, the same fly holds its cell.
+    fly.cy = cell[1] + 1 if cell[1] + 1 in scene.DOOR_ROWS else cell[1] - 1
+    assert from_near(COLS, fly.cy)
+
+
 # --- the tail at a doorway ---------------------------------------------------
 
 def _tail_of(run, count):

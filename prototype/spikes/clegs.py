@@ -17,7 +17,8 @@ Two consequences of that rule are worth stating because they are easy to lose:
   range, so a light recruits the ones around it and leaves the rest blundering.
 * **No two of them share a cell.** They all steer for the same light by the same
   rule, so without this they converge on one square and stack -- which is not a
-  swarm, it is one Cleg drawn six times.
+  swarm, it is one Cleg drawn six times. The rule holds through a doorway too,
+  since issue #65: see `Swarm.tick`'s `held_beyond`.
 * **Your own glow reaches a few cells.** Standing still in the dark is a short
   reprieve rather than a hiding place: nothing crosses the room for you, but
   whatever blunders close will find you. Keep moving.
@@ -49,6 +50,8 @@ nearest lit source by comparing squared distances -- a handful of integer
 subtractions per Cleg per step -- and slides along a wall it cannot pass. A fly
 that solved mazes would be a different animal and a much more expensive one.
 """
+
+from spotlight.core.constants import COLS
 
 from .sources import LURE_KINDS, LURE_NONE, xorshift16
 
@@ -560,6 +563,28 @@ class Cleg:
         self._run -= 1
 
 
+def _at_the_edge(cx: int) -> bool:
+    """Is this column on the room's edge, or past it?
+
+    The one place a step can land in another room's grid. `Room.is_solid`
+    answers for the column *past* a doorway by asking the room next door
+    (issue #21), so a fly can stand at column -1 or `COLS`; and a fly next
+    door can be standing on *this* room's first or last column, on the
+    threshold it has just stepped onto and not yet been handed over from --
+    the session hands flies across at the end of the frame, after every swarm
+    has ticked, so for the rest of that frame it is in the other room's list
+    at the other room's coordinates. Both are the same cell seen from two
+    rooms, and the no-two-share-a-cell rule has to see it once (issue #65).
+
+    Both edge columns are wall except where a doorway is cut, and `_try`
+    asks `is_solid` first, so the question is only ever put for a doorway
+    cell. On the Z80 it is two compares on a step that happens every nine
+    frames, and the list walk behind it runs only when they say so. Nothing
+    here knows a doorway exists; it knows where its own grid ends.
+    """
+    return cx <= 0 or cx >= COLS - 1
+
+
 class Swarm:
     """Every Cleg in the room, and the one rule they all follow."""
 
@@ -690,8 +715,8 @@ class Swarm:
         return cells
 
     def tick(self, lures, player_cell, is_solid, blood: int,
-             is_sprayed=None, prey=(), doors=(), frame: int | None = None
-             ) -> int:
+             is_sprayed=None, prey=(), doors=(), frame: int | None = None,
+             held_beyond=None) -> int:
         """Advance every Cleg. Returns the **player's** blood remaining.
 
         `frame` is the session's frame counter, and it is here for one thing:
@@ -758,12 +783,39 @@ class Swarm:
         consult it; the rest walk in and die, which is what the spray is for.
         A dodger will stand still rather than step into it, so spray still holds
         ground against them -- it just no longer kills them for free.
+
+        `held_beyond` is the no-two-share-a-cell rule **through a doorway**
+        (issue #65). `taken` is this swarm's cells and nothing else's, so a fly
+        stepping east out of one room onto the threshold -- the next room's
+        first column, which `is_solid` lets it have -- was checked against the
+        room it was leaving and never against the one it was entering. It
+        landed on a cell a fly there already held, and the room light one cell
+        in then pinned both of them there for the rest of the run: the tester
+        found two free flies sharing a cell on 8 per cent of a statue's room
+        samples, all at the far room's (0, 11) and (0, 12). The session
+        answers, for a cell on this room's edge or past it, whether a free fly
+        of the room next door is standing on it. **It is asked only at the
+        edge** -- see `_at_the_edge` -- because the port would otherwise pay
+        for the other room's list on every step of every fly for a case that
+        arises at one column. `None` means there is no room next door, which
+        is every test that ticks a swarm on its own.
         """
         self.drained = 0
         self.victim_drained = 0
         self.bitten = []
         victims = self.prey_cells(prey)
         taken = self._elbow_room(player_cell)
+
+        def avoid_for(cleg):
+            # Where this fly may not step: another fly's cell here, a fly's
+            # cell in the room next door if the step is onto the edge, and
+            # poisoned ground if it is one of the ones that dodge.
+            poison = is_sprayed if cleg.dodges else None
+            return lambda cx, cy: (
+                (cx, cy) in taken
+                or (poison is not None and poison(cx, cy))
+                or (held_beyond is not None and _at_the_edge(cx)
+                    and held_beyond(cx, cy)))
         for cleg in self.clegs:
             if cleg.state == ATTACHED:
                 # It is on whoever it landed on, so it goes where they go.
@@ -801,10 +853,7 @@ class Swarm:
                     cleg._tick = 0
                     here = (cleg.cx, cleg.cy)
                     taken.discard(here)
-                    poison = is_sprayed if cleg.dodges else None
-                    cleg._drift(is_solid,
-                                lambda cx, cy: (cx, cy) in taken
-                                or (poison is not None and poison(cx, cy)))
+                    cleg._drift(is_solid, avoid_for(cleg))
                     taken.add((cleg.cx, cleg.cy))
                 continue
 
@@ -832,9 +881,7 @@ class Swarm:
             cleg._tick = 0
             here = (cleg.cx, cleg.cy)
             taken.discard(here)
-            poison = is_sprayed if cleg.dodges else None
-            avoid = (lambda cx, cy: (cx, cy) in taken
-                     or (poison is not None and poison(cx, cy)))
+            avoid = avoid_for(cleg)
             if target is None:
                 cleg._drift(is_solid, avoid)
             else:

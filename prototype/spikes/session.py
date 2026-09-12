@@ -744,6 +744,69 @@ class Session:
                 lures.append(spill)
         return lures
 
+    def _held_beyond(self, place: Place):
+        """The no-two-share-a-cell rule, seen through this room's doorways.
+
+        Returns what `Swarm.tick` takes as `held_beyond`: is the cell (cx, cy),
+        on this room's edge or past it, standing-room a free fly of the room
+        next door already has? A swarm's own `taken` set is its own flies and
+        nothing else's, and a fly stepping through a doorway lands in another
+        room's grid -- so until issue #65 the step onto the threshold was the
+        one step the rule did not see. It landed on a fly the far room's light
+        had already pinned at (0, 11), and then both were pinned there.
+
+        Two translations, because the same cell has a name in each room and
+        the swarm only knows its own:
+
+        * **Past the edge** -- column -1 or `COLS` -- is the threshold, which
+          `Building.step_across` maps to the landing cell next door. That is
+          the fly *leaving* this room.
+        * **On the edge** -- column 0 or `COLS - 1` in a doorway row -- may be
+          held by a fly next door that stepped onto its threshold earlier this
+          frame and is still in its old swarm at its old coordinates, because
+          hand-over is at the end of the frame after every swarm has ticked
+          (`_migrate`). That is the fly *arriving*, seen from the room it is
+          arriving in, and the rooms tick in a fixed order so without it the
+          leak would simply have moved to the flies of whichever room ticks
+          second.
+
+        The player's cell is exempt next door as it is at home: several flies
+        may feed on you at once, and one stepping through the doorway onto you
+        must not be refused by the ones already there (`Swarm._elbow_room`).
+
+        A fly next door is *free* if it is not attached; the rule in
+        `_elbow_room` is the same. It is a list walk of the other room's swarm,
+        and it runs only when the swarm asks, which is only at the edge.
+        """
+        room = place.room
+        rooms = self.building.rooms
+
+        def free_at(index: int, cx: int, cy: int) -> bool:
+            if index == self.here and (cx, cy) == (self.player.cx,
+                                                   self.player.cy):
+                return False
+            return any(c.cx == cx and c.cy == cy
+                       and c.state != clegs_mod.ATTACHED
+                       for c in self.places[index].swarm.clegs)
+
+        def held(cx: int, cy: int) -> bool:
+            if 0 <= cx < COLS:
+                # On the edge: a doorway cell of this room. Ask whether a fly
+                # next door is standing on its side of the same cell.
+                for door in room.doorways:
+                    if cx == door.column and cy in door.rows:
+                        back = rooms[door.to].doorway_to(room.index)
+                        return free_at(door.to, back.beyond, cy)
+                return False
+            # Past the edge: the threshold, which is the landing next door.
+            beyond = self.building.step_across(place.index, cx, cy)
+            if beyond is None:
+                return False
+            to, ncx, ncy = beyond
+            return free_at(to, ncx, ncy)
+
+        return held
+
     # --- one frame ---------------------------------------------------------
 
     def step(self, intent: Intent = IDLE) -> list[Event]:
@@ -830,7 +893,10 @@ class Session:
                 doors=self._doors(place, own),
                 # The clock an attached fly flaps on (issue #61). Drawing
                 # cadence only: the swarm reads it for nothing else.
-                frame=self.frame)
+                frame=self.frame,
+                # The rule that no two flies share a cell, carried through
+                # the doorway (issue #65).
+                held_beyond=self._held_beyond(place))
             if here:
                 self.blood = blood
         # Flies that walked through a doorway are handed over before anything
