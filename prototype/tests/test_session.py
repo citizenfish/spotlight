@@ -1350,6 +1350,33 @@ def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
         assert want != other
 
 
+def test_a_cleg_on_the_player_flaps_on_the_sessions_clock():
+    """**The clock is wired through** (issue #61). `Swarm.tick` flaps an
+    attached fly only when it is handed a frame counter, and the session is
+    the one caller that has one; if it stopped passing it, every unit test on
+    the flap would still pass and the fly on the player would sit still. So
+    the join is pinned here: a fly landed on the player, the player standing
+    still, and the wing bit turning over on `ATTACHED_FLAP_FRAMES`."""
+    from spikes import clegs
+
+    run = Session(seed=1)
+    cleg = run.place.swarm.clegs[0]
+    cleg.cx, cleg.cy = run.player.cx, run.player.cy
+    run.step()
+    assert cleg.state == clegs.ATTACHED
+    flips = []
+    for _ in range(3 * clegs.ATTACHED_FLAP_FRAMES):
+        was = cleg.wing
+        run.step()
+        if cleg.state != clegs.ATTACHED:
+            break
+        if cleg.wing != was:
+            flips.append(run.frame)
+    assert len(flips) == 3, f"three periods, three flips, got {flips}"
+    assert all(b - a == clegs.ATTACHED_FLAP_FRAMES
+               for a, b in zip(flips, flips[1:])), flips
+
+
 # --- the body is laid down, and nothing that reads it moved (issue #59) -----
 
 def test_a_body_is_drawn_across_the_cell_it_has_always_been_read_at():

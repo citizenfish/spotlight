@@ -123,6 +123,23 @@ DRIFT_EVERY = 45
 DRAIN_TOTAL = 8
 DRAIN_EVERY = 12
 
+#: Game steps between wing flips for a Cleg attached to somebody (issue #61).
+#: **Six, provisional**: an 8 Hz beat, which is a fly and not a strobe. This
+#: is drawing cadence and nothing a rule reads; it touches no log, so it can
+#: be tried at other values from a keyboard without moving a run.
+#:
+#: **The one class of fly that animates on the clock.** The tester measured
+#: the step-tied wingbeat and it read as no animation at all: a flip that is
+#: coincident with an eight-pixel jump of the whole sprite is credited to the
+#: jump, and the fly the player looks at longest -- the one biting them, 28 to
+#: 31 per cent of drawn fly-frames -- never flipped at all. So the attached
+#: fly flaps on the frame counter, and it is bounded by the number of flies on
+#: a person rather than the size of the swarm. Priced on the port: nothing
+#: while the victim walks, because their box is redrawn every frame anyway;
+#: while they stand still, one erase-and-redraw at `building.CLEG_COST` per
+#: attached fly per flip, about 140 T-states a frame each at six.
+ATTACHED_FLAP_FRAMES = 6
+
 #: How long a sated Cleg blunders about before it is hungry again, and how
 #: fast it moves while doing it.
 #:
@@ -305,29 +322,48 @@ class Cleg:
         self.heading = (0, 0)
         self._run = 0
         #: **Which wing frame this fly is drawn in**: one bit, flipped in
-        #: `_try` when the fly actually steps a cell (issue #49). It was the
-        #: only animation state anything in the play area carried until issue
-        #: #60 gave the people the same bit under the same rule.
+        #: `_try` when the fly steps a cell (issue #49), and since issue #61
+        #: also in `flap`, on the clock, while the fly is attached to somebody.
+        #: It was the only animation state anything in the play area carried
+        #: until issue #60 gave the people the same bit under the same rule.
         #:
-        #: **Never flipped on the frame counter, and this is a port decision
-        #: wearing an art decision's clothes.** Alternating on `session.frame`
-        #: is 25Hz, which is not a wingbeat but a strobe, and it dirties every
-        #: fly's cell every other frame whether or not the fly moved: a worst
-        #: case of thirty-six flies at `building.CLEG_COST` to erase and redraw,
-        #: on every other frame, is about 15,000 T-states a frame spent
-        #: animating flies that are standing still, against 32,832 for all
-        #: entities. **That sum used to read "eighteen flies at 1,654" and came
-        #: to the same 15,000** (issue #58): the fly's price halved on
+        #: **The cadence is movement by default, and this is a port decision
+        #: wearing an art decision's clothes.** Alternating every fly on
+        #: `session.frame` is 25Hz, which is not a wingbeat but a strobe, and
+        #: it dirties every fly's cell every other frame whether or not the fly
+        #: moved: a worst case of thirty-six flies at `building.CLEG_COST` to
+        #: erase and redraw, on every other frame, is about 15,000 T-states a
+        #: frame spent animating flies that are standing still, against 32,832
+        #: for all entities. **That sum used to read "eighteen flies at 1,654"
+        #: and came to the same 15,000** (issue #58): the fly's price halved on
         #: 2026-09-07 and the worst case doubled with it, so the argument is
         #: untouched -- but the old wording quoted the pixel-positioned cost,
-        #: which is withdrawn, and a figure in Cleg-equivalents is only a figure
-        #: if it says which sprite format it was taken under. Tied to movement it is free, because a fly
-        #: that stepped is being erased and redrawn anyway -- and it says
-        #: something true, that **a Cleg's wingbeat is its speed**, so the swarm
-        #: visibly quickens as it closes. A fly sitting on somebody is still,
-        #: which is also correct: an attached fly is carried by its victim
-        #: rather than stepping, and its cell is written directly in `Swarm.tick`
-        #: where this bit is not touched.
+        #: which is withdrawn, and a figure in Cleg-equivalents is only a
+        #: figure if it says which sprite format it was taken under. Tied to
+        #: movement it is free, because a fly that stepped is being erased and
+        #: redrawn anyway.
+        #:
+        #: **Two named exceptions, both bounded, ruled on 2026-09-11 (issue
+        #: #61)** after the tester measured the step-tied beat and found it
+        #: read as a still sprite: the flip rode on the jump and the eye
+        #: credited the jump, and the fly biting the player never flipped.
+        #:
+        #: 1. **An attached fly flaps on the clock**, every
+        #:    `ATTACHED_FLAP_FRAMES` game steps, in `flap`. Its phase is read
+        #:    off the seed it already holds and never drawn -- see `phase`.
+        #: 2. **An idle fly twitches in place.** A wandering fly whose drift
+        #:    heading came up (0, 0) steps into its own cell through `_try`,
+        #:    and `_try` flips the wing. The tester found this on 13 to 19 per
+        #:    cent of flips and nothing documented it; it is now the rule, at
+        #:    the rate the drift already rolls it (one heading in four), and it
+        #:    is not tuned -- a draw to set its rate, or dropping (0, 0) from
+        #:    the headings, would move every log in the project.
+        #:
+        #: So the sentence this docstring used to end on, *a still swarm costs
+        #: nothing to animate*, was wrong and is withdrawn: an idle fly's
+        #: twitch is an erase and a redraw of a fly that has not moved, at
+        #: `building.CLEG_COST` per twitch. What is still true is that the
+        #: cost is per twitching or attached fly, not per fly on screen.
         self.wing = 0
 
     def commit(self, cell: tuple[int, int], kind: int) -> None:
@@ -404,6 +440,42 @@ class Cleg:
         self._seed = xorshift16(self._seed)
         return self._seed
 
+    @property
+    def phase(self) -> int:
+        """Where in the attached-flap cycle this fly beats (issue #61).
+
+        **Read from the seed the fly already holds, never drawn from it.** One
+        extra call to `_random` here would advance this fly's xorshift stream,
+        change every heading it rolls afterwards, and move the event log of
+        every run in the project -- the check on issue #61 is a byte-identical
+        log, and this property is where that check would fail. The seed is
+        stable for the whole of an attachment, because an attached fly draws
+        no random numbers, so the phase is a constant of the bite.
+
+        Three flies on one player get three seeds and so, mostly, three
+        phases: they do not flap in lockstep. On the port this is the low
+        byte of the seed reduced mod `ATTACHED_FLAP_FRAMES`, or a byte stored
+        at attachment; either is read, not rolled.
+        """
+        return self._seed % ATTACHED_FLAP_FRAMES
+
+    def flap(self, frame: int) -> None:
+        """One game step of an attached fly's wingbeat (issue #61).
+
+        Called from `Swarm.tick` where the attached fly's cell is written --
+        on the game step, and never from the audio interrupt or the shell's
+        loop, so a paused game is a still picture. `frame` is the session's
+        frame counter; the bit flips when the counter, offset by this fly's
+        `phase`, comes round to a multiple of `ATTACHED_FLAP_FRAMES`.
+
+        This is the whole of exception 1 to the cadence rule on `wing`, and
+        it is a comparison and a toggle so that its cost on the port is a
+        handful of T-states on the frames it does nothing, which is five in
+        six.
+        """
+        if (frame + self.phase) % ATTACHED_FLAP_FRAMES == 0:
+            self.wing ^= 1
+
     def _try(self, dx: int, dy: int, is_solid, avoid=None) -> bool:
         """One step, if the room will have it.
 
@@ -427,7 +499,9 @@ class Cleg:
             return False
         self.cx, self.cy = nx, ny
         # It stepped, so it is being erased and redrawn anyway: the wingbeat
-        # rides on the move and costs nothing. See `wing`.
+        # rides on the move and costs nothing. See `wing`. **A (0, 0) step
+        # lands here too**, and the flip it causes is the idle twitch of
+        # issue #61 -- deliberate, see `_drift`, and not free.
         self.wing ^= 1
         return True
 
@@ -462,6 +536,17 @@ class Cleg:
 
         It is also what a fly looks like. They do not jitter on the spot; they
         cross a room, stop, and cross it again.
+
+        **And when the heading comes up (0, 0), the fly twitches** (issue
+        #61). One heading in four is the null one -- `dx` and `dy` each come
+        from a pair of bits and are zero when the pair agrees -- and a run on
+        it is a run of steps into the fly's own cell, each of which `_try`
+        accepts and flips the wing on. The tester found this on 13 to 19 per
+        cent of all flips, undocumented, and the ruling made it the idle fly's
+        twitch at exactly the rate it already had. **Do not tune it.** A draw
+        to set the rate consumes a random number; dropping (0, 0) from the
+        headings changes which headings are rolled; either moves every log.
+        Priced on `wing`: an erase and a redraw of a fly that has not moved.
         """
         if self._run <= 0 or not self._try(*self.heading, is_solid, avoid):
             r = self._random()
@@ -602,8 +687,18 @@ class Swarm:
         return cells
 
     def tick(self, lures, player_cell, is_solid, blood: int,
-             is_sprayed=None, prey=(), doors=()) -> int:
+             is_sprayed=None, prey=(), doors=(), frame: int | None = None
+             ) -> int:
         """Advance every Cleg. Returns the **player's** blood remaining.
+
+        `frame` is the session's frame counter, and it is here for one thing:
+        an attached fly's wingbeat runs on it (issue #61, `Cleg.flap`). It is
+        drawing cadence, so nothing else in this method may read it -- the
+        moment a rule does, the same run drawn and undrawn would differ.
+        `None` means the caller has no clock, which is true of most tests and
+        of nothing in the game, and under it an attached fly holds its frame
+        as it did before the flap existed; the session always passes one, and
+        a test pins that it does.
 
         `lures` is the cells of every light currently attracting -- see
         `sources.Source.lure`. An empty list means nothing is lit above a glow,
@@ -682,6 +777,13 @@ class Swarm:
                     # who is not here (issue #21).
                     if player_cell is None:
                         continue
+                # **It flaps on the clock, here, where its cell is written**
+                # (issue #61): before the bite, so the frame it is drawn in on
+                # this step is settled while it is still attached, whatever
+                # the bite goes on to do to its state.
+                if frame is not None:
+                    cleg.flap(frame)
+                if cleg.victim is None:
                     cleg.cx, cleg.cy = player_cell
                     blood = self._drain(cleg, blood)
                 else:

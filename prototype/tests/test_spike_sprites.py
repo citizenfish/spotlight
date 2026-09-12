@@ -392,25 +392,55 @@ def test_no_sprite_is_a_solid_block():
         assert not all(b == 0xFF for b in octets(sprite) if b), name
 
 
-def test_the_cleg_is_the_widest_thing_at_its_waist():
-    """Its full-width middle with thin legs is what makes it read as an insect
-    rather than as debris. True of both wing frames."""
+def test_the_cleg_has_a_head_a_body_and_wings_in_both_frames():
+    """A fly seen from above: a head on the axis, wings off it. Wings out is
+    the full width in one row; wings back reaches both edges lower down, at
+    the tips. Either way it reads as an insect and not as debris."""
     for frame in SP.CLEG_FRAMES:
-        assert 0xFF in frame
         assert frame[0] == 0x00, "the fly is inside its box"
-    assert SP.CLEG_A[1] == 0x42, "splayed legs, not a solid top"
+        assert frame[1] == 0x18, "the head is on the axis"
+        assert any(row & 0x80 and row & 0x01 for row in frame), \
+            "the wings never reach both edges"
+    assert 0xFF in SP.CLEG_A, "wings out is the whole width"
+    assert 0xFF not in SP.CLEG_B, "wings back is not the whole width"
 
 
-def test_the_two_cleg_frames_are_the_same_body_at_the_same_weight():
-    """**Same body, same ink count, different silhouette.** A wingbeat that
-    changed the fly's mass would read as the fly getting bigger, which is what
-    a Cleg does by walking towards you and must not do by flapping."""
+def test_the_two_cleg_frames_differ_by_twenty_pixels_below_the_head():
+    """**The thing that was wrong before** (issue #61). The first pair differed
+    by eight corner pixels, one of them under a lit stipple dot, and the tester
+    measured that a flip coincident with an eight-pixel jump of the whole
+    sprite read as no animation at all. So: twenty or more, none of them in the
+    head, none of them on a stipple dot, and the ink counts deliberately
+    unequal so the flip pulses -- the previous test here pinned them equal, and
+    that pin is withdrawn with the ruling."""
     a, b = SP.CLEG_A, SP.CLEG_B
-    assert a != b, "the second frame is the first one"
+    differing = [(r, c) for r in range(8) for c in range(8)
+                 if (a[r] ^ b[r]) & (0x80 >> c)]
+    assert len(differing) >= 20, f"the frames differ by {len(differing)} pixels"
+    assert all(r >= 2 for r, _ in differing), "the head moves between frames"
+    # The lit stipple's dots, for a cell-aligned sprite: `floor.STIPPLE_LIT`.
+    from spikes import floor
+    dots = {(r, c) for r in range(8) for c in range(8)
+            if floor.STIPPLE_LIT[r] & (0x80 >> c)}
+    assert not dots & set(differing), \
+        f"a differing pixel sits on a stipple dot: {sorted(dots & set(differing))}"
     ink = [sum(bin(row).count("1") for row in f) for f in (a, b)]
-    assert ink[0] == ink[1], f"the frames weigh {ink[0]} and {ink[1]}"
-    # The body -- the three rows that make it an insect -- is untouched.
-    assert a[3:6] == b[3:6], "the wingbeat moved the body"
+    assert ink[0] != ink[1], "no pulse: the frames weigh the same"
+    assert abs(ink[0] - ink[1]) <= 6, \
+        f"a pulse of {abs(ink[0] - ink[1])} would read as the fly changing size"
+
+
+def test_neither_cleg_frame_is_the_nests_silhouette():
+    """A nest is a squat solid mass; a Cleg is a thin cross or a dart. Both
+    frames have to keep clear of it, since either may be the one on screen
+    next to a nest."""
+    nest = SP.NEST
+    for name, frame in (("A", SP.CLEG_A), ("B", SP.CLEG_B)):
+        differing = sum(1 for ra, rb in zip(frame, nest) if ra != rb)
+        assert differing >= 6, f"CLEG_{name} is {differing} rows off the nest"
+        ink = sum(bin(row).count("1") for row in frame)
+        assert ink < sum(bin(row).count("1") for row in nest) - 8, \
+            f"CLEG_{name} is as heavy as a nest"
 
 
 # --- the fade remembers the building, not its inhabitants (issue #12) ------

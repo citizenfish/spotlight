@@ -37,24 +37,24 @@ BODY = (
 
 CLEG_A = (
     0x00,  # ........
-    0x42,  # .#....#.   wings down
-    0x24,  # ..#..#..
-    0x7E,  # .######.   body
+    0x18,  # ...##...   head
+    0xFF,  # ########   wings out, the whole width
     0xFF,  # ########
-    0x7E,  # .######.
-    0x24,  # ..#..#..   legs
-    0x42,  # .#....#.
+    0x18,  # ...##...   body
+    0x18,  # ...##...
+    0x18,  # ...##...
+    0x42,  # .#....#.   legs
 )
 
 CLEG_B = (
     0x00,  # ........
-    0x00,  # ........   wings up: same body, same ink count
-    0x66,  # .##..##.
-    0x7E,  # .######.   body
-    0xFF,  # ########
-    0x7E,  # .######.
-    0x66,  # .##..##.   legs
-    0x00,  # ........
+    0x18,  # ...##...   head, unchanged
+    0x3C,  # ..####..   thorax, the wing roots
+    0x5A,  # .#.##.#.   wings swept back along the body
+    0x5A,  # .#.##.#.
+    0x99,  # #..##..#
+    0x81,  # #......#   wingtips, past the abdomen
+    0x24,  # ..#..#..   legs, tucked
 )
 
 DOORWAY_00 = (

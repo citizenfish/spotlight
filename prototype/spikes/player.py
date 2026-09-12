@@ -55,9 +55,10 @@ class Player:
         self.facing = facing
         #: **Which walk frame he is drawn in** (issue #60): one bit, flipped
         #: in `move` when the figure crosses a cell boundary -- when `x // CELL`
-        #: or `y // CELL` changes -- and at no other time. Exactly the Cleg's
+        #: or `y // CELL` changes -- and at no other time. The Cleg's default
         #: rule, `clegs.Cleg.wing`, for the same reason: the cadence is
-        #: movement, never the frame counter.
+        #: movement. (The Cleg gained two bounded exceptions in issue #61;
+        #: the people have none.)
         #:
         #: **Not on every moved pixel.** He moves a pixel a frame, so a flip
         #: per pixel would be a 25Hz strobe; a flip per cell is one every eight

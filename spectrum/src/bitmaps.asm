@@ -31,23 +31,23 @@ BODY:
 
 CLEG_A:
         DEFB $00                   ; ........
-        DEFB $42                   ; .#....#.   wings down
-        DEFB $24                   ; ..#..#..
-        DEFB $7E                   ; .######.   body
+        DEFB $18                   ; ...##...   head
+        DEFB $FF                   ; ########   wings out, the whole width
         DEFB $FF                   ; ########
-        DEFB $7E                   ; .######.
-        DEFB $24                   ; ..#..#..   legs
-        DEFB $42                   ; .#....#.
+        DEFB $18                   ; ...##...   body
+        DEFB $18                   ; ...##...
+        DEFB $18                   ; ...##...
+        DEFB $42                   ; .#....#.   legs
 
 CLEG_B:
         DEFB $00                   ; ........
-        DEFB $00                   ; ........   wings up: same body, same ink count
-        DEFB $66                   ; .##..##.
-        DEFB $7E                   ; .######.   body
-        DEFB $FF                   ; ########
-        DEFB $7E                   ; .######.
-        DEFB $66                   ; .##..##.   legs
-        DEFB $00                   ; ........
+        DEFB $18                   ; ...##...   head, unchanged
+        DEFB $3C                   ; ..####..   thorax, the wing roots
+        DEFB $5A                   ; .#.##.#.   wings swept back along the body
+        DEFB $5A                   ; .#.##.#.
+        DEFB $99                   ; #..##..#
+        DEFB $81                   ; #......#   wingtips, past the abdomen
+        DEFB $24                   ; ..#..#..   legs, tucked
 
 DOORWAY_00:
         DEFB $00                   ; ........   mask  0, -

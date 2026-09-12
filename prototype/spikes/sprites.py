@@ -200,12 +200,16 @@ DOOR_LOCKED = BITMAPS["DOOR_LOCKED"]
 
 # --- everything else, 8x8 --------------------------------------------------
 
-#: A Cleg, wings down. **The frame flips when the fly steps a cell** and never
-#: on the frame counter -- see `clegs.Cleg.wing`, which holds the bit, and
-#: `assets/sprites/cleg.txt` for the T-states that rule is protecting.
+#: A Cleg, wings out. **The frame flips when the fly steps a cell**, and since
+#: issue #61 on the clock while it is attached to somebody and in place when
+#: an idle fly twitches -- see `clegs.Cleg.wing`, which holds the bit and the
+#: cost argument, and `assets/sprites/cleg.txt` for the drawing's reasons.
 CLEG_A = BITMAPS["CLEG_A"]
 
-#: The same Cleg, wings up. Same body, same ink count, different silhouette.
+#: The same Cleg, wings swept back. Head and axis the same; twenty pixels
+#: differ, so that a flip is visible as a flip even under the eight-pixel
+#: jump of a step (issue #61 -- the first pair differed by eight and read as
+#: no animation at all). Four fewer pixels of ink, deliberately: the pulse.
 CLEG_B = BITMAPS["CLEG_B"]
 
 #: The two Cleg frames, indexed by the fly's own wing bit, so that drawing a

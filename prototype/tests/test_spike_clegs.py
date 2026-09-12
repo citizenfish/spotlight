@@ -1074,11 +1074,16 @@ def test_the_sonar_is_unchanged_when_nothing_is_attached_to_anybody():
 #
 # The only animated thing in the play area, and the rule it is built to is a
 # port decision wearing an art decision's clothes: **the frame flips when the
-# Cleg steps a cell, never on the frame counter.** Alternating on
-# `session.frame` is 25Hz, which is a strobe rather than a wingbeat, and it
-# dirties every fly's cell every other frame whether or not the fly moved --
-# about 15,000 T-states a frame animating flies that are standing still,
-# against 32,832 for all entities.
+# Cleg steps a cell, and by default never on the frame counter.** Alternating
+# every fly on `session.frame` is 25Hz, which is a strobe rather than a
+# wingbeat, and it dirties every fly's cell every other frame whether or not
+# the fly moved -- about 15,000 T-states a frame animating flies that are
+# standing still, against 32,832 for all entities.
+#
+# Since issue #61 the rule has two named exceptions, tested further down: a fly
+# attached to somebody flaps on the clock, and an idle fly whose drift came up
+# (0, 0) twitches in place. The tests here that say "unchanged" in the issue
+# are unchanged.
 
 def test_a_cleg_that_does_not_step_holds_its_frame():
     """**The whole of the cost argument, as a test.**
@@ -1098,8 +1103,13 @@ def test_a_cleg_that_does_not_step_holds_its_frame():
     swarm = C.Swarm([cleg])
     was = cleg.wing
     for _ in range(50):
-        swarm.tick(_lures((30, 10)), (30, 20), boxed, 64)
+        swarm.tick(_lures((30, 10)), (30, 20), boxed, 64, frame=_)
     assert (cleg.cx, cleg.cy) == (10, 10), "it moved, so this asks nothing"
+    # The one still fly that *is* allowed to flip is the twitching one, whose
+    # drift came up (0, 0) (issue #61). This fixture's roll did not, so the
+    # question it asks is the one it claims to; if the seed or the roll ever
+    # change so that it did, the test below is the one that pins that case.
+    assert cleg.heading != (0, 0), "the fixture is twitching, so this asks nothing"
     assert cleg.wing == was, "a fly standing still is flapping"
 
 
@@ -1126,23 +1136,167 @@ def test_a_cleg_that_steps_alternates_its_frame():
 
 
 def test_a_cleg_sitting_on_somebody_is_still():
-    """**A fly that is feeding is not flying**, which is also correct.
+    """**A fly that is biting you is alive** (issue #61). Inverted, not deleted.
 
-    An attached Cleg is carried by its victim -- `Swarm.tick` writes its cell
-    directly rather than stepping it -- so it keeps whatever frame it landed
-    in, however far the person it is riding walks.
+    This test used to pin the opposite -- *a fly that is feeding is not
+    flying*, its frame held for as long as it rode -- and the tester measured
+    what that rule produced: the fly the player looks at longest, 28 to 31 per
+    cent of drawn fly-frames, was the one that never moved in itself. Now an
+    attached Cleg flaps on the clock, every `ATTACHED_FLAP_FRAMES` steps, and
+    the name is kept so that the history of the rule is one `git log` away.
+    It still rides: the cell is written by `Swarm.tick`, not stepped.
     """
     victim = Person(12, 10, blood=99)
     cleg = C.Cleg(12, 10, seed=1)
     swarm = C.Swarm([cleg])
-    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim])
+    swarm.tick(_lures((12, 10)), (30, 20), OPEN, 64, prey=[victim], frame=1)
     assert cleg.state == C.ATTACHED
     landed = cleg.wing
-    for step in range(10):
+    seen = set()
+    for step in range(2, 2 + 2 * C.ATTACHED_FLAP_FRAMES):
         victim.cx = 12 + step
-        swarm.tick([], (30, 20), OPEN, 64, prey=[victim])
-    assert cleg.cx == victim.cx, "the fly did not ride its host"
-    assert cleg.wing == landed, "a fly on somebody is beating its wings"
+        swarm.tick([], (30, 20), OPEN, 64, prey=[victim], frame=step)
+        assert cleg.cx == victim.cx, "the fly did not ride its host"
+        seen.add(cleg.wing)
+    assert seen == {0, 1}, "a fly on somebody is holding its frame"
+    assert cleg.wing == landed, \
+        "two full periods should bring it back to the frame it landed in"
+
+
+def _attach_to_player(cleg, frame=0):
+    """A swarm with `cleg` already on the player, at (30, 20)."""
+    swarm = C.Swarm([cleg])
+    cleg.cx, cleg.cy = 30, 20
+    swarm.tick([], (30, 20), OPEN, 64, frame=frame)
+    assert cleg.state == C.ATTACHED
+    return swarm
+
+
+def test_an_attached_cleg_flips_every_attached_flap_frames_and_at_no_other_time():
+    """**The whole of exception 1, as a test** (issue #61).
+
+    The bit flips on exactly the frames where `(frame + phase)` is a multiple
+    of `ATTACHED_FLAP_FRAMES`, and holds on every other. The victim stands
+    still throughout, which is the case that costs a redraw on the port, so
+    what this pins is also the price: one erase-and-redraw per period.
+    """
+    cleg = C.Cleg(30, 20, seed=1)
+    swarm = _attach_to_player(cleg, frame=0)
+    flips = []
+    for frame in range(1, 1 + 5 * C.ATTACHED_FLAP_FRAMES):
+        was = cleg.wing
+        swarm.tick([], (30, 20), OPEN, 64, frame=frame)
+        if cleg.wing != was:
+            flips.append(frame)
+    assert flips, "the attached fly never flapped"
+    assert all((f + cleg.phase) % C.ATTACHED_FLAP_FRAMES == 0 for f in flips), \
+        f"a flip off the clock: {flips}, phase {cleg.phase}"
+    assert all(b - a == C.ATTACHED_FLAP_FRAMES for a, b in zip(flips, flips[1:])), \
+        f"the beat is uneven: {flips}"
+    assert len(flips) == 5, f"five periods, five flips, got {flips}"
+
+
+def test_two_attached_clegs_with_different_phases_do_not_flip_together():
+    """Three flies on one player must not flap in lockstep, and the stagger
+    is the seed each fly already holds: no draw, no shared counter."""
+    a, b = C.Cleg(30, 20, seed=1), C.Cleg(30, 20, seed=2)
+    assert a.phase != b.phase, "pick seeds whose phases differ"
+    swarm = C.Swarm([a, b])
+    swarm.tick([], (30, 20), OPEN, 64, frame=0)
+    assert a.state == b.state == C.ATTACHED
+    for frame in range(1, 1 + 4 * C.ATTACHED_FLAP_FRAMES):
+        was = a.wing, b.wing
+        swarm.tick([], (30, 20), OPEN, 64, frame=frame)
+        assert not (a.wing != was[0] and b.wing != was[1]), \
+            f"both flies flipped on frame {frame}"
+
+
+def test_the_flap_phase_is_read_from_the_seed_and_draws_nothing():
+    """**The trap the ruling flagged**, pinned. Reading `phase`, and flapping
+    for a whole attachment, leaves the fly's xorshift stream exactly where it
+    was; one draw here would move every seed after it and every event log in
+    the project. So the seed before and after is compared, and the phase is
+    what the seed says it is."""
+    cleg = C.Cleg(30, 20, seed=0xBEEF)
+    swarm = _attach_to_player(cleg, frame=0)
+    seed = cleg._seed
+    assert cleg.phase == seed % C.ATTACHED_FLAP_FRAMES
+    for frame in range(1, 200):
+        _ = cleg.phase
+        swarm.tick([], (30, 20), OPEN, 64, frame=frame)
+        if cleg.state != C.ATTACHED:
+            break
+    assert cleg._seed == seed, "the flap consumed a random number"
+
+
+def test_an_attached_cleg_without_a_clock_holds_its_frame():
+    """`frame=None` is a caller with no clock -- most tests, and nothing in the
+    game -- and under it the flap does not run. Pinned so that the default
+    cannot quietly become 'flap every tick'."""
+    cleg = C.Cleg(30, 20, seed=2)          # phase 0: would flip on frame 0
+    swarm = _attach_to_player(cleg)
+    was = cleg.wing
+    for _ in range(3 * C.ATTACHED_FLAP_FRAMES):
+        swarm.tick([], (30, 20), OPEN, 64)
+    assert cleg.wing == was
+
+
+def test_an_idle_cleg_whose_drift_comes_up_null_twitches_in_place():
+    """**Exception 2, pinned as intended** (issue #61).
+
+    A wandering fly holds a heading for a run of steps, and one heading in
+    four is (0, 0). The step into its own cell goes through `_try`, which
+    accepts it and flips the wing: the fly twitches without moving. The tester
+    found it on 13 to 19 per cent of flips and nothing said it was meant; now
+    it is, at exactly that rate, and this test is what says so.
+    """
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    swarm = C.Swarm([cleg])
+    # Put it on a null run by hand rather than rolling for one, so the test
+    # is about the step and not about the seed.
+    cleg.heading = (0, 0)
+    cleg._run = 3
+    cleg._tick = C.DRIFT_EVERY - 1
+    was = cleg.wing
+    swarm.tick([], (30, 20), OPEN, 64)
+    assert (cleg.cx, cleg.cy) == (10, 10), "a null heading moved the fly"
+    assert cleg.wing != was, "the idle fly did not twitch"
+
+
+def test_the_twitch_rate_is_one_heading_in_four_and_is_not_tuned():
+    """The rate is a property of how a heading is rolled -- two bits for each
+    axis, zero when the pair agrees -- and it is **not to be tuned**: a draw
+    to set it would consume a random number, and dropping (0, 0) from the
+    headings would change which ones are rolled. Either moves every log. So
+    the roll itself is pinned: over the sixteen low nibbles, four are null."""
+    null = 0
+    for r in range(16):
+        dx = (r & 1) - ((r >> 1) & 1)
+        dy = ((r >> 2) & 1) - ((r >> 3) & 1)
+        null += (dx, dy) == (0, 0)
+    assert null == 4
+    # ...and that arithmetic is the one `_drift` actually uses: force every
+    # roll to a known null nibble and watch the heading come up (0, 0).
+    class Loaded(C.Cleg):
+        __slots__ = ("roll",)
+
+        def __init__(self, *args, **kwargs):
+            self.roll = 0b0001         # the constructor rolls a temperament
+            super().__init__(*args, **kwargs)
+
+        def _random(self):
+            return self.roll
+
+    cleg = Loaded(10, 10, seed=0xBEEF)
+    for nibble in (0b0000, 0b1111, 0b0011, 0b1100):
+        cleg.roll = nibble
+        cleg._run = 0
+        cleg._drift(OPEN)
+        assert cleg.heading == (0, 0), f"nibble {nibble:04b} is not null"
+    cleg.roll = 0b0001
+    cleg._run = 0
+    cleg._drift(OPEN)
+    assert cleg.heading == (1, 0), "and a non-null nibble is a heading"
 
 
 def test_the_wingbeat_is_one_bit_and_indexes_the_frame_table():

@@ -1,24 +1,34 @@
 ; cleg.txt
 ;
-; A Cleg: fat body, splayed legs. Seen from above, like everything
-; else.
+; A Cleg: a fat-bodied fly, seen from above like everything else.
 ;
-; TWO FRAMES, and it is the only animated thing in the play area
-; (issue #49). Same body, same ink count, different silhouette:
-; wings down and wings up.
+; TWO FRAMES, wings out against wings back. Head and axis the same
+; in both; the twenty pixels that differ are all in rows 2-7.
 ;
-;   The frame flips when the Cleg STEPS A CELL. Never on the frame
-;   counter.
+;   The frame flips when the Cleg STEPS A CELL (issue #49). Since
+;   issue #61 it also flips ON THE CLOCK for a fly attached to
+;   somebody, every clegs.ATTACHED_FLAP_FRAMES game steps, and in
+;   place for an idle fly whose drift heading came up (0, 0).
 ;
-; Alternating on the frame counter is 25Hz, which is not a wingbeat,
-; it is a strobe -- and it dirties every fly's cell every other frame
-; whether or not the fly moved, about 15,000 T-states a frame spent
-; animating flies that are standing still, against 32,832 for all
-; entities. Tied to movement it is free, because a Cleg that stepped
-; is being erased and redrawn anyway, and it says something true: a
-; Cleg's wingbeat is its speed, so the swarm visibly quickens as it
-; closes. A Cleg sitting on somebody is still, which is also correct.
-; One bit per fly, in `clegs.Cleg.wing`.
+; Alternating every fly on the frame counter is a strobe, and it
+; dirties every fly's cell whether or not the fly moved -- about
+; 15,000 T-states a frame spent animating flies that are standing
+; still, against 32,832 for all entities. So the cadence is movement
+; by default, and the two exceptions are bounded: the attached flies
+; are the few the player is looking at, and the twitch happens at
+; the rate the drift already rolls it. One bit per fly, in
+; `clegs.Cleg.wing`; the whole argument is on that attribute.
+;
+; REDRAWN 2026-09-11 (issue #61). The first pair differed by eight
+; corner pixels, one of them under a lit stipple dot, and the tester
+; measured that a flip coincident with an eight-pixel jump of the
+; whole sprite reads as the jump and not as a wingbeat -- 9,689 of
+; 10,177 drawn flip-frames showed the new frame and the user saw no
+; animation. These differ by twenty. The ink counts are 26 and 22,
+; deliberately unequal: a four-pixel pulse in brightness on the flip
+; is what a wingbeat is. None of the twenty differing pixels sits on
+; a lit stipple dot (columns 1 and 5, rows 1 and 5 of a cell-aligned
+; sprite), so the flip is not half-hidden by the floor.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -29,21 +39,21 @@
 name: CLEG_A
 size: 8x8
 ........
-.#....#.   wings down
-..#..#..
-.######.   body
+...##...   head
+########   wings out, the whole width
 ########
-.######.
-..#..#..   legs
-.#....#.
+...##...   body
+...##...
+...##...
+.#....#.   legs
 
 name: CLEG_B
 size: 8x8
 ........
-........   wings up: same body, same ink count
-.##..##.
-.######.   body
-########
-.######.
-.##..##.   legs
-........
+...##...   head, unchanged
+..####..   thorax, the wing roots
+.#.##.#.   wings swept back along the body
+.#.##.#.
+#..##..#
+#......#   wingtips, past the abdomen
+..#..#..   legs, tucked
