@@ -637,6 +637,14 @@ def test_a_run_never_plays_a_frame_of_an_effect_out_of_order(seed):
     #57) and goes on from the next, so a gap in what is heard is allowed and a
     repeat or a step backwards is not: playing the same frame twice would mean
     the sonar had lengthened a sound instead of holing it.
+
+    Every frame the arbiter counts as lost is accounted for: either it is
+    heard as a hole when the effect comes back, or no later frame could have
+    shown it -- the click took the effect's *last* frame, or a new effect
+    started before the punctured one was heard again. The first version
+    asserted holes equal to frames lost and passed only while no run on these
+    seeds punctured a final frame; issue #66 moved the flies, so the bites,
+    so the sounds, and seed 2 lost the 40th frame of a 40-frame sound.
     """
     from spikes import bots
 
@@ -647,15 +655,26 @@ def test_a_run_never_plays_a_frame_of_an_effect_out_of_order(seed):
     player = bots.make("wanderer", seed=seed)
     last = None
     holes = 0
+    unheard = 0          # lost frames no later frame could have revealed
+    pending = 0          # lost since the effect was last heard
+    lost_seen = 0
     for _ in range(4000):
         run.step(player.intent(run))
         if run.over is not None:
             break
         voice = run.voice
+        if voice.frames_lost > lost_seen:
+            pending += voice.frames_lost - lost_seen
+            lost_seen = voice.frames_lost
+            if voice.left == 0:
+                unheard += pending           # punctured on its final frame
+                pending = 0
         if voice.kind != sounds.EFFECT:
             continue
         if voice.started:
             assert voice.index == 0
+            unheard += pending               # pre-empted before it resumed
+            pending = 0
             last = -1
         else:
             assert last is not None and voice.index > last, \
@@ -668,10 +687,13 @@ def test_a_run_never_plays_a_frame_of_an_effect_out_of_order(seed):
                 # can appear here.
                 assert sounds.EFFECTS[voice.sound].frames > sounds.GRACE_FRAMES
                 assert last + 1 >= sounds.GRACE_FRAMES
-            holes += voice.index - last - 1
+            assert voice.index - last - 1 == pending, \
+                "a hole that is not the frames the arbiter says it lost"
+            holes += pending
+            pending = 0
             assert voice.resumed == (voice.index > last + 1)
         last = voice.index
-    assert holes == run.voice.frames_lost
+    assert holes + unheard == run.voice.frames_lost
 
 
 # --- the effect clock belongs to the interrupt -------------------------------

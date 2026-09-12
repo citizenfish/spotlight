@@ -563,26 +563,53 @@ class Cleg:
         self._run -= 1
 
 
-def _at_the_edge(cx: int) -> bool:
-    """Is this column on the room's edge, or past it?
+def _beside_any(cx: int, cy: int, cells) -> bool:
+    """Is (cx, cy) next to any of `cells` -- Chebyshev distance exactly 1?
 
-    The one place a step can land in another room's grid. `Room.is_solid`
-    answers for the column *past* a doorway by asking the room next door
-    (issue #21), so a fly can stand at column -1 or `COLS`; and a fly next
-    door can be standing on *this* room's first or last column, on the
-    threshold it has just stepped onto and not yet been handed over from --
-    the session hands flies across at the end of the frame, after every swarm
-    has ticked, so for the rest of that frame it is in the other room's list
-    at the other room's coordinates. Both are the same cell seen from two
-    rooms, and the no-two-share-a-cell rule has to see it once (issue #65).
-
-    Both edge columns are wall except where a doorway is cut, and `_try`
-    asks `is_solid` first, so the question is only ever put for a doorway
-    cell. On the Z80 it is two compares on a step that happens every nine
-    frames, and the list walk behind it runs only when they say so. Nothing
-    here knows a doorway exists; it knows where its own grid ends.
+    The personal-space rule of issue #66, as a compare. Distance 0 is the
+    older rule and is tested by the caller first, so this is only ever asked
+    about a cell nobody is standing in. On the Z80 it is two subtractions and
+    two compares per free fly in the room, on a step that happens every nine
+    to twelve frames per fly. Measured over a 9,000-frame run of the statue
+    and of the wanderer on the first look-round seed, the session's doorway
+    walks included: 0.6 to 1.0 of these walks per frame for the whole
+    building, each over 8 to 9 free flies, so 5 to 8 compares a frame --
+    nothing. Two in five find a neighbour, because flies steering at one
+    light from one side queue two apart, which is the rule doing what it
+    says. The room next door is asked on 0.1 to 0.15 steps a frame.
     """
-    return cx <= 0 or cx >= COLS - 1
+    for tx, ty in cells:
+        if abs(cx - tx) <= 1 and abs(cy - ty) <= 1:
+            return True
+    return False
+
+
+def _near_the_edge(cx: int) -> bool:
+    """Is this column within one cell of the room's edge, or past it?
+
+    The only place a step can land in, or beside, another room's grid.
+    `Room.is_solid` answers for the column *past* a doorway by asking the
+    room next door (issue #21), so a fly can stand at column -1 or `COLS`;
+    and a fly next door can be standing on *this* room's first or last
+    column, on the threshold it has just stepped onto and not yet been
+    handed over from -- the session hands flies across at the end of the
+    frame, after every swarm has ticked, so for the rest of that frame it is
+    in the other room's list at the other room's coordinates. Both are the
+    same cell seen from two rooms, and the no-two-share-a-cell rule has to
+    see it once (issue #65).
+
+    **One column further in since issue #66**, when the rule became no two
+    *beside* each other: a step onto column 1 can land beside a fly next door
+    standing on column 0. Was `_at_the_edge`, columns 0 and `COLS - 1` and
+    past them; the first cut of #66 left it there, and the far room's door
+    clot promptly re-formed out of main-room flies stepping through the
+    doorway onto the cell *beside* a far-room fly, four of them touching at
+    the lamp -- the #65 leak again, one ring out. Two compares on a step
+    that happens every nine frames, and the list walk behind it runs only
+    when they say so. Nothing here knows a doorway exists; it knows where
+    its own grid ends.
+    """
+    return cx <= 1 or cx >= COLS - 2
 
 
 class Swarm:
@@ -672,20 +699,69 @@ class Swarm:
     # --- the frame ---------------------------------------------------------
 
     def _elbow_room(self, player_cell):
-        """Cells another Cleg is standing in, which none may step into.
+        """Cells another Cleg is standing in, which none may step into **or
+        beside**.
 
         Without it they pile onto whichever square the nearest light is at --
         every one of them steering by the same rule to the same place, arriving
         as a single blob. Keeping a cell each spreads the same arrival over the
         ground around it, which is what a swarm looks like.
 
+        Since issue #66 the set is read two ways: a step *into* one of these
+        cells is refused everywhere, and a step *next to* one is refused too
+        unless the step is arriving at somebody -- see `_haven`. One cell each
+        was measured and found wanting: the far room's permanent lamp held its
+        own flies at nearest-neighbour 1.2 to 1.8 cells, 76 to 87 per cent of
+        them within two cells of their centroid, which is a clot, and the user
+        said so. Two cells each is the ruling, with the lamp left where it is.
+
         The player's own cell is left out. Several can be attached to you at
         once, and an arriving one must never be blocked from reaching you by
-        the ones already feeding.
+        the ones already feeding. The set is otherwise exactly what it was --
+        this swarm's free flies, updated in step order -- and that is
+        deliberate: the widening is in how it is read, not in what is in it.
         """
         taken = {(c.cx, c.cy) for c in self.clegs if c.state != ATTACHED}
         taken.discard(player_cell)
         return taken
+
+    @staticmethod
+    def _haven(player_cell, victims) -> frozenset:
+        """Cells where the personal-space rule is waived: every cell holding
+        prey, and the ring around each (issue #66).
+
+        The two-cell rule is about **how flies arrive**, not about how many
+        can reach a person once there. Without this a fly waiting one cell
+        from the player fences off the ring the next arrival has to pass
+        through, and the tester's model of the rule without it dropped bites
+        on the routing bots by 15 to 20 per cent -- a difficulty change
+        arriving through a spacing rule, which nobody asked for and which
+        would have been unreadable against the blood and population levers.
+
+        **Keyed to prey and not to the fly's goal, on purpose.** Prey is the
+        session's prey list -- the player, lit or not, and any worker a lit
+        revealing light is on -- and nothing else. A fly hunting a room light
+        has a goal and no prey, so the ring round the far room's lamp is *not*
+        in this set and the clot there spreads, which is the whole point. Keyed
+        to the goal the clot would re-form one ring out and the rule would buy
+        nothing. `test_spike_space` pins both directions.
+
+        Built once a frame, like `prey_cells`: at most eight people times
+        three cells times nine, and each step that is about to be refused
+        then does one lookup. The set is a Pygame-side convenience; on the Z80
+        it is a Chebyshev compare against the prey list instead, reached only
+        after the neighbour compare has found somebody -- which, measured, is
+        two steps in five that get that far, well under one a frame.
+        """
+        cells = set()
+        anchors = list(victims)
+        if player_cell is not None:
+            anchors.append(player_cell)
+        for px, py in anchors:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    cells.add((px + dx, py + dy))
+        return frozenset(cells)
 
     @staticmethod
     def prey_cells(prey) -> dict:
@@ -793,29 +869,63 @@ class Swarm:
         in then pinned both of them there for the rest of the run: the tester
         found two free flies sharing a cell on 8 per cent of a statue's room
         samples, all at the far room's (0, 11) and (0, 12). The session
-        answers, for a cell on this room's edge or past it, whether a free fly
-        of the room next door is standing on it. **It is asked only at the
-        edge** -- see `_at_the_edge` -- because the port would otherwise pay
-        for the other room's list on every step of every fly for a case that
-        arises at one column. `None` means there is no room next door, which
-        is every test that ticks a swarm on its own.
+        answers, for a cell near this room's edge or past it, whether a free
+        fly of the room next door is standing on it -- or, since issue #66,
+        beside it. **It is asked only near the edge** -- see `_near_the_edge`
+        -- because the port would otherwise pay for the other room's list on
+        every step of every fly for a case that arises at two columns. `None`
+        means there is no room next door, which is every test that ticks a
+        swarm on its own.
+
+        **A free fly will not step beside another free fly** (issue #66):
+        where a step used to be refused if its destination was in `taken`, it
+        is now refused if the destination is within one cell of anything in
+        it, and the same rule serves the hunting step and the drift. The
+        exemption is `_haven`: a step onto or beside a cell holding prey is
+        not checked, so the flies already round a lit person never fence off
+        the one arriving. Through a doorway the session's `held_beyond`
+        answers the same two questions with the same exemption, in the other
+        room's coordinates -- it has to, or the far room's door clot simply
+        re-forms out of flies arriving from the main room, which is what the
+        first cut of #66 measured.
         """
         self.drained = 0
         self.victim_drained = 0
         self.bitten = []
         victims = self.prey_cells(prey)
         taken = self._elbow_room(player_cell)
+        haven = self._haven(player_cell, victims)
 
         def avoid_for(cleg):
             # Where this fly may not step: another fly's cell here, a fly's
-            # cell in the room next door if the step is onto the edge, and
-            # poisoned ground if it is one of the ones that dodge.
+            # cell in the room next door if the step is onto the edge,
+            # poisoned ground if it is one of the ones that dodge, and --
+            # since issue #66 -- any cell beside another fly's, unless the
+            # step is arriving at somebody.
             poison = is_sprayed if cleg.dodges else None
-            return lambda cx, cy: (
-                (cx, cy) in taken
-                or (poison is not None and poison(cx, cy))
-                or (held_beyond is not None and _at_the_edge(cx)
-                    and held_beyond(cx, cy)))
+            here = (cleg.cx, cleg.cy)
+
+            def refused(cx, cy):
+                if (cx, cy) in taken:
+                    return True
+                if poison is not None and poison(cx, cy):
+                    return True
+                if (held_beyond is not None and _near_the_edge(cx)
+                        and held_beyond(cx, cy)):
+                    return True
+                # A step into the fly's own cell is not a step (the idle
+                # twitch of issue #61) and is not checked for neighbours:
+                # refused, the drift would re-roll a heading it would never
+                # have rolled and the log would move for no reason anybody
+                # meant. A fly can be beside another without having stepped
+                # there -- a brood hatches into the ring round its nest.
+                if (cx, cy) == here:
+                    return False
+                # Neighbours first, then the exemption, so the prey list is
+                # consulted only for a step that is about to be refused.
+                # Same answer either way round.
+                return _beside_any(cx, cy, taken) and (cx, cy) not in haven
+            return refused
         for cleg in self.clegs:
             if cleg.state == ATTACHED:
                 # It is on whoever it landed on, so it goes where they go.

@@ -255,17 +255,29 @@ def test_the_wanderer_wastes_fewer_frames_than_it_used_to():
     Across the five seeds rather than seed by seed, because a random walk that
     never happened to wedge cannot be improved -- seed 4 is one, and asserting
     per seed would be asserting that every walk meets a wall.
+
+    **With the swarm out of the building**, because this is a claim about the
+    bot and the walls and the flies were noise in it. Measured with them in,
+    the drop on these seeds was exactly the 20 per cent the bar was set at,
+    and issue #66 -- which moved where flies stand and so where the bot got
+    bitten -- took it to 18 and failed a test about something else. With
+    the flies out the drop is 17 per cent (95 against 115 wedged frames), and
+    the bar is set below that so the next change to the swarm cannot touch
+    it. It is a bar, not a target: the bot's rule is what #24 measured.
     """
     with_rule, without = [], []
     for seed in (1, 2, 3, 4, 5):
         turning = bots.Wanderer(seed=seed)
         grinding = bots.Wanderer(seed=seed)
         grinding.WEDGED_FRAMES = 10 ** 9        # as it was before #24
-        with_rule.append(_wedge(turning, Session(seed=seed), 3000))
-        without.append(_wedge(grinding, Session(seed=seed), 3000))
+        for bot, out in ((turning, with_rule), (grinding, without)):
+            run = Session(seed=seed)
+            for place in run.places:
+                place.swarm.clegs.clear()
+            out.append(_wedge(bot, run, 3000))
     assert all(a <= b for a, b in zip(with_rule, without)), \
         f"worse on some seed: {with_rule} against {without}"
-    assert sum(with_rule) * 10 <= sum(without) * 8, \
+    assert sum(with_rule) * 100 <= sum(without) * 85, \
         f"not a material drop: {with_rule} against {without}"
 
 

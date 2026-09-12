@@ -745,65 +745,79 @@ class Session:
         return lures
 
     def _held_beyond(self, place: Place):
-        """The no-two-share-a-cell rule, seen through this room's doorways.
+        """The personal-space rule, seen through this room's doorways.
 
         Returns what `Swarm.tick` takes as `held_beyond`: is the cell (cx, cy),
-        on this room's edge or past it, standing-room a free fly of the room
-        next door already has? A swarm's own `taken` set is its own flies and
-        nothing else's, and a fly stepping through a doorway lands in another
-        room's grid -- so until issue #65 the step onto the threshold was the
-        one step the rule did not see. It landed on a fly the far room's light
-        had already pinned at (0, 11), and then both were pinned there.
+        near this room's edge or past it, ground a free fly of the room next
+        door is standing on -- or, since issue #66, beside? A swarm's own
+        `taken` set is its own flies and nothing else's, and a fly stepping
+        through a doorway lands in another room's grid -- so until issue #65
+        the step onto the threshold was the one step the rule did not see. It
+        landed on a fly the far room's light had already pinned at (0, 11),
+        and then both were pinned there.
 
-        Two translations, because the same cell has a name in each room and
-        the swarm only knows its own:
+        **One translation, both ways**, because the world is continuous and
+        only the view jumps (`Doorway.rows`): a room's grid carries on into
+        the next room's at column `COLS`, so a fly next door is at
+        `(cx + COLS, cy)` seen from here through an east door and
+        `(cx - COLS, cy)` through a west one. That puts the fly *leaving* --
+        on column -1 or `COLS`, the landing next door -- and the fly
+        *arriving* -- on this room's own edge column, still in its old swarm
+        at its old coordinates until the hand-over at the end of the frame
+        (`_migrate`) -- into the same numbers the swarm's own `taken` uses,
+        and one Chebyshev compare answers on, beside, or neither. Before #66
+        these were two hand-written cases; the widened rule needed the ring
+        round both, and the translation is shorter than the cases were.
 
-        * **Past the edge** -- column -1 or `COLS` -- is the threshold, which
-          `Building.step_across` maps to the landing cell next door. That is
-          the fly *leaving* this room.
-        * **On the edge** -- column 0 or `COLS - 1` in a doorway row -- may be
-          held by a fly next door that stepped onto its threshold earlier this
-          frame and is still in its old swarm at its old coordinates, because
-          hand-over is at the end of the frame after every swarm has ticked
-          (`_migrate`). That is the fly *arriving*, seen from the room it is
-          arriving in, and the rooms tick in a fixed order so without it the
-          leak would simply have moved to the flies of whichever room ticks
-          second.
+        Only flies within a column of the wall are listed -- on the
+        threshold, on the landing, or one cell in from the landing, which is
+        beside the threshold a fly from here steps onto. Anything further in
+        is two cells from anything here, and the wall stands between
+        everything but the doorway rows.
 
-        The player's cell is exempt next door as it is at home: several flies
-        may feed on you at once, and one stepping through the doorway onto you
-        must not be refused by the ones already there (`Swarm._elbow_room`).
+        **The exemption is the swarm's, made across the wall**: a step onto
+        the player's cell next door is never refused (several flies may feed
+        at once, as at home, `Swarm._elbow_room`), and a step *beside* a fly
+        next door is not refused when it lands on or beside prey -- in either
+        room, since the haven a step is arriving in may be this room's
+        (`Swarm._haven`). Both havens are built only when a neighbour is
+        actually found, which is the rare path.
 
         A fly next door is *free* if it is not attached; the rule in
-        `_elbow_room` is the same. It is a list walk of the other room's swarm,
-        and it runs only when the swarm asks, which is only at the edge.
+        `_elbow_room` is the same. It is a list walk of the other room's
+        swarm on every call, as it was -- nothing is cached across calls,
+        because the tests move a fly and ask again -- and it runs only when
+        the swarm asks, which is only near the edge.
         """
         room = place.room
-        rooms = self.building.rooms
 
-        def free_at(index: int, cx: int, cy: int) -> bool:
-            if index == self.here and (cx, cy) == (self.player.cx,
-                                                   self.player.cy):
-                return False
-            return any(c.cx == cx and c.cy == cy
-                       and c.state != clegs_mod.ATTACHED
-                       for c in self.places[index].swarm.clegs)
+        def haven_of(index: int, shift: int) -> frozenset:
+            """The cells round prey in room `index`, seen from here."""
+            other = self.places[index]
+            player = ((self.player.cx + shift, self.player.cy)
+                      if index == self.here else None)
+            prey = {(x + shift, y) for x, y in
+                    clegs_mod.Swarm.prey_cells(self._lit_people(other))}
+            return clegs_mod.Swarm._haven(player, prey)
 
-        def held(cx: int, cy: int) -> bool:
-            if 0 <= cx < COLS:
-                # On the edge: a doorway cell of this room. Ask whether a fly
-                # next door is standing on its side of the same cell.
-                for door in room.doorways:
-                    if cx == door.column and cy in door.rows:
-                        back = rooms[door.to].doorway_to(room.index)
-                        return free_at(door.to, back.beyond, cy)
-                return False
-            # Past the edge: the threshold, which is the landing next door.
-            beyond = self.building.step_across(place.index, cx, cy)
-            if beyond is None:
-                return False
-            to, ncx, ncy = beyond
-            return free_at(to, ncx, ncy)
+        def held(cx, cy):
+            for door in room.doorways:
+                shift = COLS if door.side == EAST else -COLS
+                wall = ((COLS - 1, COLS, COLS + 1) if door.side == EAST
+                        else (-2, -1, 0))
+                other = self.places[door.to]
+                if door.to == self.here and (cx, cy) == (self.player.cx + shift,
+                                                         self.player.cy):
+                    return False
+                cells = [(c.cx + shift, c.cy) for c in other.swarm.clegs
+                         if c.state != clegs_mod.ATTACHED
+                         and c.cx + shift in wall]
+                if (cx, cy) in cells:
+                    return True
+                if clegs_mod._beside_any(cx, cy, cells):
+                    return ((cx, cy) not in haven_of(door.to, shift)
+                            and (cx, cy) not in haven_of(place.index, 0))
+            return False
 
         return held
 

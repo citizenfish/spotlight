@@ -88,7 +88,11 @@ def test_a_spotlight_left_burning_on_the_floor_is_bait():
 # --- attraction ------------------------------------------------------------
 
 def test_switching_the_light_on_draws_the_clegs_that_can_notice_it():
-    near = [C.Cleg(20 + d, 10, seed=0xBEEF + d) for d in (2, 3, 4)]
+    # Two cells apart, not one: since issue #66 a fly will not step beside
+    # another, so three in a row at 22, 23, 24 was a queue in which the last
+    # could not move until the first had arrived, and the claim here is about
+    # noticing, not queueing.
+    near = [C.Cleg(20 + d, 10, seed=0xBEEF + d) for d in (2, 4, 6)]
     swarm = C.Swarm(near)
     before = [max(abs(c.cx - 20), abs(c.cy - 10)) for c in swarm.clegs]
     _run(swarm, [(20, 10)], frames=C.STEP_EVERY * 3)

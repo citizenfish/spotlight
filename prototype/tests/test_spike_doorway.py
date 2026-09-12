@@ -491,7 +491,9 @@ def test_the_room_next_door_is_asked_only_at_the_edge():
 
     The swarm is run on an open room with a lure on its far edge so the flies
     cross it end to end, every step recorded; every cell the room next door
-    was asked about is on an edge column or past it, and none is interior.
+    was asked about is within one column of an edge or past it, and none is
+    interior. One column in from the edge since issue #66: a step onto
+    column 1 can land beside a fly next door standing on column 0.
     """
     from tests.test_spike_clegs import OPEN
 
@@ -516,7 +518,7 @@ def test_the_room_next_door_is_asked_only_at_the_edge():
         assert any(c.cx == edge for c in swarm.clegs), \
             "nothing reached the edge, so the test asked nothing"
     assert asked, "the edge was reached and the room next door never asked"
-    assert all(cx in (-1, 0, COLS - 1, COLS) for cx, _ in asked), \
+    assert all(cx in (-1, 0, 1, COLS - 2, COLS - 1, COLS) for cx, _ in asked), \
         f"asked about an interior cell: {sorted(set(asked))[:5]}"
 
 
@@ -529,6 +531,9 @@ def test_the_session_sees_the_same_cell_from_both_rooms():
     and a far-room fly stepping onto its own column 0 has to see it. The
     rooms tick in a fixed order, so without the second translation the leak
     would have moved to whichever room ticks second rather than closed.
+
+    And since issue #66 the ring round that cell is held too: a fly next
+    door holds the cell it is on and the eight around it, seen from here.
     """
     run = Session(seed=1)
     run.step()
@@ -536,26 +541,36 @@ def test_the_session_sees_the_same_cell_from_both_rooms():
     from_near = run._held_beyond(near)
     from_far = run._held_beyond(far)
 
-    # Leaving: a far-room fly on the landing holds the near room's threshold.
+    # Leaving: a far-room fly on the landing holds the near room's threshold,
+    # and the cells beside it.
     sitter = _put_flies(run, scene.FAR, [(0, DOOR_ROW)])[0]
     assert from_near(COLS, DOOR_ROW)
-    assert not from_near(COLS, DOOR_ROW + 1)
+    assert from_near(COLS, DOOR_ROW + 1), "beside it, through the doorway"
+    assert from_near(COLS - 1, DOOR_ROW + 1), "beside it, from this side"
+    assert not from_near(COLS, DOOR_ROW + 2), "two cells off is free"
+    assert not from_near(COLS - 2, DOOR_ROW), "two cells off is free"
     assert not from_near(COLS, 3), "there is no doorway on that row"
     # Attached flies do not hold ground; that is the rule at home too.
     sitter.state = clegs_mod.ATTACHED
     assert not from_near(COLS, DOOR_ROW)
+    assert not from_near(COLS, DOOR_ROW + 1)
     sitter.state = clegs_mod.HUNTING
 
     # Arriving: a near-room fly that has stepped onto the threshold and not
     # yet been handed over holds the far room's landing cell.
     crosser = _put_flies(run, scene.NEAR, [(COLS, DOOR_ROW + 1)])[0]
     assert from_far(0, DOOR_ROW + 1)
-    assert not from_far(0, DOOR_ROW - 1)
-    assert not from_far(1, DOOR_ROW + 1), "column 1 is nobody's threshold"
+    assert from_far(0, DOOR_ROW), "beside it"
+    assert not from_far(0, DOOR_ROW - 1), "two rows off"
+    assert from_far(1, DOOR_ROW + 1), "column 1 is beside the landing"
+    assert not from_far(2, DOOR_ROW + 1), "column 2 is not"
     # And the far room's own threshold is the near room's last column.
     crosser.cx = COLS - 1
     assert from_far(-1, DOOR_ROW + 1)
-    assert not from_far(-1, DOOR_ROW)
+    assert from_far(-1, DOOR_ROW), "beside it"
+    assert not from_far(-1, DOOR_ROW - 1), "two rows off"
+    assert from_far(0, DOOR_ROW + 1), "the landing is beside the threshold"
+    assert not from_far(1, DOOR_ROW + 1), "column 1 is two from the threshold"
 
 
 def test_the_player_in_the_doorway_next_door_is_not_held_ground():
