@@ -10,6 +10,12 @@ section 3 and *Screen Layout*.
   most of the time was 64 pixels of white and a figure standing against it
   disappeared into it. `test_a_remembered_wall_is_a_line_and_a_person_is_not`
   is the one that would catch that coming back.
+* **And then the remembered wall was too little** (issue #62). The outline
+  alone is what a player whose torch is off -- 80 to 95 per cent of a run --
+  saw nearly all the time, and reported as a render bug. The dim set keeps
+  the mortar courses now, dotted, at the lit tile's rows;
+  `test_the_dim_courses_are_dotted_and_sit_where_the_lit_courses_do` is what
+  stops them being centred, filled in or removed as a tidy-up.
 * A one-cell doorway was an *absence*, and an absence in a dark room is
   indistinguishable from a room that stops there.
 * A sign ate the wall it was painted on, because `font.draw_glyph` clears the
@@ -35,12 +41,24 @@ from spotlight.core.screen import Screen
 #: between them.
 INTERIOR = (0x10, 0xFF, 0x01, 0x01, 0x01, 0xFF, 0x10, 0x10)
 
+#: The dim interior (issue #62): the lit tile's two mortar courses, at the
+#: same rows, as a dotted line, and no joints. **Not** `0xFF` -- solid courses
+#: were the mock the user ruled on and on a north-south run they read as
+#: ladder rungs. The vault keeps the solid table as the two-byte alternative.
+DIM_INTERIOR = (0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0x00)
+
+#: What the dim interior was before issue #62: nothing. Kept so the derivation
+#: can be shown to reproduce the superseded set too, which is how the coursed
+#: set was checked when it was authored.
+OUTLINE_ONLY_INTERIOR = (0,) * 8
+
 #: The ink counts the vault publishes for each mask, lit and dim. They are
-#: pinned here because they are the numbers the design argues from -- "8 to 28
-#: pixels against a person's 44" is the whole claim of the slice -- and a table
-#: quoted in one place and drawn in another is a table that can drift.
+#: pinned here because they are the numbers the design argues from -- "8 to 34
+#: pixels against a follower's 36" is the whole claim of the slice -- and a
+#: table quoted in one place and drawn in another is a table that can drift.
 LIT_INK = (52, 41, 44, 34, 36, 31, 34, 28, 41, 31, 36, 29, 31, 25, 29, 22)
-DIM_INK = (48, 28, 28, 15, 28, 16, 15, 8, 28, 15, 16, 8, 15, 8, 8, 0)
+DIM_INK = (50, 34, 34, 21, 31, 22, 21, 14, 34, 23, 24, 16, 23, 16, 16, 8)
+OUTLINE_ONLY_INK = (48, 28, 28, 15, 28, 16, 15, 8, 28, 15, 16, 8, 15, 8, 8, 0)
 
 
 # --- the mask ---------------------------------------------------------------
@@ -116,8 +134,9 @@ def test_all_sixteen_masks_are_distinct_in_both_variants():
 
 
 def test_a_lit_wall_is_its_dim_wall_plus_masonry():
-    """Lit draws outline plus masonry; dim draws the outline alone. So every
-    pixel of the dim tile is in the lit one, and the difference is the brick.
+    """Lit draws outline plus masonry; dim draws the outline and the courses
+    dotted. So every pixel of the dim tile is in the lit one, and the
+    difference is the joints and every other pixel of the courses.
 
     This is what makes a remembered wall read as the same wall rather than as a
     different object, and it is what lets a painted cell swap to the dim tile
@@ -135,40 +154,93 @@ def test_the_ink_counts_are_the_ones_the_vault_publishes():
         assert tiles.ink_of(tiles.WALL_DIM[mask]) == DIM_INK[mask], mask
 
 
-def test_a_wall_deep_inside_a_mass_remembers_nothing():
-    """Mask 15 has no outline, so there is nothing of it to remember: dim draws
-    nothing at all. It is not an oversight and it is what makes a remembered
-    room a plan rather than a filled shape."""
-    assert tiles.WALL_DIM[15] == (0,) * 8
+def test_a_wall_deep_inside_a_mass_remembers_its_courses():
+    """Mask 15 has no outline, so what it remembers is the courses and nothing
+    else: eight pixels, where before issue #62 it drew none.
+
+    **That it draws something is the rule and not a bug.** The outline-only set
+    made a remembered wall mass a hole in the plan, and the user saw a room
+    whose walls had no texture for most of every run. If this ever goes back to
+    `(0,) * 8` the courses have been tidied away.
+    """
+    assert tiles.WALL_DIM[15] == DIM_INTERIOR
+    assert tiles.ink_of(tiles.WALL_DIM[15]) == 8
     assert tiles.WALL_LIT[15] == INTERIOR, "lit, it is pure masonry"
+
+
+def test_the_dim_courses_are_dotted_and_sit_where_the_lit_courses_do():
+    """**The two things a tidy-up would do to these tiles, and must not.**
+
+    The courses are at rows 1 and 5 because that is where the lit tile's are:
+    under a moving cone a wall cell flips between the two sets, and a course
+    that moved rows would make every wall twitch on every crossing of the
+    cone's edge. Centring them -- rows 2 and 5, or 3 and 4 -- is the obvious
+    tidy-up and it is wrong.
+
+    They are dotted, `0xAA`, and not solid, because solid courses were drawn
+    first and on a north-south run a solid line between the two side lines
+    reads as a ladder rung; the user ruled on that mock and the designer took
+    the rungs out. Filling them in is the other obvious tidy-up.
+    """
+    lit_courses = [r for r, bits in enumerate(INTERIOR) if bits == 0xFF]
+    dim_courses = [r for r, bits in enumerate(DIM_INTERIOR) if bits]
+    assert lit_courses == dim_courses == [1, 5]
+    for mask in range(tiles.MASKS):
+        dim, lit = tiles.WALL_DIM[mask], tiles.WALL_LIT[mask]
+        # A two-deep end cap covers row 1 (masks 0 and 4) or row 6 (0 and 1),
+        # and that is the edge rule, not the course; those rows are solid in
+        # both sets and say nothing about the interior.
+        sides_open = not mask & (tiles.EAST | tiles.WEST)
+        capped = set()
+        if sides_open and not mask & tiles.NORTH:
+            capped |= {0, 1}
+        if sides_open and not mask & tiles.SOUTH:
+            capped |= {6, 7}
+        for row in (1, 5):
+            assert lit[row] == 0xFF, f"mask {mask}: the lit course moved"
+            if row in capped:
+                continue
+            # The dotted course, plus whatever the open faces add at the
+            # ends. Between the faces it is alternate pixels and never solid.
+            assert dim[row] & 0x3C == 0x28, \
+                f"mask {mask} row {row}: the dim course is not dotted"
+        # No joints: the rows between and below the courses carry side faces
+        # and nothing else. Rows 0 and 7 are the north and south faces when
+        # those are open, so they are not asked.
+        for row in (2, 3, 4, 6):
+            if row in capped:
+                continue
+            assert dim[row] & 0x3C == 0, \
+                f"mask {mask} row {row}: something other than a face"
 
 
 def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     """**The Atic Atac property the build was missing.**
 
-    A remembered wall is 8 to 28 pixels; a waiting worker is 42. Before this a
-    wall was 64 against a figure's 60 to 68, so a figure standing against one
-    was inside it. If a future slice makes the dim tiles heavier, this is the
-    test that should stop it.
+    A remembered wall is 8 to 34 pixels (8 to 28 before issue #62 gave it
+    back its courses); a waiting worker is 42. Before the tiles a wall was 64
+    against a figure's 60 to 68, so a figure standing against one was inside
+    it. If a future slice makes the dim tiles heavier, this is the test that
+    should stop it.
 
     The player is 76 since the plan-view redraw (issue #60; 84 from slice C's
     lamp and bar until then), which is still nearly twice the ink of anybody
-    else in the room and well over twice the heaviest remembered wall. Either
+    else in the room and over twice the heaviest remembered wall run. Either
     way the figure is the heavier thing on the cell.
 
     **The follower is the lightest figure in the game at 36, down from 44,
     and that is a legibility cost priced rather than hidden** (issue #60): it
-    still out-inks every wall run it can stand beside, at 28 today and at 34
-    once the outline gains its mortar courses, and the head disc is the thing
-    the eye finds. If a session loses a follower against a wall, the head grows
-    a row before the walls lose their courses -- and this is the line that
-    says when that day has come.
+    still out-inks every wall run it can stand beside -- at 34, now that the
+    outline has its mortar courses, which is the narrowest margin in the game
+    -- and the head disc is the thing the eye finds. If a session loses a
+    follower against a wall, the head grows a row before the walls lose their
+    courses -- and this is the line that says when that day has come.
     """
     inks = [tiles.ink_of(rows) for rows in tiles.WALL_DIM]
-    assert min(inks) == 0 and max(inks) == 48, "mask 0 is a free-standing cell"
-    # Every tile that is a wall *run* rather than a lone block: 8 to 28.
+    assert min(inks) == 8 and max(inks) == 50, "mask 0 is a free-standing cell"
+    # Every tile that is a wall *run* rather than a lone block: 8 to 34.
     runs = [ink for mask, ink in enumerate(inks) if mask not in (0,)]
-    assert max(runs) <= 28
+    assert max(runs) <= 34
     for frame in sprites.WORKER_FRAMES:
         assert max(runs) < tiles.ink_of(frame) == 42
     for frame in sprites.FOLLOWER_FRAMES:
@@ -221,8 +293,13 @@ def test_the_derivation_reproduces_every_tile():
 
     for mask in range(tiles.MASKS):
         assert wall(mask, INTERIOR) == tiles.WALL_LIT[mask], mask
-        assert wall(mask, (0,) * 8) == tiles.WALL_DIM[mask], mask
+        assert wall(mask, DIM_INTERIOR) == tiles.WALL_DIM[mask], mask
         assert returns(mask) == tiles.DOORWAY[mask], mask
+        # ...and the same rule over an empty interior is the outline-only set
+        # issue #62 replaced, which is how the coursed one was checked when it
+        # was authored: the edge elements did not move, only the interior.
+        assert tiles.ink_of(wall(mask, OUTLINE_ONLY_INTERIOR)) \
+            == OUTLINE_ONLY_INK[mask], mask
 
 
 def test_an_end_cap_is_two_pixels_and_a_face_is_one():
@@ -297,7 +374,7 @@ def test_a_tile_sets_pixels_and_never_clears_or_colours_anything():
     screen = Screen()
     screen.plot(3, 3)
     before = bytes(screen.attrs)
-    tiles.blit(screen, 0, 0, tiles.WALL_DIM[15])       # an empty tile
+    tiles.blit(screen, 0, 0, (0,) * 8)                 # an empty tile
     assert screen.point(3, 3), "an empty tile cleared what was under it"
     tiles.blit(screen, 0, 0, tiles.WALL_LIT[5])
     assert screen.point(3, 3), "a tile cleared what was under it"
@@ -374,7 +451,7 @@ def test_a_lit_wall_is_drawn_as_the_tile_its_own_mask_chooses():
     assert checked > 100, "this did not look at many walls"
 
 
-def test_a_remembered_wall_shows_the_outline_and_none_of_the_masonry():
+def test_a_remembered_wall_shows_the_outline_and_the_courses_and_no_joints():
     """The slice, in one assertion: the same cell, lit and then remembered."""
     room = scene.ROOM_NEAR
     cell = (0, 5)                          # in the west wall

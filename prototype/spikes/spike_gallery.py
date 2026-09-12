@@ -16,10 +16,15 @@ rather than merely correct:
   to light a room is a second thing that can disagree with the game about what
   is in the room -- and the whole value of these images is that they are what
   the game draws.
-* **The played shots hold the torch on.** With it off the honest picture is
-  very nearly a black rectangle, which is true to the game and no use for
-  judging art; the dark is reviewed from a run's own `--snap` frames, where it
-  belongs.
+* **The played shots hold the torch on, and one of them does not.** With it
+  off the honest picture is very nearly a black rectangle, which is true to
+  the game and of limited use for judging a sprite; so the walk, the body and
+  the lamp are judged with the torch on. But **the torch is off for 80 to 95
+  per cent of a run** (the tester's figure, 2026-09-11), and every mock before
+  the after-look-1 round was drawn with it on -- which is how the walls could
+  be reviewed for three rounds and still be reported as "no texture" by the
+  user. Since issue #62 the sheet carries the near room at the same played
+  frame with the torch off, because that is the frame the game is played in.
 * **The ending screen's numbers are invented, and deliberately.** They are
   chosen to fill every row -- somebody out, somebody dead, somebody still
   inside, and a time with two digits in the minutes place -- so the sheet shows
@@ -267,8 +272,10 @@ def draw_tile_sheet(screen: Screen) -> None:
     * **that all sixteen masks are distinct in both variants** -- an earlier
       masonry interior put a mortar course on row 7, which made *south open*
       invisible and collapsed four pairs of masks onto each other;
-    * **that a remembered wall is a line and a lit one is made of something**,
-      which is the whole of the slice, side by side and at the same size; and
+    * **that a remembered wall is a line with the courses faintly in it and a
+      lit one is made of something**, side by side and at the same size --
+      the outline alone until issue #62, and mask 15 now draws its courses
+      where it drew nothing; and
     * **that the masonry has no seam in either axis**, which no table of bytes
       will ever show anybody.
     """
@@ -278,7 +285,7 @@ def draw_tile_sheet(screen: Screen) -> None:
                   bright=True)
 
     variants = (("WALL, LIT - OUTLINE AND MASONRY", tiles.WALL_LIT, True),
-                ("WALL, DIM - THE OUTLINE ALONE", tiles.WALL_DIM, False),
+                ("WALL, DIM - OUTLINE AND COURSES", tiles.WALL_DIM, False),
                 ("DOORWAY - RETURNS INTO A GAP", tiles.DOORWAY, True))
     for n, (label, table, bright) in enumerate(variants):
         top = _TILE_TOP + n * _TILE_BLOCK
@@ -352,7 +359,7 @@ def lit_room(index: int) -> tuple:
 
 
 def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
-                frame: int | None = None) -> Screen:
+                frame: int | None = None, torch: bool = True) -> Screen:
     """One room, drawn: fully revealed, or as it looks after `frames` of play.
 
     A fresh session each time. Sharing one would mean the second picture was of
@@ -368,6 +375,13 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     judged, and a single played frame shows one stride of a walk with no way
     to see the other. So the same kept frame is drawn twice, and the two
     pictures differ only in the people's feet and hands.
+
+    `torch` is whether the listener holds the torch on. **Off is the frame the
+    game is played in** (issue #62): the same bot, the same seed and the same
+    frame count, with the room lit by the glow, the searchlight and whatever
+    the fade still remembers. It is the frame the wall tiles are judged on,
+    because a remembered wall is what a player sees beside them nearly all of
+    the time and a lit one is what they see under the cone for a moment.
     """
     if lit:
         return lit_room(index)[1]
@@ -375,7 +389,7 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     enter(run, index)
     screen = Screen()
 
-    bot = bots.make("listener", seed=GALLERY_SEED, light=True)
+    bot = bots.make("listener", seed=GALLERY_SEED, light=torch)
     kept = None
     for _ in range(frames):
         run.step(bot.intent(run))
@@ -781,6 +795,12 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
         for letter, frame in (("a", 0), ("b", 1)):
             sheet(f"room-{slug(room.name)}-played-{letter}",
                   room_screen(index, lit=False, frame=frame))
+    # **The frame the game is played in** (issue #62): the near room at the
+    # same played instant with the torch off, which is where the remembered
+    # walls are seen and where they were never photographed before. Feet as
+    # the game had them -- the walk is judged on the pair above, not here.
+    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-torch-off",
+          room_screen(scene.NEAR, lit=False, torch=False))
     # The one thing on the sprite sheet that a played frame cannot otherwise
     # show: a spotlight burning where somebody put it down.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",

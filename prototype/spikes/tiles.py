@@ -19,9 +19,22 @@ The rule everything below draws to:
     **Pattern is a property of light. Shape is a property of the building.**
 
 A wall you can see is made of something; a wall you are only remembering is a
-line you once saw. So lit draws outline plus masonry, dim draws the outline
-alone, and mask 15 -- a cell deep inside a wall mass, with no outline to
-remember -- draws nothing at all when it is only remembered.
+line you once saw, with the courses of the brick still faintly in it. So lit
+draws outline plus masonry, and dim draws the outline plus the two mortar
+courses **dotted**, at the same rows, with no joints.
+
+**The dim set was the outline alone until issue #62**, and mask 15 -- a cell
+deep inside a wall mass, with no outline to remember -- drew nothing. That was
+by design and it was what a player saw for most of a run: the torch is off for
+80 to 95 per cent of one, so the walls beside you were plan lines nearly all
+the time, and the user reported it as "the walls need more texture, I think
+this is a render bug". It was not -- zero mismatches in 890,471 cell checks --
+and the ruling was that the remembered wall keeps its courses, so the flip
+between lit masonry and remembered outline under the cone is smaller. The
+courses are dotted because solid ones read as ladder rungs on a north-south
+run; see `assets/tiles/wall_dim.txt`, which is where that rule is kept beside
+the art. The fade was not touched: a longer hold for wall cells was a different
+option of the same ruling and was not chosen.
 
 **The tiles are not here.** They are authored in `assets/tiles/*.txt` and
 generated into `bitmaps_gen.py` by `tools/bitmaps.py`, so the same bytes reach
@@ -78,7 +91,9 @@ def _table(prefix: str) -> tuple:
 #: A wall you can see: outline plus masonry.
 WALL_LIT = _table("WALL_LIT")
 
-#: A wall you are only remembering: the outline alone. Mask 15 is empty.
+#: A wall you are only remembering: the outline, and the mortar courses as a
+#: dotted line. Mask 15 is the two courses and nothing else (8 pixels; it was
+#: empty before issue #62).
 WALL_DIM = _table("WALL_DIM")
 
 #: The returns for a `d` cell: short ticks continuing each wall it touches into

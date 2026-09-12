@@ -403,37 +403,37 @@ WALL_DIM_00:
         DEFB $C3                   ; ##....##
         DEFB $C3                   ; ##....##
         DEFB $C3                   ; ##....##
-        DEFB $C3                   ; ##....##
+        DEFB $EB                   ; ###.#.##
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
 
 WALL_DIM_01:
         DEFB $81                   ; #......#   mask  1, N
+        DEFB $AB                   ; #.#.#.##
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
-        DEFB $81                   ; #......#
-        DEFB $81                   ; #......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
 
 WALL_DIM_02:
         DEFB $FF                   ; ########   mask  2, E
+        DEFB $EA                   ; ###.#.#.
         DEFB $C0                   ; ##......
         DEFB $C0                   ; ##......
         DEFB $C0                   ; ##......
-        DEFB $C0                   ; ##......
-        DEFB $C0                   ; ##......
+        DEFB $EA                   ; ###.#.#.
         DEFB $C0                   ; ##......
         DEFB $FF                   ; ########
 
 WALL_DIM_03:
         DEFB $80                   ; #.......   mask  3, NE
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $FF                   ; ########
 
@@ -443,117 +443,117 @@ WALL_DIM_04:
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
-        DEFB $81                   ; #......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
 
 WALL_DIM_05:
         DEFB $81                   ; #......#   mask  5, NS
+        DEFB $AB                   ; #.#.#.##
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
-        DEFB $81                   ; #......#
-        DEFB $81                   ; #......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $81                   ; #......#
         DEFB $81                   ; #......#
 
 WALL_DIM_06:
         DEFB $FF                   ; ########   mask  6, ES
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
 
 WALL_DIM_07:
         DEFB $80                   ; #.......   mask  7, NES
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
-        DEFB $80                   ; #.......
+        DEFB $AA                   ; #.#.#.#.
         DEFB $80                   ; #.......
         DEFB $80                   ; #.......
 
 WALL_DIM_08:
         DEFB $FF                   ; ########   mask  8, W
+        DEFB $AB                   ; #.#.#.##
         DEFB $03                   ; ......##
         DEFB $03                   ; ......##
         DEFB $03                   ; ......##
-        DEFB $03                   ; ......##
-        DEFB $03                   ; ......##
+        DEFB $AB                   ; #.#.#.##
         DEFB $03                   ; ......##
         DEFB $FF                   ; ########
 
 WALL_DIM_09:
         DEFB $01                   ; .......#   mask  9, NW
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $FF                   ; ########
 
 WALL_DIM_10:
         DEFB $FF                   ; ########   mask 10, EW
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $FF                   ; ########
 
 WALL_DIM_11:
         DEFB $00                   ; ........   mask 11, NEW
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $FF                   ; ########
 
 WALL_DIM_12:
         DEFB $FF                   ; ########   mask 12, SW
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
 
 WALL_DIM_13:
         DEFB $01                   ; .......#   mask 13, NSW
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
-        DEFB $01                   ; .......#
+        DEFB $AB                   ; #.#.#.##
         DEFB $01                   ; .......#
         DEFB $01                   ; .......#
 
 WALL_DIM_14:
         DEFB $FF                   ; ########   mask 14, ESW
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 WALL_DIM_15:
         DEFB $00                   ; ........   mask 15, NESW
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $00                   ; ........
+        DEFB $AA                   ; #.#.#.#.
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 

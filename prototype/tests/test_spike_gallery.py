@@ -86,7 +86,12 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # rounds, a person-shaped smudge in a room.
     body = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-body"
     assert f"{body}_x1.png" in names and f"{body}_x3.png" in names
-    assert len(paths) == len(names) == 22 + 6 * len(scene.BUILDING.rooms)
+    # **The frame the game is played in** (issue #62): the torch off. Every
+    # mock before 2026-09-11 was drawn with it on, and the tester's numbers
+    # say it is off for 80 to 95 per cent of a run.
+    dark = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-torch-off"
+    assert f"{dark}_x1.png" in names and f"{dark}_x3.png" in names
+    assert len(paths) == len(names) == 24 + 6 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -375,6 +380,56 @@ def test_the_lit_shot_shows_the_whole_room_and_the_played_one_does_not():
     lit = gallery.room_screen(scene.NEAR, lit=True)
     played = gallery.room_screen(scene.NEAR, lit=False, frame=0)
     assert lit_cells(lit) > lit_cells(played) * 2
+
+
+def _drawn_cell(screen: Screen, cx: int, cy: int) -> tuple:
+    """What is actually in a cell, as eight bytes."""
+    return tuple(
+        sum(0x80 >> dx for dx in range(CELL)
+            if screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx])
+        for dy in range(CELL))
+
+
+def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
+    """**The picture nobody had taken** (issue #62).
+
+    The user said the walls needed more texture and thought it was a render
+    fault. It was not: with the torch off -- most of a run -- a wall beside
+    you is the *remembered* tile, and the remembered tile was the outline
+    alone. Every mock and every gallery frame before 2026-09-11 had the torch
+    on, so the walls were only ever reviewed as masonry. This frame is the
+    Listener's three-hundredth frame in room A with the torch off, which is
+    the frame the designer's mock was drawn in and the frame the ruling was
+    made on.
+
+    Three things are asserted: the torch really is off (the frame is far
+    darker than the torch-on one and is not the same picture); at least one
+    wall cell in it is drawn as the *dim* tile its mask asks for and not the
+    lit one; and that dim tile has its courses in it, which is the change.
+    """
+    off = gallery.room_screen(scene.NEAR, lit=False, torch=False)
+    on = gallery.room_screen(scene.NEAR, lit=False, frame=0)
+    assert bytes(off.pixels) != bytes(on.pixels)
+    assert lit_cells(off) < lit_cells(on)
+
+    room = scene.BUILDING[scene.NEAR]
+    remembered = []
+    for cy in range(PLAY_ROWS):
+        for cx in range(COLS):
+            if not room.is_wall(cx, cy):
+                continue
+            mask = tiles.mask_at(room.is_wall, cx, cy)
+            drawn = _drawn_cell(off, cx, cy)
+            if drawn == tiles.WALL_DIM[mask] and drawn != tiles.WALL_LIT[mask]:
+                remembered.append((cx, cy, mask))
+    assert remembered, "no wall in the torch-off frame is drawn remembered"
+    # ...and the remembered tile is the coursed one: its rows 1 and 5 carry
+    # the dotted course. A run tile has a side face on those rows too, so ask
+    # for the course's own bits between the faces.
+    coursed = [(cx, cy) for cx, cy, mask in remembered
+               if tiles.WALL_DIM[mask][1] & 0x3C == 0x28
+               or tiles.WALL_DIM[mask][5] & 0x3C == 0x28]
+    assert coursed, "no remembered wall in the frame shows its courses"
 
 
 def test_each_lit_room_is_the_room_it_is_named_after():
