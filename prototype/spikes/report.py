@@ -741,25 +741,34 @@ def sound_lines(run) -> list[str]:
 
 
 def music_lines(run) -> list[str]:
-    """What became of the music. Issue #55, and it is the dropout, measured.
+    """What the siren was doing. Issue #55 for the dropout, #67 for the siren.
 
-    Three ways of losing a frame and they mean different things, so they are
-    reported apart rather than as one silence:
+    Four states a frame of music can be in, and they are said in this order
+    because they mean different things:
 
+    * **waiting** -- the siren is in its rest. Two thirds of every frame there
+      is, **by design**, and the line says so rather than leaving a reader to
+      take the largest figure on it for a fault. It was called *resting* while
+      the ostinato was under the game and the metric keeps that name. It runs
+      a little under two thirds in a run, because a frame something louder
+      had is counted as taken before the music is asked whether it was
+      resting: the frame is arbitrated first and the music last, and that
+      order is not this line's to change.
+    * **wailing** -- heard, in whole half-cycles. `half-cycles` is the figure
+      that says how much of the wail survived rather than how many frames it
+      appeared in: a frame that afforded one flip is a click and not a pitch.
     * **taken** -- a sonar click, a body tick or an effect had the frame. This
-      is the arbitration working and it is the smaller of the two thinnings.
-    * **no time** -- nothing else wanted the frame and the building had already
+      is the arbitration working.
+    * **starved** -- nothing else wanted the frame and the building had already
       spent it. **This is the dropout**, and it is the one the design has been
       leaning on since 2026-09-06: the score drops away as the room fills and
-      comes back when it empties, which nobody implemented.
-    * **resting** -- the tune itself is between pulses. Not a loss at all, and
-      it is here so that the other two are read against the frames the music
-      actually wanted.
+      comes back when it empties, which nobody implemented. Under the siren it
+      should read zero in any room the sample has seen, because the wail
+      holds a pitch to eighteen Clegs and a click to the ceiling.
 
-    `half-cycles` is the figure that says how much of the tune survived rather
-    than how many frames it appeared in: a frame that afforded one flip is a
-    click and not a pitch, and a run can have a great many frames of music in
-    it and very little music.
+    The line is written for the siren but reads nothing that is the siren's
+    alone, so a `Tune` under the run would get the same sentence with its own
+    name in it.
     """
     if run.voice is None or run.voice.music is None \
             or run.voice.music.tune is None:
@@ -767,14 +776,15 @@ def music_lines(run) -> list[str]:
     music = run.voice.music
     wanted = music.heard + music.taken + music.starved
     return _wrap(
-        f"Music: the {music.tune.name} was heard on {music.heard} frames of "
-        f"the {wanted} it wanted, in {music.halves} half-cycles. "
-        f"{music.taken} frames went to something louder and {music.starved} "
-        f"had no time left in them for a whole half-cycle of the note in play "
-        f"-- that second figure is the dropout, and it is "
-        f"{tune.SPENDABLE_TSTATES:,} T-states less {tune.FIXED_TSTATES:,} "
-        f"fixed less {building_mod.CLEG_COST:,} a Cleg, with nothing rounded "
-        f"up.")
+        f"Music: the {music.tune.name} was waiting on {music.resting} frames "
+        f"of {run.frame}, which is its rest and not a loss, and asked for the "
+        f"other {wanted}: it was wailing on {music.heard} of them, in "
+        f"{music.halves} half-cycles; {music.taken} were taken by something "
+        f"louder; {music.starved} were starved, with no time left in them for "
+        f"a whole half-cycle of the wail. That last figure is the dropout, "
+        f"and it is {tune.SPENDABLE_TSTATES:,} T-states less "
+        f"{tune.FIXED_TSTATES:,} fixed less {building_mod.CLEG_COST:,} a "
+        f"Cleg, with nothing rounded up.")
 
 
 def note(run, bot: str = "", label: str = "",

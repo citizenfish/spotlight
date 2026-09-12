@@ -449,13 +449,16 @@ class Session:
         #: a setting anybody should want. With no voice the game is silent: the
         #: alternative would be a second copy of the arbitration order living
         #: in the session, which is the drift this slice exists to end.
-        #: **The ostinato, from the first frame of a run** (issue #55). The
-        #: theme belongs to the title screen and the ending screen is silent,
-        #: so this is the only tune the session ever starts -- and it is handed
-        #: to the voice rather than kept beside it, because *music is the
-        #: bottom of the arbitration order* has to be one object's rule or it
-        #: is nobody's.
-        self.voice = (sounds.Voice(tune_mod.Music(tune_mod.OSTINATO))
+        #: **The siren, from the first frame of a run** (issue #67; the
+        #: ostinato it replaced was issue #55). The theme belongs to the title
+        #: screen and the ending screen is silent, so this is the only tune
+        #: the session ever starts -- and it is handed to the voice rather
+        #: than kept beside it, because *music is the bottom of the
+        #: arbitration order* has to be one object's rule or it is nobody's.
+        #: It opens on the wail, as the sketch the user ruled on did; a start
+        #: offset so a run opens in the rest is one integer and is not
+        #: settled.
+        self.voice = (sounds.Voice(tune_mod.Music(tune_mod.SIREN))
                       if sound else None)
         #: Where the next hatchling's temperament comes from. Its own chain,
         #: run on from the starting swarm's, so no fly in the building shares a

@@ -418,9 +418,11 @@ def tune_wave(which, clegs: int = 0, loops: int = 1) -> bytes:
 
     `clegs` is how many are on screen for every frame of it, so `0` is the tune
     with the building quiet and `tune.WORST_CLEGS` is the tune the port model
-    says cannot be heard at all. Nothing here decides anything: the note comes
-    from the table, the leftover from the budget, and the half-cycles from the
-    two of them.
+    says cannot be heard at all -- or, for the siren, can be heard as a single
+    flip at the top of the wail and nothing else. Nothing here decides
+    anything: the period comes from the tune, the leftover from the budget,
+    and the half-cycles from the two of them. `which` is a `Tune` or a
+    `Siren`; this does not ask.
     """
     music = tune.Music(which)
     synth = MusicSynth()
@@ -431,16 +433,25 @@ def tune_wave(which, clegs: int = 0, loops: int = 1) -> bytes:
     return b"".join(out)
 
 
-def tune_under_load(which, worst: int = tune.WORST_CLEGS) -> bytes:
+def tune_under_load(which, worst: int = tune.WORST_CLEGS,
+                    span: int | None = None) -> bytes:
     """The tune with the room filling up, from nothing to the worst case.
 
-    **The file the ruling is about.** The Cleg count climbs evenly across one
-    pass of the tune, so what is heard is the leftover being eaten: the bass
-    goes first, because a half-cycle of A2 is the longest thing in the table,
-    then the middle of the tune, and at the worst case nothing at all. No fade
-    and no envelope -- every step of it is `52,416 - fixed - 830n` and an
-    integer division, where the 830 is `building.CLEG_COST` read through
+    **The file the ruling is about.** The Cleg count climbs evenly across
+    `span` frames -- one pass of the tune unless told otherwise -- so what is
+    heard is the leftover being eaten: on the theme the bass goes first,
+    because a half-cycle of A2 is the longest thing in the table, then the
+    middle of the tune, and at the worst case nothing at all. No fade and no
+    envelope -- every step of it is `52,416 - fixed - 830n` and an integer
+    division, where the 830 is `building.CLEG_COST` read through
     `tune.leftover`.
+
+    **`span` exists for the siren** (issue #67), which rests for two thirds
+    of its cycle: a climb spread over the whole cycle would reach twelve
+    Clegs by the end of the wail and never thin it. Spread over the wail
+    alone, the file is the wail losing half-cycles from seven to none at the
+    foot and thirteen to one at the top, and then the rest at the worst case,
+    which is silent anyway.
 
     **The climb is twice as long as it was**, because the worst case moved
     from eighteen Clegs to thirty-six on 2026-09-11 when the music stopped
@@ -456,14 +467,19 @@ def tune_under_load(which, worst: int = tune.WORST_CLEGS) -> bytes:
     synth = MusicSynth()
     out = []
     frames = which.frames
+    span = frames if span is None else span
     for frame in range(frames):
-        clegs = frame * (worst + 1) // frames
+        # Past the span the count stays at the worst case rather than one
+        # beyond it; with the default span `min` never bites and this is
+        # the arithmetic the ostinato's file was rendered with, unchanged.
+        clegs = min(frame, span - 1) * (worst + 1) // span
         slice_ = music.update(clegs, free=True)
         out.append(synth.frame(slice_.period, slice_.halves))
     return b"".join(out)
 
 
-def tune_with_sonar(which, bank: "Bank | None" = None) -> bytes:
+def tune_with_sonar(which, bank: "Bank | None" = None,
+                    loops: int = 1) -> bytes:
     """The tune with a swarm closing over it and going away again.
 
     **The file the whole exercise exists for**, and the one the audio sketch
@@ -482,12 +498,18 @@ def tune_with_sonar(which, bank: "Bank | None" = None) -> bytes:
     file that only ever gets worse cannot show it. The distance drives a real
     `buzz.Sonar`, so the rate is the game's own; the count and the distance are
     a script and are not a measurement of anything.
+
+    `loops` is how many passes of the tune the swarm's visit is spread over.
+    The siren is rendered over two, as the sketch was, so that the swarm is on
+    top of you at the start of the second wail and goes out over it -- the
+    question that file asks is whether a hole in a glide reads as *carried on
+    the wind*, and a hole in the rest is not a hole in anything.
     """
     bank = bank or Bank()
     music = tune.Music(which)
     voice = sounds.Voice(music)
     sonar = buzz.Sonar()
-    frames = which.frames
+    frames = which.frames * loops
     out = []
     for frame in range(frames):
         # Out and back: at the middle of the file the swarm is on top of you.
@@ -544,17 +566,22 @@ def bank_files(out_dir: str) -> list:
                                sonar_wave(distance, bank=bank)))
     paths.append(write_wav(os.path.join(out_dir, "tick.wav"),
                            tick_wave(bank=bank)))
-    # The two tunes, and then the two files that are about the dropout rather
-    # than about the tune (issue #55). `ostinato-with-sonar.wav` is the one the
-    # design's four-year-old claim is judged on.
+    # The theme and the siren, and then the two files that are about the
+    # dropout rather than about the tune (issue #55). The siren's three are
+    # cut as the sketch the user ruled on was cut (issue #67): two cycles
+    # alone, the wail thinning to the worst case, and a swarm arriving over
+    # two cycles so that it is on top of you as the second wail starts.
+    # `siren-with-sonar.wav` is the one the design's claim that *the music
+    # thinning out is itself a warning* is judged on.
     paths.append(write_wav(os.path.join(out_dir, "theme.wav"),
                            tune_wave(tune.THEME)))
-    paths.append(write_wav(os.path.join(out_dir, "ostinato.wav"),
-                           tune_wave(tune.OSTINATO)))
-    paths.append(write_wav(os.path.join(out_dir, "ostinato-under-load.wav"),
-                           tune_under_load(tune.OSTINATO)))
-    paths.append(write_wav(os.path.join(out_dir, "ostinato-with-sonar.wav"),
-                           tune_with_sonar(tune.OSTINATO, bank=bank)))
+    paths.append(write_wav(os.path.join(out_dir, "siren.wav"),
+                           tune_wave(tune.SIREN, loops=2)))
+    paths.append(write_wav(os.path.join(out_dir, "siren-under-load.wav"),
+                           tune_under_load(tune.SIREN,
+                                           span=tune.SIREN.wail)))
+    paths.append(write_wav(os.path.join(out_dir, "siren-with-sonar.wav"),
+                           tune_with_sonar(tune.SIREN, bank=bank, loops=2)))
     return paths
 
 

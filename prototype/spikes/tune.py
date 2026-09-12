@@ -1,44 +1,95 @@
-"""The two tunes, as data, and the one thing that breaks them up.
+"""The siren under the game, the theme on the title, and the one thing that
+breaks them up.
 
-Issue #55, from *Music and Sound#The tunes, as data* for the grid and the two
-tables and *Music and Sound#The dropout, in the prototype* for the ruling this
-module obeys. Portable: no pygame, no numpy, no float literal, and every entry
-in every table is an integer -- **so that the port inherits data rather than a
-performance.** The sketch that settled the idiom was a throwaway script and only
-its WAVs were kept, which is exactly how a tune stops being data, and this
-module is the answer to that.
+Issue #55 built this from *Music and Sound#The tunes, as data* and *Music and
+Sound#The dropout, in the prototype*; issue #67 put a siren under the game
+from *Music and Sound#The siren, sketched*. Portable: no pygame, no numpy, no
+float literal, and every entry in every table is an integer -- **so that the
+port inherits data rather than a performance.** The sketch that settled the
+tune idiom was a throwaway script and only its WAVs were kept, which is exactly
+how a tune stops being data, and this module is the answer to that. The siren
+went the same way -- a throwaway script rendered it and the user ruled on the
+WAV -- and what it inherits is four integers and a shape, held here.
 
 `spike_sound.py` turns what is decided here into audio and is the only part that
 is not portable. Same seam as `sounds`/`spike_sound`, `buzz`/`spike_buzz` and
 `core`/`frontend`.
 
-## Where the tunes play
+## Where each one plays
 
-The theme on the title screen, the ostinato in play from the first frame of a
-run, and **nothing on the ending screen** -- the ending is silence and a count
-and it stays that way.
+The theme on the title screen, the siren in play from the first frame of a run,
+and **nothing on the ending screen** -- the ending is silence and a count and it
+stays that way.
 
-## The grid
+**The siren is in play only, and the theme stays on the title** (ruled
+2026-09-12). Ambience under a menu is nothing: twelve seconds of silence
+between wails on a screen where nothing happens reads as an idle machine, where
+the theme reads as a game waiting. Separate table, separate `Music`; only the
+run's tune changed.
+
+## The siren
+
+A wail: the period falls for three seconds, rises for three, and rests for
+twelve. Four integers:
+
+    low     8,750 T-states (400 Hz)   where the wail starts and ends
+    high    5,000 T-states (700 Hz)   the top of it
+    sweep   150 frames up, 150 down   six seconds of wail
+    rest    600 frames                twelve seconds of nothing
+    cycle   900 frames, 18s, and it loops
+
+**The period steps by 25 T-states a frame and is linear in the period, not in
+the frequency.** The Z80 decrements a delay constant and does not compute a
+frequency -- the same rule the effects' glides obey -- so the sweep sags
+toward the low end the way a decremented delay does, and there is no division
+anywhere in it. The step is `(8,750 - 5,000) / 150`, exact, and `Siren` refuses
+to be built with a sweep that does not divide.
+
+**It starts on frame 0 of a run with the wail**, as the sketch did. A start
+offset so that a run opens in the rest is one integer and is not settled here.
+
+**Why 400 to 700 Hz and not lower.** Low is loud and near on this speaker, and
+below about 213 Hz a half-cycle is longer than a quiet frame can afford four of
+-- which is where the ostinato's bass lived, and why under load it was a pulse
+and not a pitch. The siren holds a pitch at every load up to eighteen Clegs;
+see `test_spike_tune.py` for the figures.
+
+**What the siren has no articulation to hide.** Every note this engine plays is
+gated at frame rate: the leftover buys 43-46% of a frame of tone and the bit
+is held for the rest. The ostinato's eight-of-twelve articulation covered that
+gate; a six-second glide with nothing else happening exposes it. **Do not
+smooth it.** It is the machine, it was in the sketch, and the user heard it and
+ruled. Fragments and fades are the idea already tried and put back, below.
+
+## The ostinato, which left
+
+Until 2026-09-12 the run's tune was a twelve-bar A pedal with one lean on G;
+the user asked for *more of a distant siren*, heard one, and took it. The table
+is not here any more. **The vault is its record** -- *Music and Sound#The
+ostinato* keeps it struck through, with the arithmetic that found every note
+of its bass below the pitch floor -- and a superseded table in a module is a
+table somebody will play again by accident.
+
+## The grid, which the theme is still on
 
     a unit   12 frames, 240ms
     a bar    8 units, as three cells of 3, 3, 2
-    ostinato 12 bars -- 1,152 frames, 23.0s, and it loops
     theme    12 bars and a one-bar tag -- 1,248 frames, 25.0s, and it loops
 
 The bass takes the two three-unit cells and the two-unit cell is the answer: the
 bass again in most bars, the motif in the few where it speaks. **The bass and
 the motif take turns inside the bar because a single bit cannot sound two
-notes**, and there are no chords anywhere in either tune. That is not a
-limitation being worked around; it is why the idiom was chosen.
+notes**, and there are no chords anywhere in it. That is not a limitation being
+worked around; it is why the idiom was chosen.
 
-**The tables are a reconstruction and are labelled as one in the vault.** What
+**The table is a reconstruction and is labelled as one in the vault.** What
 survived the sketch is the durations, the idiom and a description; the grid is
-derived from the durations and the pitches were authored fresh. They are meant
-to be argued with, and *Music and Sound#What to listen for* already says which
+derived from the durations and the pitches were authored fresh. It is meant to
+be argued with, and *Music and Sound#What to listen for* already says which
 way: if the idiom is wrong the fix is not chords, because there are none
 available -- it is to let the motif move further and to break the 3-3-2 more
 often. **That costs a table and not a line of code**, which is the whole reason
-the tunes are written this way, and `test_spike_tune.py` pins it by changing a
+the tune is written this way, and `test_spike_tune.py` pins it by changing a
 table and watching the render move.
 
 ## The dropout, which is the point of the slice
@@ -55,7 +106,8 @@ priced the music at twice the drawing.
 and renders **whole half-cycles of the note in play until that leftover is
 spent.** A frame that affords three plays three and then nothing; a frame that
 affords none is silent. No fade, no envelope, no smoothing across frames and no
-buffering.
+buffering. The siren is the bottom of the arbitration as the ostinato was, and
+it loses whole frames to the sonar, the tick and the effects in the same way.
 
 **Half-cycles are indivisible because a beeper flips a bit or it does not.**
 That is the one and only floor, and it is not a compromise: the machine cannot
@@ -85,19 +137,21 @@ the sample of **twenty-five**:
     frames with the bass gone   0.24%       13.37%
     frames with no music at all 0.00%        1.19%
 
-**So at the honest cost the music does not quite go in an ordinary room.** That
-is a real loss and the ruling of 2026-09-11 accepted it with its eyes open: the
-dropout's arithmetic property is untouched and only the worst case moved, and
-the warning the dropout was carrying has a better home anyway. Since slice F
-the music also loses whole frames outright to the sonar, the tick and the
-effects, measured at 8.2% of frames at the edge of hearing against 21.9% at
-contact. That thinning tracks **distance**, which a player can act on, where a
+Those are the ostinato's figures and they are kept because the ruling was
+made on them. **The siren fires rarer still**: its foot at 400 Hz affords four
+half-cycles -- a pitch, not a click -- up to eighteen Clegs and one up to
+thirty-four, and its top at 700 Hz still affords one flip at the entity ceiling
+itself. So at the honest cost the siren does not go in any room the sample has
+seen; it thins to a click at the very top of a full one. Since slice F the
+music also loses whole frames outright to the sonar, the tick and the effects,
+measured at 8.2% of frames at the edge of hearing against 21.9% at contact.
+That thinning tracks **distance**, which a player can act on, where a
 population-driven dropout tracks something they cannot.
 
 The leftover curve stays, unchanged in kind, firing rarely. **The day a room
 really is full, the music really should go** -- and if the design wants the
 music to thin in rooms that are merely busy, that has to be authored in the
-tables, not bought back by mispricing a fly.
+data, not bought back by mispricing a fly.
 
 ## What this cannot tell anybody, stated rather than left to be believed
 
@@ -106,7 +160,10 @@ the machine flips a bit from a loop whose length wobbles by a few T-states. The
 prototype's disintegration is therefore *cleaner* than the target's and its
 steady pitches steadier. Pitch stability under a variable frame is open, it is
 not closeable by a Python synth, and nothing rendered from this module may be
-read as evidence about it.
+read as evidence about it. **And one thing more for the siren**: a glide whose
+step is 25 T-states a frame is a smooth ramp here and will be a 25-T-state
+stair on the machine; at these periods that is a third of a percent a step and
+nobody will hear it, but it is not nothing.
 
 ## What fell out of the arithmetic and was not designed
 
@@ -114,18 +171,21 @@ Worth knowing before listening, because it sounds like a fault and is not:
 **the bass is the first thing the load takes and the motif is the last.** A
 half-cycle of A2 is 15,909 T-states, so a frame affords at most two of them even
 with nothing on screen, and none at all past twenty Clegs; a half-cycle of A4 is
-3,977, so the answering motif is still there at thirty-four. Under load the tune
-loses its floor before it loses its voice. That is not a choice anybody made --
-it is what *whole half-cycles of the leftover* means when the bass is two
-octaves below the motif -- and if it is wrong, *Music and Sound* has already
-ruled which way to fix it: the in-game music becomes sparser still, in the
-tables above, rather than the engine becoming kinder.
+3,977, so the answering motif is still there at thirty-four. Under load a tune
+on this table loses its floor before it loses its voice. That is not a choice
+anybody made -- it is what *whole half-cycles of the leftover* means when the
+bass is two octaves below the motif -- and it is half of why the siren sits
+where it does: 400 Hz is above the floor, and the siren has no bass to lose.
+The theme only ever plays at the one load the title gives it, which is none.
 
 **An idea tried and put back**, because obvious ideas get had twice: rendering
 the *remaining* fraction of a half-cycle at the end of a frame, so that a frame
 with 1.7 half-cycles' worth of leftover sounds for all of it. It is smoother and
 it is a lie -- the bit is flipped by a loop that either completes or does not,
-and a fragment claims a pitch the fragment does not contain.
+and a fragment claims a pitch the fragment does not contain. **The same idea
+came back with the siren** dressed as bridging the held bit across frames so
+the six-second glide reads as continuous; it is the same lie about a longer
+note, and the user ruled on the gate as sketched.
 """
 
 from dataclasses import dataclass
@@ -197,31 +257,19 @@ NOTE_NAMES = ("rest", "G2", "A2", "A3", "C4", "E4", "G4", "A4")
 #: and the motif differ in octave and in nothing else.
 DUTY = 2
 
-# --- the two tunes ----------------------------------------------------------
+# --- the title theme ---------------------------------------------------------
 #
 # One row a bar, three pitches a row: the 3-unit cell, the 3-unit cell and the
-# 2-unit answer. **These are the tune.** Nothing below this line reads them
-# except the sequencer, and the sequencer does not care what is in them.
+# 2-unit answer. **This is the tune.** Nothing below this line reads it except
+# the sequencer, and the sequencer does not care what is in it.
+#
+# **There used to be a second table here**, the ostinato, and it is gone rather
+# than commented out or kept under a flag. The vault holds it struck through
+# with the arithmetic that retired it; a superseded table in the module is one
+# somebody hands to `Tune` again by accident.
 
-#: The in-game music: an A pedal with one lean on G, and a motif that answers
-#: three times in twelve bars. Twelve bars, 1,152 frames, 23.0s, and it loops.
-OSTINATO_BARS = (
-    (A2, A2, A2),   # 1
-    (A2, A2, A2),   # 2
-    (A2, A2, A2),   # 3
-    (A2, A2, E4),   # 4   the motif speaks
-    (A2, A2, A2),   # 5
-    (A2, A2, A2),   # 6
-    (A2, A2, A2),   # 7
-    (A2, A2, C4),   # 8   and again, a tone lower
-    (G2, G2, G2),   # 9   the one lean on G
-    (G2, G2, G2),   # 10
-    (A2, A2, A2),   # 11
-    (A2, A2, A3),   # 12  the bass answers itself an octave up, and it loops
-)
-
-#: The title theme: the same grid and the same pedal, with the motif speaking
-#: every other bar and moving further, and a tag that lands on the tonic an
+#: The title theme: an A pedal with one lean on G, the motif speaking every
+#: other bar and moving as far as A4, and a tag that lands on the tonic an
 #: octave up. Twelve bars and a tag, 1,248 frames, 25.0s, and it loops.
 THEME_BARS = (
     (A2, A2, A2),   # 1
@@ -232,7 +280,7 @@ THEME_BARS = (
     (A2, A2, A4),   # 6   the furthest the motif goes
     (A2, A2, A2),   # 7
     (A2, A2, G4),   # 8
-    (G2, G2, G2),   # 9   the lean on G, as the ostinato has it
+    (G2, G2, G2),   # 9   the lean on G
     (G2, G2, E4),   # 10
     (A2, A2, A2),   # 11
     (A2, A2, C4),   # 12
@@ -298,12 +346,122 @@ class Tune:
         return PERIODS[self.note(frame)]
 
 
-#: The two tunes, built once. A `Tune` holds no state, so one of each is
-#: enough and a test may hand a different table to the same class.
-OSTINATO = Tune("ostinato", OSTINATO_BARS)
+# --- the siren --------------------------------------------------------------
+
+#: Where the wail starts and ends: 400 Hz, `3_500_000 // 400`. Quoted rather
+#: than computed, as `PERIODS` is, so that the port is handed a delay constant;
+#: `test_spike_tune.py` checks it against `sounds.period_of`.
+SIREN_LOW_PERIOD = 8750
+
+#: The top of the wail: 700 Hz, `3_500_000 // 700`. Under the 2kHz line where
+#: the pitch grid gets coarse and above every effect's tail.
+SIREN_HIGH_PERIOD = 5000
+
+#: Frames the period spends falling, and the same again rising. Three seconds
+#: each way -- slow enough that it cannot be mistaken for an effect's glide,
+#: which is five to sixty-six frames.
+SIREN_SWEEP_FRAMES = 150
+
+#: Frames of nothing between wails. Twelve seconds, and two thirds of the
+#: cycle: **a run is silent for most of its length by design**, and the
+#: `music_frames_resting` figure that dominates the stats from now on is the
+#: siren waiting, not a dropout.
+SIREN_REST_FRAMES = 600
+
+#: A rest, in T-states: zero, which is how the sequencer says "no flips this
+#: frame" without a second flag. The same zero `PERIODS[REST]` holds.
+REST_PERIOD = 0
+
+
+class Siren:
+    """A wail as four integers, and where in it a frame counter is.
+
+    Shaped exactly as `Tune` is -- `name`, `frames`, `period(frame)` -- so
+    that `Music` holds one without knowing which it has and nothing downstream
+    changes: the leftover, whole half-cycles, the held bit, the arbitration
+    and the render are all the same code the ostinato went through.
+
+    **The period steps by `step` T-states a frame and is linear in the period,
+    not in the frequency.** On the target the player routine keeps a delay
+    constant and decrements it by 25 once per interrupt on the way up, then
+    increments it on the way down; there is no frequency anywhere and no
+    division. `period` is written as the closed form of that decrement --
+    `low - step * frame` -- and not as a running value, because `Music`'s
+    rule is that the position is a function of the clock and of nothing
+    else, and a running value is a thing that can drift from the clock. The
+    two agree on every frame, and a test walks the decrement beside the
+    closed form to say so.
+
+    **It holds no position of its own**, for the same reason `Tune` does not.
+    """
+
+    __slots__ = ("name", "low", "high", "sweep", "rest", "step")
+
+    def __init__(self, name: str, low: int = SIREN_LOW_PERIOD,
+                 high: int = SIREN_HIGH_PERIOD,
+                 sweep: int = SIREN_SWEEP_FRAMES,
+                 rest: int = SIREN_REST_FRAMES) -> None:
+        # The step has to be a whole number of T-states, because the machine
+        # decrements a delay constant by it; a sweep that does not divide the
+        # range would need the very division the port refuses. Refused here,
+        # at build time, rather than rounded quietly into a wail that lands
+        # somewhere other than where it started.
+        if (low - high) % sweep:
+            raise ValueError(
+                f"a sweep of {sweep} frames does not divide "
+                f"{low} - {high} into whole T-states")
+        self.name = name
+        self.low = low
+        self.high = high
+        self.sweep = sweep
+        self.rest = rest
+        #: T-states the period moves by each frame of the sweep. 25.
+        self.step = (low - high) // sweep
+
+    @property
+    def frames(self) -> int:
+        """How long a cycle is. It loops, so this is also its modulus."""
+        return 2 * self.sweep + self.rest
+
+    @property
+    def wail(self) -> int:
+        """Frames of each cycle that sound: up and down, 300."""
+        return 2 * self.sweep
+
+    @property
+    def seconds(self) -> int:
+        """How long a cycle runs, to the nearest second: 18."""
+        return (self.frames + 25) // 50
+
+    def wailing(self, frame: int) -> bool:
+        """Whether this frame is inside the wail rather than the rest."""
+        return frame % self.frames < self.wail
+
+    def period(self, frame: int) -> int:
+        """The delay constant on this frame, or zero through the rest.
+
+        Frame 0 is `low`, frame `sweep` is `high`, and the fall back to the
+        foot ends one step short of `low` on the last frame before the rest --
+        the sketch the user ruled on did exactly this, and the wail is
+        therefore `2 * sweep` frames and not one more. `period(sweep * 2)` is
+        the first frame of the rest and is zero.
+        """
+        frame %= self.frames
+        if frame < self.sweep:
+            return self.low - self.step * frame
+        frame -= self.sweep
+        if frame < self.sweep:
+            return self.high + self.step * frame
+        return REST_PERIOD
+
+
+#: The two things a run and a title can play, built once. Neither holds any
+#: state, so one of each is enough and a test may hand a different table or
+#: different integers to the same class.
+SIREN = Siren("siren")
 THEME = Tune("theme", THEME_BARS)
 
-TUNES = {"ostinato": OSTINATO, "theme": THEME}
+TUNES = {"siren": SIREN, "theme": THEME}
 
 
 # --- the frame's leftover ---------------------------------------------------
@@ -414,8 +572,9 @@ class Slice:
 
     Two integers, which is what the port's player routine holds -- and `halves`
     is a count it decrements, not a length it divides. `Slice(0, 0)` is a frame
-    with no music in it, whether because the tune is resting, because something
-    louder owned the frame or because the leftover afforded nothing.
+    with no music in it, whether because the tune is resting (the siren
+    waiting between wails), because something louder owned the frame or
+    because the leftover afforded nothing.
     """
 
     period: int = 0
@@ -457,7 +616,7 @@ MUSIC_METRICS = (
 class Music:
     """The sequencer: where the tune is, and what the frame can afford of it.
 
-    One per run (the ostinato) and one per title screen (the theme). It decides
+    One per run (the siren) and one per title screen (the theme). It decides
     nothing about the game, reads no game state and is the bottom of the
     arbitration order -- `sounds.Voice` owns it and asks it last, on a frame
     nothing else wanted.
@@ -480,8 +639,9 @@ class Music:
                  "starved", "resting", "halves")
 
     def __init__(self, tune: Tune | None = None) -> None:
-        #: Which tune, or None for silence -- which is what the ending screen
-        #: is and what it stays.
+        #: Which tune -- a `Tune` or a `Siren`, and it does not ask which --
+        #: or None for silence, which is what the ending screen is and what it
+        #: stays.
         self.tune = tune
         #: Audio frames since this sequencer was made. **The position is a
         #: function of this and of nothing else.**
@@ -506,8 +666,8 @@ class Music:
 
         **It resets the position**, which is the one place a tune's place is
         allowed to move for a reason other than the clock: a title screen shown
-        twice starts its theme twice, and a new run starts the ostinato at bar
-        one. Nothing in play calls this.
+        twice starts its theme twice, and a new run starts the siren at the
+        foot of its first wail. Nothing in play calls this.
         """
         self.tune = tune
         self.frame = 0
@@ -572,7 +732,13 @@ class Music:
     # --- what a report asks it ---------------------------------------------
 
     def stats(self) -> dict:
-        """The dropout, in four counts and a total. All integers."""
+        """The dropout, in four counts and a total. All integers.
+
+        Under the siren `music_frames_resting` is about two thirds of every
+        frame there is, because two thirds of every cycle is rest. It is not a
+        loss and the report does not present it as one; see
+        `report.music_lines`.
+        """
         return {
             "music_frames_heard": self.heard,
             "music_frames_taken": self.taken,

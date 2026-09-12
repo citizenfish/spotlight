@@ -325,10 +325,13 @@ class Shell:
         #: session. See `frame`.
         self.surging = 0
         #: **The theme plays on the title screen and nowhere else** (issue
-        #: #55). The ostinato belongs to the run and is inside the session; the
-        #: ending screen is silence and a count, and it stays that way. The
-        #: title has no Clegs on it, so the theme is heard at the only load
-        #: this game ever gives it: none.
+        #: #55, and untouched by #67, which put a siren under the run). The
+        #: siren belongs to the run and is inside the session; the ending
+        #: screen is silence and a count, and it stays that way. The title
+        #: has no Clegs on it, so the theme is heard at the only load this
+        #: game ever gives it: none. **The theme stays here on purpose**: a
+        #: wail and twelve seconds of silence under a menu says the machine is
+        #: idle, where the theme says a game is waiting.
         #:
         #: It is arbitrated by a `Voice` of its own rather than played
         #: directly, because *music is the bottom of the arbitration order* and

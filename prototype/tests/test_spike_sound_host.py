@@ -66,11 +66,15 @@ def test_the_bank_writes_every_file_headless(tmp_path):
     """`--bank` on a machine with no audio device at all: it writes the files
     and says nothing.
 
-    Twenty-three now (issue #55): the nineteen the effects round wrote, plus
-    the two tunes and the two files that are about the dropout rather than
-    about the tune. `ostinato-with-sonar.wav` is the one the design's claim
-    that *the music thinning out is itself a warning* gets judged on, so a
-    bank without it is a bank that cannot answer the question it exists for.
+    Twenty-three (issue #55): the nineteen the effects round wrote, plus the
+    theme, the siren and the two files that are about the dropout rather than
+    about the tune. `siren-with-sonar.wav` is the one the design's claim that
+    *the music thinning out is itself a warning* gets judged on, so a bank
+    without it is a bank that cannot answer the question it exists for.
+
+    **Nothing of the ostinato is in the bank** (issue #67): the table left the
+    module and a bank file rendered from it would be a table kept by another
+    name.
     """
     paths = spike_sound.bank_files(str(tmp_path))
     names = {os.path.basename(p) for p in paths}
@@ -78,8 +82,9 @@ def test_the_bank_writes_every_file_headless(tmp_path):
         assert f"{name.lower().replace('_', '-', 1)}.wav" in names
     assert {"sonar-edge.wav", "sonar-halfway.wav", "sonar-contact.wav",
             "tick.wav"} <= names
-    assert {"theme.wav", "ostinato.wav", "ostinato-under-load.wav",
-            "ostinato-with-sonar.wav"} <= names
+    assert {"theme.wav", "siren.wav", "siren-under-load.wav",
+            "siren-with-sonar.wav"} <= names
+    assert not any("ostinato" in name for name in names)
     assert len(paths) == 23, \
         "fourteen effects, three sonar rates, a tick, a set, and four of music"
     for path in paths:

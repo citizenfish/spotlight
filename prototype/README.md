@@ -109,18 +109,32 @@ python -m spikes.spike_driver --bot listener --seed 1 --wav runs/listener.wav
 | `--wav FILE` | Renders that run's audio alongside its two reports, from the decisions the speaker actually made frame by frame. With `--seeds N` the seed goes in the name. |
 
 The music is one more thing down the same channel, and it is bottom of the order
-(issue #55): the theme on the title screen, the ostinato in play, and **a frame
-with a click, a tick or an effect in it is a frame with no music in it.** What
-is left of the frame after the fixed work and the Clegs is what the music gets
-— `52,416 − 19,584 − 830n` T-states, where the 830 is `building.CLEG_COST` and
-is read from there rather than copied — and it renders whole half-cycles of the
-note in play until that runs out, so the score breaks up as the room fills and
-comes back when it empties. It takes a full room: the music is gone entirely
-only past 35 Clegs in one room, and the busiest room measured over seven bots
-and five seeds held 25. `theme.wav` and `ostinato.wav` are the tunes with
-the building quiet; `ostinato-under-load.wav` is the room filling to the port
-model's worst case; `ostinato-with-sonar.wav` is a swarm arriving over the music
-and going away again, and is the file the dropout should be judged on.
+(issue #55): the theme on the title screen, a distant siren in play (issue
+#67), and **a frame with a click, a tick or an effect in it is a frame with no
+music in it.** What is left of the frame after the fixed work and the Clegs is
+what the music gets — `52,416 − 19,584 − 830n` T-states, where the 830 is
+`building.CLEG_COST` and is read from there rather than copied — and it renders
+whole half-cycles of the note in play until that runs out, so the music breaks
+up as the room fills and comes back when it empties.
+
+The siren is four integers and a decrement: the period falls from 8,750
+T-states (400 Hz) to 5,000 (700 Hz) by 25 a frame over three seconds, rises
+the same way, and rests for twelve; the cycle is eighteen seconds and it loops.
+It is linear in the period, not the frequency, because the Z80 decrements a
+delay constant and never divides. It holds a pitch — four or more half-cycles a
+frame — at every load up to eighteen Clegs, and is down to a single flip at the
+top of the wail at the port model's ceiling of 36; the busiest room measured
+over seven bots and five seeds held 25. Two thirds of every run is the siren
+waiting, by design, and the run report says so rather than counting it as a
+dropout. The 50 Hz gate under every note is exposed by a six-second glide and
+is not smoothed: it is the machine, and it was heard and ruled on. The
+ostinato it replaced is struck through in the vault, not kept here.
+
+`theme.wav` and `siren.wav` are the two with the building quiet (the siren
+over two cycles, as the sketch was); `siren-under-load.wav` is the wail
+thinning as the room fills to the ceiling; `siren-with-sonar.wav` is a swarm
+arriving over two cycles so that it is on top of you as the second wail
+starts, and is the file the dropout should be judged on.
 
 Both work with no audio device at all: the files are written and nothing is
 played. The run render is a *recording* — it comes from what the arbiter decided
