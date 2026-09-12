@@ -91,8 +91,10 @@ def _attr(ink: int, bright: bool = False) -> int:
 #: the 8x16 ones fill both, and one for its name underneath.
 #:
 #: The blank row the blocks used to carry went when the sheet grew from eight
-#: entries to fourteen. Fourteen is five rows of three, which needs every row
-#: between the heading and the legend.
+#: entries to fourteen. Seventeen since the people gained their second frames
+#: (issue #60), which is six rows of three and fills every row between the
+#: heading and the legend exactly; an eighteenth entry fits, a nineteenth does
+#: not, and `test_spike_gallery` says so before it prints into the legend.
 _ACROSS = 3
 _BLOCK_W = 10
 _BLOCK_H = 3
@@ -159,7 +161,12 @@ def draw_sprite_sheet(screen: Screen) -> None:
     **And the sheet is not evidence** (issue #59). It showed a sprawled body
     for three rounds while the played screen showed a person-shaped smudge, so
     a picture of this sheet does not settle whether a sprite reads. That is
-    what `body_room` is for.
+    what `body_room` is for, and why the walk is photographed in a played
+    room on both frames rather than judged from the six frames here.
+
+    **Both frames of every figure are on it** (issue #60), side by side, each
+    captioned with its letter, so a reviewer can see what a stride changes and
+    that the lamp and the mark are in both of the player's.
 
     Labelled in the game's font rather than anything prettier, for the same
     reason the rest of the sheet is drawn through `core.Screen`: what a reviewer
@@ -344,13 +351,23 @@ def lit_room(index: int) -> tuple:
     return run, screen
 
 
-def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
+def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
+                frame: int | None = None) -> Screen:
     """One room, drawn: fully revealed, or as it looks after `frames` of play.
 
     A fresh session each time. Sharing one would mean the second picture was of
     a building the first had already spent a torch and a swarm on, and a shot
     labelled "the far room" would quietly be a shot of the far room *after the
     near one had gone wrong*.
+
+    `frame` is which walk frame every person in the picture is drawn on --
+    `0` for A, `1` for B -- or `None` for whichever foot each of them actually
+    had forward. **The walk is judged in a played room, on both frames of the
+    same instant** (issue #60): the sheet shows the frames side by side with
+    their names underneath, which is where art is named and not where it is
+    judged, and a single played frame shows one stride of a walk with no way
+    to see the other. So the same kept frame is drawn twice, and the two
+    pictures differ only in the people's feet and hands.
     """
     if lit:
         return lit_room(index)[1]
@@ -370,7 +387,7 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
         if run.here != index:
             enter(run, index)
             continue
-        run.draw(screen)
+        draw_on_frame(run, screen, frame)
         if standing_clear(run):
             kept = copy_of(screen)
     # **The last frame with the player wholly on screen, not simply the last
@@ -379,6 +396,33 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES) -> Screen:
     # version of this sheet photographed the far room with the player at x=-6,
     # which is a real frame of a real run and a useless portrait of a room.
     return kept if kept is not None else copy_of(screen)
+
+
+def draw_on_frame(run, screen: Screen, frame: int | None) -> None:
+    """Draw the run's current frame with every person on walk frame `frame`.
+
+    The frame bits are drawing state and nothing in the rules reads them --
+    that is the contract the walk was built under, and the tests hold it --
+    so setting them for one drawing and putting them back leaves the run
+    exactly where it was. `None` draws the frame as the game would.
+
+    **They are put back rather than left**, even though the run could not
+    tell: a gallery that quietly changed a run's state would be the first
+    thing here that did, and the next reader would have to work out whether
+    it mattered.
+    """
+    if frame is None:
+        run.draw(screen)
+        return
+    people = [run.player] + list(run.rescue.workers)
+    was = [person.frame for person in people]
+    for person in people:
+        person.frame = frame
+    try:
+        run.draw(screen)
+    finally:
+        for person, bit in zip(people, was):
+            person.frame = bit
 
 
 #: How far the player walks off the light they have just put down, so that the
@@ -729,7 +773,14 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
 
     for index, room in enumerate(scene.BUILDING.rooms):
         sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))
-        sheet(f"room-{slug(room.name)}-played", room_screen(index, lit=False))
+        # **The same played instant twice, with everybody on frame A and then
+        # on frame B** (issue #60), so the walk can be judged where a figure
+        # is actually seen -- on the stipple, at the light the game gives it,
+        # beside whoever else is in the room -- and not on the sheet. One
+        # picture of a walk shows one stride; the pair is the walk.
+        for letter, frame in (("a", 0), ("b", 1)):
+            sheet(f"room-{slug(room.name)}-played-{letter}",
+                  room_screen(index, lit=False, frame=frame))
     # The one thing on the sprite sheet that a played frame cannot otherwise
     # show: a spotlight burning where somebody put it down.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",

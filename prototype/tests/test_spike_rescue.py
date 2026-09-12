@@ -2,6 +2,7 @@
 
 from spikes import player as P, rescue as R, scene
 from spikes.tally import Tally
+from spotlight.core.constants import CELL
 
 #: Everybody in the building, in the shape a `Rescue` is authored from:
 #: `(room, x, y, blood)` on one line, so a position, a clock and the room it is
@@ -696,3 +697,99 @@ def test_the_exit_is_a_place_you_can_be_whether_or_not_you_have_anybody():
     worker = rescue.workers[0]
     rescue.reach(0, worker.cells())
     assert rescue.deliver(0, {(4, 4)}) == [worker]
+
+
+# --- the walk: a follower strides when the trail carries it over a cell -----
+# (issue #60)
+
+def test_a_followers_frame_flips_when_the_trail_carries_it_across_a_cell():
+    """The same rule as the player's, judged where the trail places them.
+
+    A follower moves a pixel a frame when the tail moves, so a flip on every
+    placement would be the same 25Hz strobe the player's rule refuses. It
+    flips when the step the trail hands over is in a different cell from the
+    one they were in, and holds otherwise.
+    """
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(0, rescue.workers[0].cells())
+    follower = rescue.tail[0]
+    # Prime the trail so the follower is placed on it and then walk east one
+    # pixel at a time, watching for the flips.
+    for x in range(200, 200 + R.TAIL_SPACING + 1):
+        rescue.follow(0, x, 48)
+    frame, flips = follower.frame, []
+    for x in range(200 + R.TAIL_SPACING + 1, 200 + R.TAIL_SPACING + 1 + 40):
+        was = (follower.x // CELL, follower.y // CELL)
+        rescue.follow(0, x, 48)
+        crossed = (follower.x // CELL, follower.y // CELL) != was
+        flipped = follower.frame != frame
+        assert flipped == crossed, \
+            f"at x={follower.x}: crossed={crossed} but flipped={flipped}"
+        frame = follower.frame
+        if flipped:
+            flips.append(follower.x)
+    assert len(flips) == 5, f"forty pixels of walking is five strides: {flips}"
+    assert all(x % CELL == 0 for x in flips), "a stride lands on a boundary"
+
+
+def test_a_follower_holds_its_frame_while_the_player_stands_still():
+    """`follow` is called every frame whether or not anybody moved. A tail
+    that has stopped must not keep walking on the spot."""
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(0, rescue.workers[0].cells())
+    follower = rescue.tail[0]
+    for x in range(200, 240):
+        rescue.follow(0, x, 48)
+    frame = follower.frame
+    for _ in range(100):
+        rescue.follow(0, 239, 48)
+    assert follower.frame == frame
+
+
+def test_a_waiting_workers_frame_never_changes():
+    """**They are waiting.** Workers do not wander in this build, so a waiting
+    worker never crosses a cell and stands on frame A -- and there is no
+    counter to make them look alive, because the cadence is movement for
+    every figure in the game and this would be the first exception. The lever,
+    if the still figure is found wanting, is a wave on the shout, and it is a
+    ruling and not a drift."""
+    rescue = R.Rescue([(80, 48), (160, 96)])
+    waiting = rescue.workers[1]
+    rescue.reach(0, rescue.workers[0].cells())
+    for x in range(100, 400):
+        rescue.follow(0, x, 48)
+        rescue.tick()
+    assert waiting.state == R.WAITING
+    assert waiting.frame == 0
+
+
+def test_the_trail_is_untouched_by_the_walk():
+    """The stride is read off where the trail puts a follower; nothing about
+    the path itself moves for it. Same walk, same positions, with or without
+    the bit having flipped."""
+    a, b = R.Rescue([(80, 48)]), R.Rescue([(80, 48)])
+    for rescue in (a, b):
+        rescue.reach(0, rescue.workers[0].cells())
+    for x in range(200, 300):
+        a.follow(0, x, 48)
+        b.follow(0, x, 48)
+        b.tail[0].frame ^= 1                # meddle with the bit by hand
+    assert (a.tail[0].x, a.tail[0].y) == (b.tail[0].x, b.tail[0].y)
+    assert a._trail == b._trail
+
+
+def test_a_worker_keeps_its_stride_through_a_change_of_state():
+    """The bit says which foot is forward and nothing about what they are, so
+    it is not reset by anything that changes their state: a worker is drawn
+    from their state, and the frame from the bit, and the two are separate
+    lookups. Death is the state change the build has."""
+    rescue = R.Rescue([(80, 48)])
+    rescue.reach(0, rescue.workers[0].cells())
+    follower = rescue.tail[0]
+    for x in range(200, 300):
+        rescue.follow(0, x, 48)
+    frame = follower.frame
+    assert follower.bitten(follower.blood) is True, "the bite was not fatal"
+    rescue.reap()
+    assert follower.state == R.DEAD and follower not in rescue.tail
+    assert follower.frame == frame

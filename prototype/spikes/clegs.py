@@ -304,9 +304,10 @@ class Cleg:
         #: Which way it is wandering, and how much longer for.
         self.heading = (0, 0)
         self._run = 0
-        #: **Which wing frame this fly is drawn in**, and the only animation
-        #: state anything in the play area carries: one bit, flipped in `_try`
-        #: when the fly actually steps a cell (issue #49).
+        #: **Which wing frame this fly is drawn in**: one bit, flipped in
+        #: `_try` when the fly actually steps a cell (issue #49). It was the
+        #: only animation state anything in the play area carried until issue
+        #: #60 gave the people the same bit under the same rule.
         #:
         #: **Never flipped on the frame counter, and this is a port decision
         #: wearing an art decision's clothes.** Alternating on `session.frame`

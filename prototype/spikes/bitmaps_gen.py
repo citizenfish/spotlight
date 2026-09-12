@@ -293,20 +293,39 @@ FLOOR_LIT = (
     0x00,  # ........
 )
 
-FOLLOWER = (
+FOLLOWER_A = (
     0x00,  # ........
     0x00,  # ........
-    0x3C,  # ..####..   head
+    0x18,  # ...##...   head, a disc
+    0x3C,  # ..####..
     0x3C,  # ..####..
     0x3C,  # ..####..
     0x7E,  # .######.   shoulders
     0x7E,  # .######.
-    0x5A,  # .#.##.#.   arms down at the sides
-    0x5A,  # .#.##.#.
-    0x5A,  # .#.##.#.
-    0x3C,  # ..####..   hips
-    0x24,  # ..#..#..   legs
-    0x24,  # ..#..#..
+    0x58,  # .#.##...   hands beside the hips, swinging
+    0x1A,  # ...##.#.
+    0x0C,  # ....##..   feet
+    0x30,  # ..##....
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
+FOLLOWER_B = (
+    0x00,  # ........
+    0x00,  # ........
+    0x18,  # ...##...   head
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x7E,  # .######.   shoulders
+    0x7E,  # .######.
+    0x1A,  # ...##.#.   frame A in the mirror
+    0x58,  # .#.##...
+    0x30,  # ..##....   feet swapped
+    0x0C,  # ....##..
+    0x00,  # ........
     0x00,  # ........
     0x00,  # ........
     0x00,  # ........
@@ -367,22 +386,41 @@ NEST = (
     0x2C,  # ..#.##..   it does not sit square
 )
 
-PLAYER = (
+PLAYER_A = (
     0x00,  # ........
     0x3C,  # ..####..   the lamp, worn on the helmet
     0x3C,  # ..####..
-    0x7E,  # .######.   head, seen from above - no hat, no face
+    0x7E,  # .######.   helmet, a disc four rows deep
+    0x7E,  # .######.
+    0x7E,  # .######.
     0x7E,  # .######.
     0xFF,  # ########   shoulders, full width - the kit
     0xFF,  # ########
-    0xDB,  # ##.##.##   arms clear of the body
-    0xDB,  # ##.##.##
-    0xDB,  # ##.##.##
-    0x7E,  # .######.   hips
-    0x66,  # .##..##.   legs, planted wide
-    0x66,  # .##..##.
+    0xBC,  # #.####..   a hand forward, beside the hip
+    0x19,  # ...##..#   the other hand, swung back
+    0x0C,  # ....##..   a foot out from under
+    0x30,  # ..##....   the other, behind
     0x00,  # ........   one clear row, so the mark is not feet
     0xFF,  # ########   the mark: the only figure with ground under him
+    0xFF,  # ########
+)
+
+PLAYER_B = (
+    0x00,  # ........
+    0x3C,  # ..####..   the lamp
+    0x3C,  # ..####..
+    0x7E,  # .######.   helmet
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########   shoulders
+    0xFF,  # ########
+    0x3D,  # ..####.#   frame A in the mirror: the other hand forward
+    0x98,  # #..##...
+    0x30,  # ..##....   feet swapped
+    0x0C,  # ....##..
+    0x00,  # ........
+    0xFF,  # ########   the mark
     0xFF,  # ########
 )
 
@@ -749,20 +787,39 @@ WALL_LIT_15 = (
     0x10,  # ...#....
 )
 
-WORKER = (
+WORKER_A = (
     0x00,  # ........
-    0x00,  # ........
-    0xC3,  # ##....##   hands, raised clear of the shoulders
+    0xC3,  # ##....##   hands, raised beside the crown
     0xC3,  # ##....##
-    0x99,  # #..##..#   arms, and the crown of the head between them
-    0xBD,  # #.####.#   head
-    0x7E,  # .######.   shoulders - narrower than the player's
-    0x7E,  # .######.
-    0x3C,  # ..####..   trunk
+    0x18,  # ...##...   head, a row lower than the follower's
     0x3C,  # ..####..
-    0x24,  # ..#..#..   legs, foreshortened
-    0x24,  # ..#..#..
-    0x24,  # ..#..#..
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x7E,  # .######.   shoulders
+    0x7E,  # .######.
+    0x18,  # ...##...   hips - the arms are up, so no hands here
+    0x18,  # ...##...
+    0x0C,  # ....##..   feet
+    0x30,  # ..##....
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
+WORKER_B = (
+    0x00,  # ........
+    0xC3,  # ##....##   hands, raised
+    0xC3,  # ##....##
+    0x18,  # ...##...   head
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x7E,  # .######.   shoulders
+    0x7E,  # .######.
+    0x18,  # ...##...   hips
+    0x18,  # ...##...
+    0x30,  # ..##....   feet swapped
+    0x0C,  # ....##..
     0x00,  # ........
     0x00,  # ........
     0x00,  # ........
@@ -795,13 +852,15 @@ BITMAPS = {
     "DOOR_OPEN": DOOR_OPEN,
     "FLOOR_DIM": FLOOR_DIM,
     "FLOOR_LIT": FLOOR_LIT,
-    "FOLLOWER": FOLLOWER,
+    "FOLLOWER_A": FOLLOWER_A,
+    "FOLLOWER_B": FOLLOWER_B,
     "HOUSING": HOUSING,
     "KEY": KEY,
     "LAMP_OFF": LAMP_OFF,
     "LAMP_ON": LAMP_ON,
     "NEST": NEST,
-    "PLAYER": PLAYER,
+    "PLAYER_A": PLAYER_A,
+    "PLAYER_B": PLAYER_B,
     "SPRAY": SPRAY,
     "WALL_DIM_00": WALL_DIM_00,
     "WALL_DIM_01": WALL_DIM_01,
@@ -835,5 +894,6 @@ BITMAPS = {
     "WALL_LIT_13": WALL_LIT_13,
     "WALL_LIT_14": WALL_LIT_14,
     "WALL_LIT_15": WALL_LIT_15,
-    "WORKER": WORKER,
+    "WORKER_A": WORKER_A,
+    "WORKER_B": WORKER_B,
 }

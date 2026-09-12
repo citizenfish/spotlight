@@ -245,3 +245,74 @@ def test_the_assist_reaches_a_whole_cell_and_no_further():
     """It clears a wall your head is inside; it does not walk you round a
     corner you never approached."""
     assert NUDGE == CELL
+
+
+# --- the walk: one bit, flipped on a cell crossing (issue #60) -------------
+
+def test_the_walk_frame_flips_when_the_player_crosses_a_cell():
+    """One stride per cell, exactly as a Cleg's wingbeat is one per step."""
+    p = Player(8 * CELL, 8 * CELL)
+    assert p.frame == 0
+    for _ in range(CELL - 1):
+        p.move(1, 0, _open())
+    assert p.x == 8 * CELL + CELL - 1
+    assert p.frame == 0, "flipped before the boundary"
+    p.move(1, 0, _open())
+    assert p.x == 9 * CELL
+    assert p.frame == 1, "did not flip on crossing into the next column"
+
+
+def test_the_walk_frame_holds_across_eight_pixels_inside_one_cell():
+    """**The thing that would be wrong if the flip were per pixel.**
+
+    The player moves one pixel a frame. A flip on every moved pixel is a 25Hz
+    alternation, which is a strobe and not a walk; a flip on a cell crossing
+    is one every eight frames of walking, about 6Hz, which is. So eight frames
+    of movement inside one cell -- back and forth, never leaving it -- show
+    one frame throughout.
+    """
+    p = Player(8 * CELL + 3, 8 * CELL + 3)
+    seen = set()
+    for dx in (1, 1, 1, -1, -1, -1, 1, -1):
+        p.move(dx, 0, _open())
+        seen.add(p.frame)
+    assert p.x // CELL == 8 and p.y // CELL == 8, "the walk left the cell"
+    assert seen == {0}, f"the frame moved inside one cell: {seen}"
+
+
+def test_a_crossing_in_either_axis_is_a_stride_and_a_diagonal_is_one():
+    """The flip is judged once, after both axes have resolved. Crossing a
+    column and a row in the same step is one stride, not two that cancel."""
+    p = Player(8 * CELL, 8 * CELL)
+    for _ in range(CELL):
+        p.move(0, 1, _open())
+    assert p.y == 9 * CELL and p.frame == 1, "a row crossing is a stride"
+    # Back to a corner, then one diagonal step over both boundaries at once.
+    p = Player(9 * CELL - 1, 9 * CELL - 1)
+    p.move(1, 1, _open())
+    assert (p.x // CELL, p.y // CELL) == (9, 9)
+    assert p.frame == 1, "crossing both boundaries at once is one stride"
+
+
+def test_standing_still_holds_whichever_frame_the_player_was_on():
+    """No still frame and no counter. A figure that stops mid-stride stays on
+    that stride, which is how every 8-bit walker stops and it reads fine."""
+    p = Player(8 * CELL, 8 * CELL)
+    for _ in range(CELL):
+        p.move(1, 0, _open())
+    assert p.frame == 1
+    for _ in range(100):
+        p.move(0, 0, _open())
+    assert p.frame == 1
+
+
+def test_a_blocked_walk_does_not_stride():
+    """Pushing into a wall moves nothing, so it shows one frame: the walk is
+    the figure's movement and not the player's intent."""
+    p = Player(*scene.PLAYER_START)
+    for _ in range(400):
+        p.move(-1, 0, scene.ROOM_NEAR.is_solid)          # jam against the west wall
+    frame = p.frame
+    for _ in range(50):
+        assert p.move(-1, 0, scene.ROOM_NEAR.is_solid) is False
+    assert p.frame == frame

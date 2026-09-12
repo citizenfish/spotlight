@@ -1877,25 +1877,36 @@ class Session:
         # **Waiting workers have their arms up and followers have them down.**
         # Raised arms mean "I still need reaching", so a person who is already
         # walking behind you must not be drawn making the signal -- and a
-        # follower dropped by the player's death goes back to arms up on the
-        # frame they are dropped, because the sprite is chosen from the state
-        # rather than remembered.
+        # follower dropped back to waiting goes back to arms up on the frame
+        # they are dropped, because the sprite is chosen from the state rather
+        # than remembered.
+        #
+        # **And every person walks, on two frames, picked by the figure's own
+        # frame bit** (issue #60) -- exactly as a Cleg's wing is, and never by
+        # `self.frame`, which would be a 25Hz strobe. The bit flips when the
+        # figure crosses a cell and at no other time, so a waiting worker,
+        # who never moves, stands on frame A, and a follower strides when the
+        # trail carries them over a boundary. Choosing the frame here is a
+        # table lookup on a bit that was already decided; it adds no dirty
+        # cell, because a figure that crossed a cell is redrawn on that frame
+        # regardless.
         for worker in self.rescue.alive_waiting(self.here):
-            sprites.draw(screen, sprites.WORKER, worker.x, worker.y,
-                         visible=field.reveals_at)
+            sprites.draw(screen, sprites.WORKER_FRAMES[worker.frame],
+                         worker.x, worker.y, visible=field.reveals_at)
         for worker in self.rescue.tail:
             if worker.room == self.here:
-                sprites.draw(screen, sprites.FOLLOWER, worker.x, worker.y,
-                             visible=field.reveals_at)
-        # **The one animated thing in the play area.** The frame is the fly's
-        # own wing bit, flipped when it steps a cell and never on
-        # `self.frame` -- so a swarm standing still costs nothing to animate
-        # and a swarm closing on you visibly quickens. See `clegs.Cleg.wing`.
+                sprites.draw(screen, sprites.FOLLOWER_FRAMES[worker.frame],
+                             worker.x, worker.y, visible=field.reveals_at)
+        # The frame is the fly's own wing bit, flipped when it steps a cell and
+        # never on `self.frame` -- so a swarm standing still costs nothing to
+        # animate and a swarm closing on you visibly quickens. See
+        # `clegs.Cleg.wing`; since issue #60 the people follow the same rule.
         for cleg in place.swarm.clegs:
             sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
                          cleg.cx * CELL, cleg.cy * CELL,
                          visible=field.reveals_at)
-        sprites.draw(screen, sprites.PLAYER, self.player.x, self.player.y)
+        sprites.draw(screen, sprites.PLAYER_FRAMES[self.player.frame],
+                     self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
         # clears none, so the wall tile under the word survives and the sign

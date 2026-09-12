@@ -20,8 +20,8 @@ from spotlight.core.constants import CELL
 from spotlight.core.screen import Screen
 
 from spikes import (
-    buzz, clegs as clegs_mod, moments, panel, rescue as rescue_mod, scene,
-    session,
+    bots, buzz, clegs as clegs_mod, moments, panel, rescue as rescue_mod,
+    scene, session,
 )
 from spikes.session import Intent, Session
 from spikes.spotlights import FloorLight
@@ -1494,3 +1494,143 @@ def test_a_shout_at_either_edge_of_the_screen_is_beside_the_caller_not_cut():
         # ...and it is still within three cells of the caller, so it is a
         # bearing to somebody rather than a word in the corner.
         assert min(abs(cx - x // CELL) for cx, _cy in cells) <= 3
+
+
+# --- the people walk, and nothing that reads the run moved (issue #60) ------
+
+def _pixels_at(screen: Screen, x: int, y: int, sprite) -> list:
+    """Which of a sprite's own pixels are set on screen at (x, y)."""
+    return [(dx, dy) for dy, bits in enumerate(sprite)
+            for dx in range(8) if bits & (0x80 >> dx)
+            and screen.point(x + dx, y + dy)]
+
+
+def _hold_everybody_still(run: Session) -> None:
+    """Lit, and with the whole room shown, so people are drawn wherever they
+    stand -- the sheet's own convenience, `sources.Flash.hold`."""
+    run.place.opening.hold(True)
+    run.step()
+
+
+def test_the_player_is_drawn_in_the_frame_his_own_bit_says():
+    """`Player.frame` holds one bit and `draw` indexes `sprites.PLAYER_FRAMES`
+    with it -- the same join `clegs.Cleg.wing` has to `CLEG_FRAMES`. A player
+    on frame B has to be drawn on frame B, on a frame the frame counter says
+    nothing about."""
+    from spikes import sprites
+
+    run = Session(seed=1)
+    _hold_everybody_still(run)
+    x, y = run.player.x, run.player.y
+    for frame in (0, 1):
+        run.player.frame = frame
+        screen = Screen()
+        run.draw(screen)
+        want = sprites.PLAYER_FRAMES[frame]
+        drawn = _pixels_at(screen, x, y, want)
+        assert len(drawn) == sum(bin(b).count("1") for b in want), \
+            f"the player is not drawn in frame {frame}"
+        # The stride is the only thing that moved: the other frame's hands and
+        # feet are not on the screen where they differ.
+        other = sprites.PLAYER_FRAMES[1 - frame]
+        missing = [(dx, dy) for dy, (a, b) in enumerate(zip(want, other))
+                   for dx in range(8)
+                   if (b & ~a) & (0x80 >> dx) and screen.point(x + dx, y + dy)]
+        assert not missing, f"the other stride's pixels are on screen: {missing}"
+
+
+def test_a_worker_is_drawn_arms_up_or_down_by_state_and_striding_by_bit():
+    """Two separate lookups: the state picks WORKER or FOLLOWER, the bit picks
+    A or B. A follower on frame B and a waiting worker on frame B are
+    different drawings on the same bit, and a follower dropped back to
+    waiting goes back to arms up on the frame it is dropped."""
+    from spikes import rescue as R, sprites
+
+    run = Session(seed=1)
+    _hold_everybody_still(run)
+    worker = run.rescue.alive_waiting(run.here)[0]
+    x, y = worker.x, worker.y
+    for frame in (0, 1):
+        for state, frames in ((R.WAITING, sprites.WORKER_FRAMES),
+                              (R.FOLLOWING, sprites.FOLLOWER_FRAMES)):
+            worker.state, worker.frame = state, frame
+            if state == R.FOLLOWING and worker not in run.rescue.tail:
+                run.rescue.tail.append(worker)
+            elif state == R.WAITING and worker in run.rescue.tail:
+                run.rescue.tail.remove(worker)
+            screen = Screen()
+            run.draw(screen)
+            want = frames[frame]
+            assert len(_pixels_at(screen, x, y, want)) == \
+                sum(bin(b).count("1") for b in want), (state, frame)
+
+
+def _meddled_run(seed: int, frames: int, meddle: bool):
+    """A run, with every person's frame bit flipped by hand each step if
+    asked -- and drawn each step, so the drawing path runs with the bits in
+    the state a walk would never put them in."""
+    run = Session(seed=seed, metrics=True)
+    screen = Screen()
+    bot = bots.make("listener", seed=seed, light=True)
+    for _ in range(frames):
+        run.step(bot.intent(run))
+        if run.over is not None:
+            break
+        if meddle:
+            run.player.frame ^= 1
+            for worker in run.rescue.workers:
+                worker.frame ^= 1
+        run.draw(screen)
+    return run
+
+
+def test_the_frame_bits_are_drawing_state_and_the_log_cannot_see_them():
+    """**The pin for the acceptance criterion.** A frame bit is drawing state;
+    if a log moves, something read it.
+
+    Two runs of the same seed with the same bot, one with every person's
+    frame bit flipped by hand after every step. The event log, the positions,
+    the swarm and the blood are identical -- and so are the repaint figures,
+    because the counter prices cells changing light level and a stride
+    changes none.
+    """
+    # An odd number of frames, so the meddled bits end up the other way round
+    # from the honest ones and the last assertion can see they were meddled.
+    honest = _meddled_run(seed=7, frames=1501, meddle=False)
+    meddled = _meddled_run(seed=7, frames=1501, meddle=True)
+    assert honest.over is None and meddled.over is None
+    assert [(e.frame, e.kind, e.who, e.count, e.room) for e in honest.log] == \
+           [(e.frame, e.kind, e.who, e.count, e.room) for e in meddled.log]
+    assert honest.log, "the runs did nothing worth logging"
+    assert (honest.player.x, honest.player.y) == \
+           (meddled.player.x, meddled.player.y)
+    assert honest.blood == meddled.blood
+    assert [(w.x, w.y, w.state) for w in honest.rescue.workers] == \
+           [(w.x, w.y, w.state) for w in meddled.rescue.workers]
+    assert honest.repaint.stats() == meddled.repaint.stats()
+    # And the meddling really did put the bits where a walk would not.
+    assert honest.player.frame != meddled.player.frame or \
+        any(a.frame != b.frame for a, b in
+            zip(honest.rescue.workers, meddled.rescue.workers))
+
+
+def test_a_stride_adds_no_dirty_cell():
+    """The other half of the repaint criterion, said at the cell rather than
+    in the statistics: on a frame the player's bit flips he has crossed a cell
+    boundary, so his box is already being redrawn on that frame. There is no
+    frame on which the bit changes and the box does not move."""
+    run = Session(seed=3)
+    bot = bots.make("listener", seed=3, light=True)
+    was = (run.player.frame, run.player.x // CELL, run.player.y // CELL)
+    flips = 0
+    for _ in range(1500):
+        run.step(bot.intent(run))
+        if run.over is not None:
+            break
+        now = (run.player.frame, run.player.x // CELL, run.player.y // CELL)
+        if now[0] != was[0]:
+            flips += 1
+            assert now[1:] != was[1:], \
+                f"the frame flipped on frame {run.frame} without a crossing"
+        was = now
+    assert flips > 20, "the listener did not walk enough to test anything"

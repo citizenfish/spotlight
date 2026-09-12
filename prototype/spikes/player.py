@@ -46,13 +46,32 @@ STEP = {UP: (0, -1), DOWN: (0, 1), LEFT: (-1, 0), RIGHT: (1, 0)}
 
 
 class Player:
-    """Position in pixels, facing in cells."""
+    """Position in pixels, facing in cells, and which foot is forward."""
 
-    __slots__ = ("x", "y", "facing")
+    __slots__ = ("x", "y", "facing", "frame")
 
     def __init__(self, x: int, y: int, facing: int = RIGHT) -> None:
         self.x, self.y = x, y
         self.facing = facing
+        #: **Which walk frame he is drawn in** (issue #60): one bit, flipped
+        #: in `move` when the figure crosses a cell boundary -- when `x // CELL`
+        #: or `y // CELL` changes -- and at no other time. Exactly the Cleg's
+        #: rule, `clegs.Cleg.wing`, for the same reason: the cadence is
+        #: movement, never the frame counter.
+        #:
+        #: **Not on every moved pixel.** He moves a pixel a frame, so a flip
+        #: per pixel would be a 25Hz strobe; a flip per cell is one every eight
+        #: frames of walking, about 6Hz, which is a walk. Standing still he
+        #: holds whichever frame he was on -- there is no still frame and no
+        #: counter -- which is how every 8-bit walker stops and it reads fine.
+        #:
+        #: **Drawing state, and nothing in the rules reads it.** The event log
+        #: is byte-identical with it and without it, and a test pins that by
+        #: flipping it by hand every frame and comparing the logs. It adds no
+        #: dirty cell either: a figure that crossed a cell is being erased and
+        #: redrawn on that frame anyway, so the second frame costs the bytes it
+        #: is stored in and nothing per frame.
+        self.frame = 0
 
     # --- where the player is, in cells --------------------------------------
 
@@ -126,11 +145,20 @@ class Player:
         elif dy:
             self.facing = DOWN if dy > 0 else UP
 
+        # The cell before the move, so the flip is judged once, after both
+        # axes have resolved: a diagonal step that crosses a column and a row
+        # at once is one stride, not two, and a nudge that carries the figure
+        # over a boundary counts the same as walking over it -- the figure
+        # crossed a cell and is redrawn in a new one either way.
+        before = (self.x // CELL, self.y // CELL)
         moved = False
         if dx:
             moved |= self._step(dx * SPEED, 0, is_solid)
         if dy:
             moved |= self._step(0, dy * SPEED, is_solid)
+        if (self.x // CELL, self.y // CELL) != before:
+            # He stepped a cell, so the walk takes a stride. See `frame`.
+            self.frame ^= 1
         return moved
 
     def _step(self, dx: int, dy: int, is_solid) -> bool:

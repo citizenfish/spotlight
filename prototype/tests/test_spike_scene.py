@@ -553,7 +553,7 @@ def _light_over(x, y):
 
 def _drawn(x, y, field):
     s = Screen()
-    SP.draw(s, SP.WORKER, x, y, visible=field.reveals_at)
+    SP.draw(s, SP.WORKER_A, x, y, visible=field.reveals_at)
     return any(s.pixels)
 
 

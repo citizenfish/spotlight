@@ -53,13 +53,13 @@ def test_a_sprite_straddling_a_light_boundary_is_two_toned():
     attrs_before = bytes(s.attrs)
 
     # x=76 puts the sprite across the boundary at cell column 10 (x=80).
-    SP.draw(s, SP.PLAYER, 76, 40)
+    SP.draw(s, SP.PLAYER_A, 76, 40)
 
     assert bytes(s.attrs) == attrs_before, "drawing changed colours"
     assert s.get_attr(9, 5) == L.attr_for(L.LIT, YELLOW)
     assert s.get_attr(10, 5) == L.attr_for(L.DIM, YELLOW)
     # And it really is spanning both columns.
-    spanned = SP.cells_spanned(76, 40, len(SP.PLAYER))
+    spanned = SP.cells_spanned(76, 40, len(SP.PLAYER_A))
     assert {(9, 5), (10, 5)} <= spanned
 
 
@@ -95,7 +95,7 @@ def test_a_cell_aligned_sprite_spans_the_minimum():
 
 
 def test_a_person_spans_more_rows_than_a_cleg():
-    assert len(SP.cells_spanned(40, 40, len(SP.PLAYER))) == 2
+    assert len(SP.cells_spanned(40, 40, len(SP.PLAYER_A))) == 2
     assert len(SP.cells_spanned(40, 40, len(SP.CLEG_A))) == 1
 
 
@@ -104,7 +104,7 @@ def test_a_person_spans_more_rows_than_a_cleg():
 def test_sprites_are_clipped_at_the_screen_edges():
     for x, y in ((-6, 40), (SCREEN_W - 2, 40), (40, -6)):
         s = Screen()
-        SP.draw(s, SP.PLAYER, x, y)          # must not raise or wrap
+        SP.draw(s, SP.PLAYER_A, x, y)        # must not raise or wrap
         for py in range(0, 8):
             row = s.pixels[py * SCREEN_W:(py + 1) * SCREEN_W]
             assert len(row) == SCREEN_W
@@ -119,7 +119,7 @@ def test_a_sprite_does_not_wrap_around_the_right_edge():
 
 def test_sprites_cannot_be_drawn_into_the_status_strip():
     s = Screen()
-    SP.draw(s, SP.PLAYER, 40, PLAY_ROWS * CELL - 4)
+    SP.draw(s, SP.PLAYER_A, 40, PLAY_ROWS * CELL - 4)
     for py in range(STRIP_TOP * CELL, 192):
         for px in range(SCREEN_W):
             assert not s.point(px, py), "a sprite leaked into the strip"
@@ -151,8 +151,18 @@ def test_the_living_are_8x16_the_dead_are_16x8_and_objects_are_8x8():
     **A door is the one 8x16 thing that is not a person** (issue #49), because
     it is the person-shaped hole you walk out through. It is never confused
     with one: it does not move, and it stands in a wall.
+
+    **Six 8x16 people blocks since issue #60** -- three figures, two walk
+    frames each -- and the count is asserted rather than left to the loop, so
+    that a frame going missing from the table, or a third frame arriving
+    without a ruling, is a failure with a number in it. The size table is not
+    weakened by the walk: a frame is the same 8x16 box as the figure.
     """
-    for name in SP.STANDING:
+    standing = [name for name in SP.SPRITES
+                if name.rsplit("_", 1)[0] in SP.STANDING]
+    assert len(standing) == 6, standing
+    assert all(len(frames) == 2 for frames in SP.STANDING.values())
+    for name in standing:
         sprite = SP.SPRITES[name]
         assert (SP.width_of(sprite), len(sprite)) == (8, 16), name
     body = SP.SPRITES["body"]
@@ -204,16 +214,25 @@ def test_which_figure_is_yours_is_a_body_and_not_a_hat():
     at the shoulders, a waiting worker the other way round. That is the whole
     of item 1 of issue #31 -- *a different body, not a different hat*.
     """
-    player, worker = _edges(SP.PLAYER), _edges(SP.WORKER)
-    assert player and worker
-    # The worker's width is all above the head; the player's is all shoulders
-    # and below. They overlap on one row and are opposite everywhere else.
-    assert min(worker) < min(player) and max(worker) < max(player)
-    assert len(set(worker) & set(player)) <= 1
-    assert sum(1 for a, b in zip(SP.PLAYER, SP.WORKER) if a != b) >= 8
+    for player_frame in SP.PLAYER_FRAMES:
+        for worker_frame in SP.WORKER_FRAMES:
+            player, worker = _edges(player_frame), _edges(worker_frame)
+            assert player and worker
+            # The worker's width is all above the head; the player's is all
+            # shoulders and below. They overlap on one row and are opposite
+            # everywhere else.
+            assert min(worker) < min(player) and max(worker) < max(player)
+            assert len(set(worker) & set(player)) <= 1
+            assert sum(1 for a, b in zip(player_frame, worker_frame)
+                       if a != b) >= 8
 
 
-def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
+#: The lamp's columns: the middle four of the eight. Row 1 and row 2 of the
+#: player's box are `..####..`, and this is the mask that says so.
+LAMP_COLUMNS = 0x3C
+
+
+def test_only_the_player_has_anything_over_the_crown_and_it_is_his_lamp():
     """Seen from above a head is the topmost thing and there is no hat on it.
 
     **The player is the one exception and it is deliberate** (issue #49). The
@@ -223,8 +242,18 @@ def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
     him where there is no floor under his feet to draw his bar on -- on a wall
     cell, in a doorway, and on the sprite sheet.
 
-    The rest keep two blank rows, which is also what keeps the box 8x16 while
-    the drawing is eleven or twelve rows of it.
+    **Narrowed by the plan-view redraw** (issue #60), and the narrowing is
+    worth stating because the wider claim was in this docstring: it used to
+    say the rest keep two blank rows. The waiting worker's raised hands are now
+    two blobs at the *edges* of rows 1 and 2 -- from above, a raised arm is a
+    hand beside the crown and nothing else -- so those rows are no longer the
+    lamp's alone. What is exactly true, and what identifies him, is narrower:
+    **the top of the lamp -- row 1, in the four middle columns -- is ink no
+    other figure has in any frame**, and the top row of every box is empty.
+    The follower's crown starts on row 2, under the lamp's second row and
+    inside its columns, which is why the claim is about row 1 and not rows
+    1-2; the player's `..####..` and the worker's `##....##` are inverses on
+    both rows, which is a larger difference than a blank row would have been.
 
     **It is a rule about figures on their feet**, so the body is not in it
     (issue #59). A figure lying down has no head at the top of its box -- its
@@ -233,32 +262,64 @@ def test_only_the_player_has_anything_above_his_head_and_it_is_his_lamp():
     danger of reading as front-facing, and the arm flung back over its head is
     the first row of its box on purpose.
     """
-    for name in SP.STANDING:
+    for name, frames in SP.STANDING.items():
         if name == "player":
             continue
-        assert SP.SPRITES[name][:2] == (0x00, 0x00), name
-    assert SP.PLAYER[0] == 0x00, "the lamp is inside the box, not on its edge"
-    assert SP.PLAYER[1] == SP.PLAYER[2] == 0x3C, \
-        "the lamp is four pixels wide, two rows, centred"
+        for frame in frames:
+            assert frame[0] == 0x00, f"{name} draws on the top row of its box"
+            assert not any(row & LAMP_COLUMNS for row in frame[:2]), \
+                f"{name} has ink where the top of the player's lamp is"
+    for frame in SP.FOLLOWER_FRAMES:
+        assert frame[:2] == (0x00, 0x00), "the follower has something on its head"
+    for frame in SP.PLAYER_FRAMES:
+        assert frame[0] == 0x00, "the lamp is inside the box, not on its edge"
+        assert frame[1] == frame[2] == LAMP_COLUMNS, \
+            "the lamp is four pixels wide, two rows, centred"
 
 
-def test_the_living_are_symmetric_and_the_dead_are_not():
-    """Asymmetry is no longer *the* tell for a body, and it has not been spent.
+def mirror(row: int, width: int) -> int:
+    return sum(1 << (width - 1 - i) for i in range(width) if row & (1 << i))
 
-    The aspect ratio is the tell since issue #59. This is kept because the
-    player's lamp was deliberately drawn centred and symmetric in order not to
-    cost the body the only tell it had at the time, and a property paid for
-    once should not be given away later by accident. A figure symmetric about
-    its centre column reads as standing to attention; a corpse does not.
+
+def test_each_walk_frame_is_the_other_in_the_mirror():
+    """**The walk spends the symmetry the living figures used to have, and it
+    spends it as a pair** (issue #60).
+
+    Until 2026-09-11 every living figure was symmetric about its centre column
+    so that the one figure that was not read as dead. That reservation was
+    lifted when the body was laid down (issue #59) -- its tell is its aspect
+    now -- and the walk is the first thing to spend it on: a stride has one
+    hand forward and one foot back, which no symmetric drawing can say.
+
+    What is kept instead is that **frame B is frame A reflected**, row for
+    row. The two strides are the same figure with the other foot forward, so
+    across a cycle the figure stays centred over its column and never leans,
+    lists or drifts -- and a redraw that made B a different drawing from A
+    rather than A's reflection would fail here, before anybody had to look at
+    it walking.
     """
-    def mirror(row, width):
-        return sum(1 << (width - 1 - i) for i in range(width)
-                   if row & (1 << i))
+    for name, (a, b) in SP.STANDING.items():
+        assert a != b, f"{name}'s second frame is the first one"
+        assert all(mirror(ra, 8) == rb for ra, rb in zip(a, b)), \
+            f"{name}'s frame B is not frame A in the mirror"
+        # And so a frame that is symmetric on its own is one the walk did
+        # not reach: the still rows are the same in both, and every row that
+        # differs is one that is asymmetric in each.
+        assert any(row != mirror(row, 8) for row in a), \
+            f"{name} takes no stride at all"
 
-    for name in SP.STANDING:
-        sprite = SP.SPRITES[name]
-        assert all(row == mirror(row, 8) for row in sprite), \
-            f"{name} is not symmetric about its centre column"
+
+def test_the_lamp_stays_symmetric_and_the_dead_stay_asymmetric():
+    """The two things the walk was not allowed to spend.
+
+    The lamp is centred and symmetric so that it says nothing about facing and
+    reads as a fitting rather than a face; the walk moves hands and feet and
+    leaves it alone, in both frames. The body is asymmetric everywhere, as it
+    was: that is no longer *the* tell, and it has not been given away either.
+    """
+    for frame in SP.PLAYER_FRAMES:
+        assert frame[1] == frame[2] == mirror(frame[1], 8), \
+            "the walk moved the lamp"
     # The body is 16 wide, so its mirror runs across both bytes of a row: the
     # left byte reversed becomes the right one and vice versa.
     for left, right in SP.BODY:
@@ -268,11 +329,33 @@ def test_the_living_are_symmetric_and_the_dead_are_not():
             "the body is symmetric somewhere, which reads as somebody standing"
 
 
+def test_the_strides_differ_in_the_hands_and_feet_and_nowhere_else():
+    """A walk is the bottom of the figure moving under a head and shoulders
+    that do not. If the head or the shoulders differed between frames the
+    figure would appear to change size as it walked, which is what a Cleg
+    does by approaching and must not do by stepping -- and the player's lamp
+    and mark are pinned separately because they are what identify him.
+    """
+    still_rows = {"player": range(0, 9), "worker": range(0, 11),
+                  "follower": range(0, 8)}
+    for name, (a, b) in SP.STANDING.items():
+        for row in still_rows[name]:
+            assert a[row] == b[row], f"{name} row {row} moves between frames"
+        moving = [i for i, (ra, rb) in enumerate(zip(a, b)) if ra != rb]
+        assert moving, f"{name} does not move"
+        assert max(moving) - min(moving) <= 3, \
+            f"{name}'s stride spans rows {moving}, which is more than a stride"
+
+
 def test_a_follower_has_its_arms_down_and_a_waiting_worker_has_them_up():
     """Raised arms mean "I still need reaching", so somebody already walking
     behind you must not be drawn making the signal."""
-    assert _edges(SP.WORKER), "a waiting worker's hands reach both edges"
-    assert not _edges(SP.FOLLOWER), "a follower is still signalling"
+    for frame in SP.WORKER_FRAMES:
+        assert _edges(frame), "a waiting worker's hands reach both edges"
+    for frame in SP.FOLLOWER_FRAMES:
+        assert not _edges(frame), "a follower is still signalling"
+        assert not any(row & 0x81 for row in frame), \
+            "a follower reaches the edge of its column, which is the player's"
 
 
 def test_no_sprite_is_blank():
@@ -334,7 +417,7 @@ def test_the_two_cleg_frames_are_the_same_body_at_the_same_weight():
 
 def test_a_sprite_is_drawn_only_in_cells_its_test_allows():
     s = Screen()
-    SP.draw(s, SP.WORKER, 10 * CELL, 5 * CELL, visible=lambda cx, cy: cx == 10)
+    SP.draw(s, SP.WORKER_A, 10 * CELL, 5 * CELL, visible=lambda cx, cy: cx == 10)
     drawn = {(px % SCREEN_W) // CELL
              for px, on in enumerate(s.pixels) if on}
     assert drawn == {10}
@@ -344,7 +427,7 @@ def test_a_person_can_be_cut_in_half_by_the_edge_of_a_light():
     """Half in the beam is drawn half, the same way two-tone works."""
     s = Screen()
     x = 10 * CELL + 4                      # straddling columns 10 and 11
-    SP.draw(s, SP.WORKER, x, 5 * CELL, visible=lambda cx, cy: cx == 10)
+    SP.draw(s, SP.WORKER_A, x, 5 * CELL, visible=lambda cx, cy: cx == 10)
     rows = [px // SCREEN_W for px, on in enumerate(s.pixels) if on]
     cols = {(px % SCREEN_W) for px, on in enumerate(s.pixels) if on}
     assert rows, "nothing drawn at all"
@@ -353,8 +436,8 @@ def test_a_person_can_be_cut_in_half_by_the_edge_of_a_light():
 
 def test_no_test_means_drawn_everywhere_as_before():
     lit, masked = Screen(), Screen()
-    SP.draw(lit, SP.WORKER, 10 * CELL + 3, 5 * CELL)
-    SP.draw(masked, SP.WORKER, 10 * CELL + 3, 5 * CELL,
+    SP.draw(lit, SP.WORKER_A, 10 * CELL + 3, 5 * CELL)
+    SP.draw(masked, SP.WORKER_A, 10 * CELL + 3, 5 * CELL,
             visible=lambda cx, cy: True)
     assert bytes(lit.pixels) == bytes(masked.pixels)
 

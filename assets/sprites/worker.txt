@@ -1,9 +1,40 @@
 ; worker.txt
 ;
-; A trapped worker, waiting: arms up and out, which is the
-; silhouette of somebody calling for help and exactly what they are
-; doing. Narrower shoulders than the player, because no kit. The
-; only figure that touches both edges above the head.
+; A trapped worker, waiting, seen from directly overhead. Two frames.
+;
+; REDRAWN 2026-09-11 (issue #60): the same person as the follower --
+; the same disc, the same shoulders -- with the arms raised, which
+; from above is TWO HANDS BESIDE THE CROWN and nothing at the hips.
+; The figure before this one had arm strips running from the raised
+; hands down to the shoulders, which is what raised arms look like
+; from the front; from above an arm seen end-on is a hand and nothing
+; else. The hands are the only thing in the figure that reach the
+; column's edges, at rows 1-2, which is the tell the edge-row table
+; has always given a waiting worker. The body sits a row lower than
+; the follower's so that the head rows differ in the middle columns,
+; which is what assertion 2 of the legibility contract asks.
+;
+; IT IS THE FIGURE THE REDRAW HELPS LEAST, and that is said here
+; rather than found later. A waiting worker does not step in this
+; build -- workers do not wander -- so its frame never flips and it
+; stands on A. The designer's mock read a still plan-view worker as
+; "something with ears"; this drawing moves the hands up and out
+; rather than beside the head, and whether that is enough is the
+; sprite checkpoint's to say.
+;
+;   Do NOT give it a counter to make it look alive. It is waiting.
+;
+; Cadence is movement for every figure in the game, and a counter
+; here would be the first exception. The lever, if a cold read finds
+; the still figure wanting, is a WAVE ON THE SHOUT: flip the frame on
+; the event the worker already raises every few seconds, which costs
+; a redraw the HELP word already dirties the cells for. Not taken,
+; because the user ruled cadence tied to movement for all three; the
+; B frame exists so that it is a one-line change and so that the
+; contract and the sprite sheet cover every frame of every figure.
+;
+; 42 pixels. The frames differ in the feet alone, eight pixels, rows
+; 11-12; B is A in the mirror.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -11,21 +42,40 @@
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
 
-name: WORKER
+name: WORKER_A
 size: 8x16
 ........
-........
-##....##   hands, raised clear of the shoulders
+##....##   hands, raised beside the crown
 ##....##
-#..##..#   arms, and the crown of the head between them
-#.####.#   head
-.######.   shoulders - narrower than the player's
-.######.
-..####..   trunk
+...##...   head, a row lower than the follower's
 ..####..
-..#..#..   legs, foreshortened
-..#..#..
-..#..#..
+..####..
+..####..
+.######.   shoulders
+.######.
+...##...   hips - the arms are up, so no hands here
+...##...
+....##..   feet
+..##....
+........
+........
+........
+
+name: WORKER_B
+size: 8x16
+........
+##....##   hands, raised
+##....##
+...##...   head
+..####..
+..####..
+..####..
+.######.   shoulders
+.######.
+...##...   hips
+...##...
+..##....   feet swapped
+....##..
 ........
 ........
 ........

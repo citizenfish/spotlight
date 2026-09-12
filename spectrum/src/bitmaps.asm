@@ -265,20 +265,38 @@ FLOOR_LIT:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
-FOLLOWER:
+FOLLOWER_A:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $3C                   ; ..####..   head
+        DEFB $18                   ; ...##...   head, a disc
+        DEFB $3C                   ; ..####..
         DEFB $3C                   ; ..####..
         DEFB $3C                   ; ..####..
         DEFB $7E                   ; .######.   shoulders
         DEFB $7E                   ; .######.
-        DEFB $5A                   ; .#.##.#.   arms down at the sides
-        DEFB $5A                   ; .#.##.#.
-        DEFB $5A                   ; .#.##.#.
-        DEFB $3C                   ; ..####..   hips
-        DEFB $24                   ; ..#..#..   legs
-        DEFB $24                   ; ..#..#..
+        DEFB $58                   ; .#.##...   hands beside the hips, swinging
+        DEFB $1A                   ; ...##.#.
+        DEFB $0C                   ; ....##..   feet
+        DEFB $30                   ; ..##....
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
+FOLLOWER_B:
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $18                   ; ...##...   head
+        DEFB $3C                   ; ..####..
+        DEFB $3C                   ; ..####..
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.   shoulders
+        DEFB $7E                   ; .######.
+        DEFB $1A                   ; ...##.#.   frame A in the mirror
+        DEFB $58                   ; .#.##...
+        DEFB $30                   ; ..##....   feet swapped
+        DEFB $0C                   ; ....##..
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
@@ -333,22 +351,40 @@ NEST:
         DEFB $7E                   ; .######.
         DEFB $2C                   ; ..#.##..   it does not sit square
 
-PLAYER:
+PLAYER_A:
         DEFB $00                   ; ........
         DEFB $3C                   ; ..####..   the lamp, worn on the helmet
         DEFB $3C                   ; ..####..
-        DEFB $7E                   ; .######.   head, seen from above - no hat, no face
+        DEFB $7E                   ; .######.   helmet, a disc four rows deep
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
         DEFB $7E                   ; .######.
         DEFB $FF                   ; ########   shoulders, full width - the kit
         DEFB $FF                   ; ########
-        DEFB $DB                   ; ##.##.##   arms clear of the body
-        DEFB $DB                   ; ##.##.##
-        DEFB $DB                   ; ##.##.##
-        DEFB $7E                   ; .######.   hips
-        DEFB $66                   ; .##..##.   legs, planted wide
-        DEFB $66                   ; .##..##.
+        DEFB $BC                   ; #.####..   a hand forward, beside the hip
+        DEFB $19                   ; ...##..#   the other hand, swung back
+        DEFB $0C                   ; ....##..   a foot out from under
+        DEFB $30                   ; ..##....   the other, behind
         DEFB $00                   ; ........   one clear row, so the mark is not feet
         DEFB $FF                   ; ########   the mark: the only figure with ground under him
+        DEFB $FF                   ; ########
+
+PLAYER_B:
+        DEFB $00                   ; ........
+        DEFB $3C                   ; ..####..   the lamp
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.   helmet
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########   shoulders
+        DEFB $FF                   ; ########
+        DEFB $3D                   ; ..####.#   frame A in the mirror: the other hand forward
+        DEFB $98                   ; #..##...
+        DEFB $30                   ; ..##....   feet swapped
+        DEFB $0C                   ; ....##..
+        DEFB $00                   ; ........
+        DEFB $FF                   ; ########   the mark
         DEFB $FF                   ; ########
 
 SPRAY:
@@ -681,20 +717,38 @@ WALL_LIT_15:
         DEFB $10                   ; ...#....
         DEFB $10                   ; ...#....
 
-WORKER:
+WORKER_A:
         DEFB $00                   ; ........
-        DEFB $00                   ; ........
-        DEFB $C3                   ; ##....##   hands, raised clear of the shoulders
+        DEFB $C3                   ; ##....##   hands, raised beside the crown
         DEFB $C3                   ; ##....##
-        DEFB $99                   ; #..##..#   arms, and the crown of the head between them
-        DEFB $BD                   ; #.####.#   head
-        DEFB $7E                   ; .######.   shoulders - narrower than the player's
-        DEFB $7E                   ; .######.
-        DEFB $3C                   ; ..####..   trunk
+        DEFB $18                   ; ...##...   head, a row lower than the follower's
         DEFB $3C                   ; ..####..
-        DEFB $24                   ; ..#..#..   legs, foreshortened
-        DEFB $24                   ; ..#..#..
-        DEFB $24                   ; ..#..#..
+        DEFB $3C                   ; ..####..
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.   shoulders
+        DEFB $7E                   ; .######.
+        DEFB $18                   ; ...##...   hips - the arms are up, so no hands here
+        DEFB $18                   ; ...##...
+        DEFB $0C                   ; ....##..   feet
+        DEFB $30                   ; ..##....
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
+WORKER_B:
+        DEFB $00                   ; ........
+        DEFB $C3                   ; ##....##   hands, raised
+        DEFB $C3                   ; ##....##
+        DEFB $18                   ; ...##...   head
+        DEFB $3C                   ; ..####..
+        DEFB $3C                   ; ..####..
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.   shoulders
+        DEFB $7E                   ; .######.
+        DEFB $18                   ; ...##...   hips
+        DEFB $18                   ; ...##...
+        DEFB $30                   ; ..##....   feet swapped
+        DEFB $0C                   ; ....##..
         DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........

@@ -10,7 +10,13 @@ in fill rather than in outline.** Neither was caught by looking, because the
 sheet is where art is *named* and the played screen is where it is *judged*.
 So the rule goes here, where the next redraw has to get past it.
 
-Five assertions, over every pair of the four figures and over the door pair:
+Five assertions, over every pair of the four figures and over the door pair --
+and since issue #60, **over every frame of one figure against every frame of
+another**: three figures with two walk frames each is three pairs of figures
+and twelve pairs of frames, and a player on frame A stands beside a follower on
+frame B as often as not. The mark and the lamp are pinned on both of the
+player's frames, because a stride that took either off would be a stride that
+made him somebody else for eight frames in sixteen.
 
 1. Some row differs by **at least three pixels** -- the measured failure was
    two.
@@ -163,17 +169,42 @@ def aspect(sprite) -> tuple:
     return SP.width_of(sprite), len(sprite)
 
 
-def pairs():
-    """Every pair of figures that shares a box, and so is told apart inside it.
+#: Every frame of every standing figure, by its sheet name: `player_a`,
+#: `player_b`, and so on. The contract compares frames, not figures.
+FRAMES = {f"{name}_{letter}": frame
+          for name, frames in SP.STANDING.items()
+          for letter, frame in zip("ab", frames)}
 
-    The three on their feet. **A body is not compared this way since issue
-    #59** and could not be: assertions 1 to 3 read one byte against another,
-    and there is no meaningful pairing of a 16x8 row with an 8x16 one. It is
-    covered by assertion 5, which is a stronger claim than any of them --
-    differing in the box is the largest difference two drawings can have.
+
+def figure_of(frame_name: str) -> str:
+    """`player_a` -> `player`: which figure a frame belongs to."""
+    return frame_name.rsplit("_", 1)[0]
+
+
+def pairs():
+    """Every pair of frames that shares a box and means a different person.
+
+    **Every frame of one figure against every frame of another** (issue #60):
+    twelve comparisons, and never a figure against its own other frame,
+    because a stride is meant to look like the same person. The three on
+    their feet. **A body is not compared this way since issue #59** and could
+    not be: assertions 1 to 3 read one byte against another, and there is no
+    meaningful pairing of a 16x8 row with an 8x16 one. It is covered by
+    assertion 5, which is a stronger claim than any of them -- differing in
+    the box is the largest difference two drawings can have.
     """
-    for one, two in combinations(SP.STANDING, 2):
-        yield one, two, SP.SPRITES[one], SP.SPRITES[two]
+    for one, two in combinations(FRAMES, 2):
+        if figure_of(one) == figure_of(two):
+            continue
+        yield one, two, FRAMES[one], FRAMES[two]
+
+
+def test_the_contract_runs_over_twelve_frame_pairs():
+    """Said as a number, so that a frame dropped from the table -- or the
+    contract quietly comparing figures rather than frames again -- fails with
+    a count rather than passing on whatever was left."""
+    assert len(FRAMES) == 6
+    assert sum(1 for _ in pairs()) == 12
 
 
 def test_some_row_of_every_pair_of_figures_differs_by_three_pixels():
@@ -217,7 +248,7 @@ def test_every_pair_of_figures_differs_where_the_eye_lands_first():
             f"{one} and {two} look the same at the top, where a glow finds them"
 
 
-def test_all_three_pairs_pass_all_three():
+def test_all_twelve_pairs_pass_all_three():
     """Said once as a whole, because the contract is the conjunction.
 
     A drawing that satisfied two assertions out of three would still be the
@@ -272,9 +303,11 @@ def test_a_figure_that_means_something_different_differs_in_aspect():
         a, b = SP.SPRITES[one], SP.SPRITES[two]
         if aspect(a) != aspect(b):
             continue
-        assert one in SP.STANDING and two in SP.STANDING, (
+        assert one in FRAMES and two in FRAMES, (
             f"{one} and {two} share a box and mean different things, so the "
             f"only thing left to tell them apart is what is drawn in it")
+        if figure_of(one) == figure_of(two):
+            continue                    # the same person, mid-stride
         assert all(check(a, b) for check in
                    (assertion_1, assertion_2, assertion_3))
 
@@ -286,8 +319,8 @@ def test_the_dead_and_the_living_never_share_a_box():
     is alive* is withdrawn, and **orientation says whether it is upright** in
     its place.
     """
-    for name in SP.STANDING:
-        assert aspect(SP.SPRITES[name]) != aspect(SP.BODY), \
+    for name, frame in FRAMES.items():
+        assert aspect(frame) != aspect(SP.BODY), \
             f"{name} and a corpse are the same shape of box again"
     assert aspect(SP.BODY) == (16, 8)
 
@@ -303,8 +336,7 @@ def test_the_old_body_passes_the_first_three_assertions_and_fails_the_fifth():
     Both halves are asserted. If assertion 5 is ever weakened, the second half
     of this fails and whoever weakened it reads the first half.
     """
-    for name in SP.STANDING:
-        other = SP.SPRITES[name]
+    for name, other in FRAMES.items():
         assert len(OLD_BODY) == len(other)
         failed = [n for n, check in enumerate(
             (assertion_1, assertion_2, assertion_3), start=1)
@@ -455,12 +487,17 @@ def test_the_mark_on_lit_floor_is_five_pixels_of_solid_ink():
     the last row is his alone.** Two pixels of splayed leg, or two pairs of
     them, is a floor dot; eight pixels of ink is ground.
     """
-    bar = [row for row in SP.PLAYER[-2:]]
-    assert all(longest_run(row) >= 5 for row in bar), \
-        "the player's bar is narrower than the floor's own dot spacing"
-    assert SP.PLAYER[-3] == 0x00, "no clear row, so the bar reads as feet"
+    for frame in SP.PLAYER_FRAMES:
+        bar = [row for row in frame[-2:]]
+        assert all(longest_run(row) >= 5 for row in bar), \
+            "the player's bar is narrower than the floor's own dot spacing"
+        assert frame[-3] == 0x00, "no clear row, so the bar reads as feet"
+        # And the feet, which are the thing nearest the bar: two pixels each,
+        # a floor dot's width, so they cannot be mistaken for it (issue #60).
+        assert all(longest_run(row) <= 2 for row in frame[11:13]), \
+            "a foot is wide enough to read as a second mark"
     for name in SP.PEOPLE:
-        if name == "player":
+        if name.startswith("player"):
             continue
         # A 16-wide row is two bytes and either of them could hold a run, so
         # the rows are flattened rather than assumed to be single bytes.
@@ -489,15 +526,24 @@ def test_the_lamp_is_the_mark_that_needs_no_floor():
     **The clause is about figures on their feet.** A body has no head at the
     top of its box, because it is not upright, and the arm flung back over its
     head is the first row of that box on purpose.
+
+    **And it is about the lamp's own columns since the redraw** (issue #60).
+    A waiting worker's raised hands are now two blobs at the edges of rows 1
+    and 2 -- from above, a raised arm is a hand beside the crown -- so the
+    rows are not the lamp's alone any more; the four middle columns of row 1
+    are, in every frame of every other figure, and that is what is pinned.
+    The two drawings are inverses on those rows, which is more difference
+    than a blank row would have been.
     """
-    assert SP.PLAYER[1] == SP.PLAYER[2] == 0x3C, "the lamp is not four centred"
-    for name in SP.STANDING:
-        if name == "player":
+    for frame in SP.PLAYER_FRAMES:
+        assert frame[1] == frame[2] == 0x3C, "the lamp is not four centred"
+        mirrored = sum(1 << (7 - i) for i in range(8) if frame[1] & (1 << i))
+        assert mirrored == frame[1], "the lamp is not symmetric"
+    for name, frame in FRAMES.items():
+        if figure_of(name) == "player":
             continue
-        assert SP.SPRITES[name][:2] == (0x00, 0x00), \
-            f"{name} has ink in the rows the player's lamp has to itself"
-    mirrored = sum(1 << (7 - i) for i in range(8) if SP.PLAYER[1] & (1 << i))
-    assert mirrored == SP.PLAYER[1], "the lamp is not symmetric"
+        assert frame[0] == 0 and not (frame[1] & 0x3C), \
+            f"{name} has ink where the top of the player's lamp is"
 
 
 # --- the pins: delete a mark and this file has to notice --------------------
@@ -516,9 +562,14 @@ def test_deleting_the_bar_fails_the_contract():
     carries them -- which is the whole reason the five-pixel clause had to be
     written down as well.
     """
-    stripped = without_rows(SP.PLAYER, {14, 15})
-    assert not all(longest_run(row) >= 5 for row in stripped[-2:]), \
-        "the five-pixel clause did not notice the bar being deleted"
+    for frame in SP.PLAYER_FRAMES:
+        stripped = without_rows(frame, {14, 15})
+        assert not all(longest_run(row) >= 5 for row in stripped[-2:]), \
+            "the five-pixel clause did not notice the bar being deleted"
+        # And the feet, two pixels each, do not stand in for it: with the bar
+        # gone there is no run of five anywhere in the figure's bottom half.
+        assert all(longest_run(row) < 5 for row in stripped[9:]), \
+            "something below the shoulders is wide enough to pass for the bar"
 
 
 def test_deleting_the_lamp_fails_the_contract():
@@ -530,9 +581,14 @@ def test_deleting_the_lamp_fails_the_contract():
     lamp gone the player is no longer the only figure drawing above everybody
     else's head, and rows 0-2 of the box go empty.
     """
-    stripped = without_rows(SP.PLAYER, {1, 2})
-    assert stripped[:2] != SP.PLAYER[:2]
-    assert stripped[1] == 0x00 and stripped[2] == 0x00, \
-        "the lamp clause did not notice the lamp being deleted"
-    assert topmost(stripped) > topmost(SP.PLAYER), \
-        "the player still draws where the lamp was"
+    for frame in SP.PLAYER_FRAMES:
+        stripped = without_rows(frame, {1, 2})
+        assert stripped[:2] != frame[:2]
+        assert stripped[1] == 0x00 and stripped[2] == 0x00, \
+            "the lamp clause did not notice the lamp being deleted"
+        assert topmost(stripped) > topmost(frame), \
+            "the player still draws where the lamp was"
+        # And without it he is a follower with a bigger head: nothing in the
+        # top of the lamp's columns, which is the clause that identifies him
+        # where there is no floor to draw the bar on.
+        assert not (stripped[1] & 0x3C)

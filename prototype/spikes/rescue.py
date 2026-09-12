@@ -281,7 +281,7 @@ class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
     __slots__ = ("x", "y", "room", "start", "state", "blood", "start_blood",
-                 "reference", "phase", "recorded", "doused", "hatched",
+                 "reference", "phase", "recorded", "doused", "hatched", "frame",
                  "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
@@ -326,6 +326,23 @@ class Worker:
         #: held up by the valve keeps its clock and spends its thirty seconds
         #: regardless -- see `owed`.
         self.hatched = 0
+        #: **Which walk frame they are drawn in** (issue #60): one bit,
+        #: flipped in `Rescue.follow` when the trail carries a follower across
+        #: a cell boundary, and at no other time -- the rule `Player.frame`
+        #: and `clegs.Cleg.wing` follow, for the reasons written there.
+        #:
+        #: **A waiting worker never moves, so this never flips and they stand
+        #: on frame A.** They are waiting. Do not give them a counter to look
+        #: alive: cadence is movement for every figure in the game, and this
+        #: would be the first exception. The lever if the still figure is found
+        #: wanting is a wave on the shout, in `assets/sprites/worker.txt`.
+        #:
+        #: The bit says which foot is forward and nothing about what they are,
+        #: so it is kept through a change of state: a follower dropped back to
+        #: waiting is drawn with arms up on the frame they are dropped, on
+        #: whichever foot they were on. Drawing state; nothing in the rules
+        #: reads it, and the event log is the same with it and without it.
+        self.frame = 0
         self._tick = 0
         self._since_death = 0
 
@@ -818,7 +835,18 @@ class Rescue:
         for i, worker in enumerate(self.tail):
             at = TAIL_SPACING * (i + 1)
             if at < len(self._trail):
+                # The walk's stride, judged where the trail places them and
+                # nowhere else: the frame flips when the step the trail hands
+                # over is in a different cell from the one they were in. A
+                # follower moves a pixel a frame when the tail moves, so that
+                # is a flip every eight frames of walking, as the player's is.
+                # The doorway is no special case -- a step from the last column
+                # of one room to the first of the next is a change of cell,
+                # which is what it is. The trail itself is untouched.
+                before = (worker.x // CELL, worker.y // CELL)
                 worker.room, worker.x, worker.y = self._trail[at]
+                if (worker.x // CELL, worker.y // CELL) != before:
+                    worker.frame ^= 1
 
     def at_exit(self, room: int, cells) -> bool:
         """Is the player touching the way out?

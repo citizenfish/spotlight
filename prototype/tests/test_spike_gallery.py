@@ -59,7 +59,14 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     for room in scene.BUILDING.rooms:
         stem = f"room-{gallery.slug(room.name)}"
         assert f"{stem}-lit_x1.png" in names
-        assert f"{stem}-played_x1.png" in names
+        # The same played instant on walk frame A and on walk frame B (issue
+        # #60), because a still of a walk is one stride and the pair is the
+        # walk. There is no third, as-played picture: it would be one of the
+        # two with the people on mixed feet, and a reviewer given three
+        # near-identical frames would compare the wrong pair.
+        assert f"{stem}-played-a_x1.png" in names
+        assert f"{stem}-played-b_x1.png" in names
+        assert f"{stem}-played_x1.png" not in names
     # The one frame that is set up rather than played: a spotlight burning
     # where somebody put it down. No bot has ever swapped one.
     swapped = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-swapped"
@@ -79,7 +86,7 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # rounds, a person-shaped smudge in a room.
     body = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-body"
     assert f"{body}_x1.png" in names and f"{body}_x3.png" in names
-    assert len(paths) == len(names) == 22 + 4 * len(scene.BUILDING.rooms)
+    assert len(paths) == len(names) == 22 + 6 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -118,18 +125,30 @@ def test_no_caption_on_the_sprite_sheet_runs_over_its_block():
     screen is going spare. `sprites.SPRITES` is ordered to put it there. This
     is what fails if somebody inserts a sprite ahead of it without a thought
     about the layout.
+
+    **And a caption that fills its block touches the next one** (issue #60):
+    FOLLOWER A is ten characters in a ten-column block, and the first sheet
+    with the walk frames on it read `FOLLOWER AFOLLOWER B` across the middle
+    and right blocks. A caption in a left or middle block has to leave a
+    column before its neighbour; only the last block in a row may run to its
+    edge, because nothing follows it.
     """
     for n, name in enumerate(sprites.SPRITES):
         cx, _cy = gallery.block_at(n)
         width = gallery.block_width(n)
-        assert len(gallery.label(name)) <= width, \
-            f"{name} needs {len(gallery.label(name))} columns and has {width}"
+        last = n % gallery._ACROSS == gallery._ACROSS - 1
+        room = width if last else width - 1
+        assert len(gallery.label(name)) <= room, \
+            f"{name} needs {len(gallery.label(name))} columns and has {room}"
         assert cx + width <= COLS, f"{name}'s block runs off the screen"
 
 
 def test_the_sprite_sheet_fits_between_its_heading_and_its_legend():
-    """Fourteen entries at three across is five rows, and the sheet has to
-    hold them without printing into the legend at the bottom."""
+    """Seventeen entries at three across is six rows, and the sheet has to
+    hold them without printing into the legend at the bottom. Six rows is
+    every row there is: the people's second frames (issue #60) took the sheet
+    from fourteen entries to seventeen, and an eighteenth is the last that
+    fits."""
     rows = -(-len(sprites.SPRITES) // gallery._ACROSS)
     last = gallery._TOP + rows * gallery._BLOCK_H
     assert last <= ROWS - 3, f"the sheet needs {last} rows and has {ROWS - 3}"
@@ -184,7 +203,9 @@ def test_the_sheet_shows_three_sizes_because_the_game_has_three():
     The body lies along the bottom of its block, sixteen across and eight down,
     beside three figures that stand up in theirs.
     """
-    tall = set(sprites.STANDING) | set(sprites.DOORS)
+    tall = {name for name in sprites.PEOPLE if name != "body"} \
+        | set(sprites.DOORS)
+    assert len(tall) == 8, "six people frames and two doors"
     for name, sprite in sprites.SPRITES.items():
         want = (8, 16) if name in tall else (16, 8) if name == "body" else (8, 8)
         assert (sprites.width_of(sprite), len(sprite)) == want, name
@@ -352,7 +373,7 @@ def test_the_lit_shot_shows_the_whole_room_and_the_played_one_does_not():
     what does a player actually see of it. If they came out the same, one of
     them is broken."""
     lit = gallery.room_screen(scene.NEAR, lit=True)
-    played = gallery.room_screen(scene.NEAR, lit=False)
+    played = gallery.room_screen(scene.NEAR, lit=False, frame=0)
     assert lit_cells(lit) > lit_cells(played) * 2
 
 

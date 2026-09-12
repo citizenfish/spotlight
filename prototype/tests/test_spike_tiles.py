@@ -146,23 +146,35 @@ def test_a_wall_deep_inside_a_mass_remembers_nothing():
 def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     """**The Atic Atac property the build was missing.**
 
-    A remembered wall is 8 to 28 pixels; a waiting worker is 44. Before this a
+    A remembered wall is 8 to 28 pixels; a waiting worker is 42. Before this a
     wall was 64 against a figure's 60 to 68, so a figure standing against one
     was inside it. If a future slice makes the dim tiles heavier, this is the
     test that should stop it.
 
-    The player is 84 since the slice C redraw -- the lamp and the bar took him
-    from 60 -- which is nearly twice the ink of anybody else in the room and
-    three times the heaviest remembered wall. Either way the figure is the
-    heavier thing on the cell.
+    The player is 76 since the plan-view redraw (issue #60; 84 from slice C's
+    lamp and bar until then), which is still nearly twice the ink of anybody
+    else in the room and well over twice the heaviest remembered wall. Either
+    way the figure is the heavier thing on the cell.
+
+    **The follower is the lightest figure in the game at 36, down from 44,
+    and that is a legibility cost priced rather than hidden** (issue #60): it
+    still out-inks every wall run it can stand beside, at 28 today and at 34
+    once the outline gains its mortar courses, and the head disc is the thing
+    the eye finds. If a session loses a follower against a wall, the head grows
+    a row before the walls lose their courses -- and this is the line that
+    says when that day has come.
     """
     inks = [tiles.ink_of(rows) for rows in tiles.WALL_DIM]
     assert min(inks) == 0 and max(inks) == 48, "mask 0 is a free-standing cell"
     # Every tile that is a wall *run* rather than a lone block: 8 to 28.
     runs = [ink for mask, ink in enumerate(inks) if mask not in (0,)]
     assert max(runs) <= 28
-    assert max(runs) < tiles.ink_of(sprites.WORKER) == 44
-    assert tiles.ink_of(sprites.PLAYER) == 84
+    for frame in sprites.WORKER_FRAMES:
+        assert max(runs) < tiles.ink_of(frame) == 42
+    for frame in sprites.FOLLOWER_FRAMES:
+        assert max(runs) < tiles.ink_of(frame) == 36
+    for frame in sprites.PLAYER_FRAMES:
+        assert tiles.ink_of(frame) == 76
 
 
 def test_the_derivation_reproduces_every_tile():
