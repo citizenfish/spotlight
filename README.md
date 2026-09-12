@@ -36,6 +36,9 @@ python -m spotlight
 768x576 window for a 256x192 screen. `--surge-frames N` changes how long the
 mains surge holds the building plan on screen; the default is 50, one second,
 and how long it *should* be is an open question that only playing can settle.
+`--flash-frames N` does the same for the opening flash, which now shows the
+people and the flies in the room as well as its shape; the default is 12 and
+it is the same kind of open question.
 
 The title screen says everything a first-time player needs, in words. Briefly:
 

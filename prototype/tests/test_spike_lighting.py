@@ -314,21 +314,37 @@ def test_the_field_holds_one_byte_per_cell_and_no_second_one():
     """**The saving, and the thing that must not creep back.** The hue array
     was a second 704-byte array beside the charge, on this machine and on the
     Z80. Anything per-cell added to the field from here has to be argued for
-    against this test."""
+    against this test.
+
+    **Argued for once, in issue #64: `_prey`.** It is the second of the two
+    per-frame flags -- reveal and prey -- and it is scratch like `_reveal`,
+    `_illum` and `_memory`: set as sources are applied, cleared with the
+    touched list, and never carried between frames. Nothing new survives the
+    frame, so the fade is still one byte per cell, and on the Z80 the two
+    flags are two bits of the same per-frame byte rather than two arrays. It
+    exists because the opening flash reveals people without making them
+    prey, and one bit could not say that.
+    """
     f = L.LightField()
     cells = COLS * layout.PLAY_ROWS
     per_cell = [name for name in L.LightField.__slots__
                 if len(getattr(f, name)) == cells]
-    assert sorted(per_cell) == ["_illum", "_memory", "_reveal", "charge",
-                                "display"], \
+    assert sorted(per_cell) == ["_illum", "_memory", "_prey", "_reveal",
+                                "charge", "display"], \
         "a new per-cell array in the light field: is it a byte a cell worth?"
     assert not hasattr(f, "hue")
+    # The per-frame flags are all cleared by `begin`, so nothing but the
+    # charge survives the frame.
+    f.begin(); f.add(5, 5, L.LIT, L.CHARGE_LIT); f.commit()
+    f.begin()
+    for name in ("_illum", "_memory", "_reveal", "_prey"):
+        assert not any(getattr(f, name)), f"{name} survived the frame"
 
 
 def test_a_source_offers_the_field_brightness_and_memory_only():
     """The signature is the guarantee: there is no colour to pass."""
     args = list(inspect.signature(L.LightField.add).parameters)
-    assert args == ["self", "cx", "cy", "level", "memory", "reveals"]
+    assert args == ["self", "cx", "cy", "level", "memory", "reveals", "prey"]
 
 
 # --- what the fade may remember (issue #12) --------------------------------

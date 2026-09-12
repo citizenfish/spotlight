@@ -35,6 +35,19 @@ only where a light is on them *this frame*, and only where that light is one
 that reveals. Fixed room lighting shows you the room and not its occupants --
 see the note in the vault, this is a design change and not merely a fix.
 
+**And, since issue #64, a source says separately whether what it reveals is
+prey.** Those were one bit -- *if you can see them, so can the flies* -- and
+one bit cannot express the opening flash, which the user ruled shows the
+workers and the Clegs without handing anybody to the swarm. So there are two
+bits per source and two flags per cell for the frame: `reveals` is what the
+drawing reads, `prey` is what the swarm's prey list reads, and nothing else
+reads either. Every revealing source sets both, except the flash, which sets
+the first and not the second; room lights set neither. Setting `reveals=True`
+on the flash alone was the obvious way and the wrong one: it would have made
+everybody in the room prey for the flash's twelve frames and moved every
+event log in the project. Neither flag survives the frame, so the fade is
+still one byte per cell.
+
 **The field holds no hue.** It used to remember which light lit each cell, so
 that a cell with no colour of its own could take the searchlight's yellow --
 built in issue #12, switched off, and never adopted. Issue #47 took it away,
@@ -148,7 +161,7 @@ class LightField:
     """
 
     __slots__ = ("charge", "display",
-                 "_illum", "_memory", "_reveal", "_touched")
+                 "_illum", "_memory", "_reveal", "_prey", "_touched")
 
     def __init__(self) -> None:
         self.charge = bytearray(_CELLS)
@@ -159,6 +172,12 @@ class LightField:
         self._memory = bytearray(_CELLS)
         #: Cells a revealing light is on this frame. Never remembered.
         self._reveal = bytearray(_CELLS)
+        #: Cells a light that makes prey is on this frame (issue #64). Kept
+        #: beside the reveal flag rather than folded into it because the
+        #: opening flash sets one and not the other. Never remembered either:
+        #: both are cleared with the touched list, so no state survives the
+        #: frame and the field is still one charge byte per cell.
+        self._prey = bytearray(_CELLS)
         self._touched: list[int] = []
 
     # --- sources -----------------------------------------------------------
@@ -169,10 +188,12 @@ class LightField:
             self._illum[idx] = 0
             self._memory[idx] = 0
             self._reveal[idx] = 0
+            self._prey[idx] = 0
         self._touched.clear()
 
     def add(self, cx: int, cy: int, level: int = LIT,
-            memory: int = CHARGE_LIT, reveals: bool = True) -> None:
+            memory: int = CHARGE_LIT, reveals: bool = True,
+            prey: bool | None = None) -> None:
         """Contribute light to a cell. **Brightest wins** -- nothing sums.
 
         `level` is how bright the cell reads while this source is on it.
@@ -182,7 +203,10 @@ class LightField:
         sooner.
 
         `reveals` says whether this light shows people, as opposed to showing
-        the room they are in. It is deliberately not remembered.
+        the room they are in. `prey` says whether the people it shows are prey
+        to the swarm (issue #64); a source that does not say follows `reveals`,
+        because *if you can see them, so can the flies* is the rule and the
+        opening flash is its one exception. Neither is remembered.
         """
         if level <= DARK or not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return
@@ -195,6 +219,10 @@ class LightField:
             self._memory[idx] = memory
         if reveals and level > self._reveal[idx]:
             self._reveal[idx] = level
+        if prey is None:
+            prey = reveals
+        if prey and level > self._prey[idx]:
+            self._prey[idx] = level
 
     def commit(self) -> None:
         """Decay everything, top up what was lit, then work out what shows.
@@ -240,16 +268,20 @@ class LightField:
 
         Your own glow shows you a worker at arm's length, and that is enough to
         draw them -- but it is dim, and a person in the dark is ignored by
-        Clegs. Prey is somebody a *lit* revealing light is on, which is your
-        carried spotlight, a spotlight burning on the floor, or the searchlight
-        catching you out in the open.
+        Clegs. Prey is somebody a *lit* light that makes prey is on, which is
+        your carried spotlight, a spotlight burning on the floor, or the
+        searchlight catching you out in the open.
 
         Room lights are not on that list, and deliberately: they show the room
-        and not who is in it, to Clegs exactly as to the player. One rule.
+        and not who is in it, to Clegs exactly as to the player. Nor, since
+        issue #64, is the opening flash: it shows the room *and* who is in it,
+        and hands nobody over. **This reads the prey flag and nothing else** --
+        it read the reveal flag until #64, which is why the two could not be
+        told apart and why the debug hold had been making everybody prey.
         """
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return False
-        return self._reveal[cy * COLS + cx] >= LIT
+        return self._prey[cy * COLS + cx] >= LIT
 
     def catch_up(self, frames: int) -> None:
         """Age the whole field by `frames`, in one pass.
@@ -292,6 +324,7 @@ class LightField:
             self._illum[idx] = 0
             self._memory[idx] = 0
             self._reveal[idx] = 0
+            self._prey[idx] = 0
         self._touched.clear()
 
     def remembered_at(self, cx: int, cy: int) -> int:

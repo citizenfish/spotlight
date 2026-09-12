@@ -471,13 +471,17 @@ def test_the_room_fades_after_the_flash_rather_than_snapping_back():
     assert field.level_at(5, 5) == L.DIM, "should linger, not snap off"
 
 
-def test_the_flash_shows_the_building_not_who_is_in_it():
-    """Same rule as the room lights. Finding people stays the player's job."""
+def test_the_flash_shows_the_building_and_who_is_in_it_and_makes_no_prey():
+    """**Reveal without prey** (issue #64). It showed the building and not
+    who was in it -- the room lights' rule -- until the user saw a room light
+    up fully and empty and then found people in it. Now the drawing sees
+    everyone under the flash and the swarm's prey test does not."""
     flash = S.Flash()
     flash.fire()
     field = _field(flash)
     assert field.level_at(9, 9) == L.LIT
-    assert not field.reveals_at(9, 9)
+    assert field.reveals_at(9, 9), "the flash hides the people"
+    assert not field.prey_at(9, 9), "the flash handed them to the swarm"
 
 
 def test_the_flash_draws_the_swarm_nowhere():
@@ -614,29 +618,37 @@ def test_the_straight_serpentine_is_still_there_for_the_editor():
 
 # --- the surge shows people; the opening flash does not (issue #10) --------
 
-def test_the_opening_flash_shows_the_room_and_not_who_is_in_it():
+def test_the_opening_flash_shows_the_room_and_who_is_in_it_but_not_to_the_flies():
+    """Superseded 2026-09-11 (issue #64): it used to show the room and hide
+    the people. The one thing this must never become is `reveals=True` with
+    the prey bit following it, which was option 1 of the ruling and would
+    make everybody prey for twelve frames."""
     flash = S.Flash()
     flash.fire()
     field = _field(flash)
     assert field.level_at(9, 9) == L.LIT
-    assert not field.reveals_at(9, 9)
+    assert field.reveals_at(9, 9)
+    assert not field.prey_at(9, 9)
+    assert flash.reveals and not flash.prey
 
 
 def test_a_surge_shows_everything_people_included():
-    """The memorisation beat. It is a different thing from the flash."""
+    """The in-field surge, everybody prey. It is a different thing from the
+    flash, and the mains surge the game plays is `surge.py`, not this."""
     flash = S.Flash()
     flash.fire(surge=True)
     field = _field(flash)
     assert field.level_at(9, 9) == L.LIT
     assert field.reveals_at(9, 9)
+    assert field.prey_at(9, 9)
 
 
-def test_a_surge_does_not_leave_the_flash_revealing_afterwards():
+def test_a_surge_does_not_leave_the_flash_making_prey_afterwards():
     flash = S.Flash()
     flash.fire(surge=True)
-    assert flash.reveals
+    assert flash.reveals and flash.prey
     flash.fire()
-    assert not flash.reveals
+    assert flash.reveals and not flash.prey
 
 
 def test_neither_a_flash_nor_a_surge_lures_anything():
@@ -647,7 +659,7 @@ def test_neither_a_flash_nor_a_surge_lures_anything():
 
 
 def test_a_held_flash_stays_on_until_let_go():
-    """A real surge is a quarter of a second; this is for watching things in."""
+    """A real flash is a fifth of a second; this is for watching things in."""
     flash = S.Flash(frames=3)
     flash.hold(True)
     for _ in range(500):
@@ -662,10 +674,17 @@ def test_a_held_flash_stays_on_until_let_go():
 
 
 def test_holding_it_does_not_change_what_the_clegs_do():
-    """A light that is everywhere offers nothing to steer toward."""
+    """A light that is everywhere offers nothing to steer toward -- **and
+    nobody under it is prey** (issue #64). The hold set the one
+    reveal-and-prey bit from the day it was written, so everybody under the
+    held view was prey to any fly that blundered near them, while its
+    docstring said it changed nothing about the swarm. Now it is true."""
     flash = S.Flash()
     flash.hold(True)
     assert flash.lure() is None
+    field = _field(flash)
+    assert field.reveals_at(9, 9), "the held view shows nobody"
+    assert not field.prey_at(9, 9), "the held view is still making prey"
 
 
 def test_a_timed_surge_still_counts_down_after_a_hold():

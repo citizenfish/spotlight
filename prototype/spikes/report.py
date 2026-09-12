@@ -262,6 +262,9 @@ def metrics(run) -> dict:
         "surge_repaint_frames": SURGE_REPAINT_FRAMES * run.surge.count,
         "surge_repaint_cells": surge.cells_written(),
         "surge_frames": run.surge.frames,
+        # The opening flash's length, the same way (issue #64): a run report
+        # says what the provisional number was when it was taken.
+        "flash_frames": run.place.opening.frames,
     }
 
     return {

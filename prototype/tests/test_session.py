@@ -21,7 +21,7 @@ from spotlight.core.screen import Screen
 
 from spikes import (
     bots, buzz, clegs as clegs_mod, moments, panel, rescue as rescue_mod,
-    scene, session,
+    scene, session, sources,
 )
 from spikes.session import Intent, Session
 from spikes.spotlights import FloorLight
@@ -714,8 +714,15 @@ def test_a_fly_on_somebody_you_cannot_see_at_all_still_clicks():
     two-cell glow, so they are dimly drawn even unlit. A *waiting* worker four
     cells off in the dark is not drawn at all, and neither is the fly on them:
     there is no channel but the sonar, and it is now saying something.
+
+    The opening flash is let go out first: since issue #64 it shows every
+    worker in the room, so a test about somebody you cannot see cannot run
+    inside its twelve frames.
     """
     run = Session(seed=1)
+    for _ in range(sources.FLASH_FRAMES + 1):
+        run.step()
+    assert not run.place.opening.enabled, "the flash is still on"
     worker = next(w for w in run.rescue.workers if w.room == run.here)
     lamp = FloorLight(*worker.cell(), power=9000, lit=True, room=worker.room)
     run.kit.floor.append(lamp)

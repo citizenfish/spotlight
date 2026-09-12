@@ -4,6 +4,7 @@ Run it with:
 
     python -m spotlight            # --scale N to resize the window
                                    # --surge-frames N to try a surge length
+                                   # --flash-frames N to try a flash length
 
 **The game is four directions and two buttons.** That is the whole control
 scheme and it is all a player ever touches:
@@ -40,15 +41,19 @@ in play -- the searchlight's speed -- and stays one: the title branch in
 
 **The room is shown once, at the start.** A flash of the whole layout, which
 then fades over three seconds -- you cannot play a room you have never seen the
-shape of, and what you keep is what you held in your head. It shows the building
-and not who is in it.
+shape of, and what you keep is what you held in your head. Since issue #64 it
+shows the workers and the Clegs too, and makes nobody prey: the user saw a room
+light up fully and empty and then found people in it. `--flash-frames N`
+changes how long it lasts, for the same reason the surge has its flag -- twelve
+frames was chosen for a layout and may be too short to take in the people.
 
 **And the mains surge is the other one, and it is now built** (issue #53).
 Every forty to seventy seconds the power surges and the whole building plan
 appears -- both rooms, the doors, the people, the nests and the flies -- for a
 second, with the game frozen while it is up. The two are deliberately different
-things: the opening flash hands over one room's *layout*, the surge hands over
-the whole building *and who is in it*. `--surge-frames N` changes how long it
+things: the opening flash hands over one room, its people and its flies for a
+moment as the game runs on, the surge hands over the *whole building* as a
+plan on a frozen game. `--surge-frames N` changes how long it
 lasts, because how long a surge has to be to be readable is a number that wants
 finding at a keyboard.
 
@@ -152,7 +157,11 @@ class Debug:
     and holds it there. **It is not a surge**: a surge is the building plan for
     a second with the game frozen, and this is the room itself, at full
     brightness, for as long as you like. Neither lures anything, so the swarm
-    behaves exactly as it would in the dark, in full view.
+    behaves exactly as it would in the dark, in full view -- **and since issue
+    #64 that is true**: the held view set the one reveal-and-prey bit, so
+    everybody under it was prey to any fly nearby and the swarm was not doing
+    what it would have done in the dark. It now reveals without prey, like the
+    flash it holds. See `sources.Flash.hold`.
 
     `U` exists for one job: **settling how long a surge should last** (issue
     #53). `--surge-frames N` sets the length and a surge otherwise arrives once
@@ -279,7 +288,8 @@ class Shell:
 
     def __init__(self, screen: Screen, speaker=None,
                  debug: bool = False,
-                 surge_frames: int = surge.SURGE_FRAMES) -> None:
+                 surge_frames: int = surge.SURGE_FRAMES,
+                 flash_frames: int = sources.FLASH_FRAMES) -> None:
         self.screen = screen
         self.state = TITLE
         self.run: Session | None = None
@@ -306,6 +316,9 @@ class Shell:
         #: new `Session` and the setting belongs to the sitting rather than to
         #: the run.
         self.surge_frames = surge_frames
+        #: How long the opening flash lasts, the same way (issue #64): the
+        #: user's number, from `--flash-frames`, kept for the sitting.
+        self.flash_frames = flash_frames
         #: Frames the building plan is on screen for (issue #53). **The same
         #: mechanism as `held` and deliberately not a second one**: frames in
         #: which the game is not stepped, owned by the shell, invisible to the
@@ -359,7 +372,8 @@ class Shell:
 
     def start(self) -> None:
         """Begin a fresh run. Nothing survives from the last one."""
-        self.run = Session(surge_frames=self.surge_frames)
+        self.run = Session(surge_frames=self.surge_frames,
+                           flash_frames=self.flash_frames)
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
@@ -522,10 +536,24 @@ def surge_frames_from(argv: list[str]) -> int:
     return int(argv[argv.index(SURGE_FLAG) + 1])
 
 
+#: The same switch for the opening flash (issue #64), for the same reason:
+#: twelve frames was chosen for a layout, the flash now shows the people, and
+#: whether that is long enough to take them in is a number found by playing.
+FLASH_FLAG = "--flash-frames"
+
+
+def flash_frames_from(argv: list[str]) -> int:
+    """`--flash-frames N`, or the default if it is not on the command line."""
+    if FLASH_FLAG not in argv:
+        return sources.FLASH_FRAMES
+    return int(argv[argv.index(FLASH_FLAG) + 1])
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     scale = int(argv[argv.index("--scale") + 1]) if "--scale" in argv else 3
     surge_frames = surge_frames_from(argv)
+    flash_frames = flash_frames_from(argv)
     debug = DEBUG_FLAG in argv
 
     pygame.init()
@@ -536,7 +564,8 @@ def main(argv: list[str] | None = None) -> int:
         speaker = spike_sound.Speaker()
         speaker.open()
         shell = Shell(screen, speaker=speaker,
-                      debug=debug, surge_frames=surge_frames)
+                      debug=debug, surge_frames=surge_frames,
+                      flash_frames=flash_frames)
 
         running = True
         while running:

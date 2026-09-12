@@ -243,7 +243,8 @@ class Place:
     expensive part, and that is what makes the split affordable on a Z80.
     """
 
-    def __init__(self, index: int, room, clegs, beam_seed: int) -> None:
+    def __init__(self, index: int, room, clegs, beam_seed: int,
+                 flash_frames: int = sources.FLASH_FRAMES) -> None:
         self.index = index
         self.room = room
         #: One light field per room, and **that is what stops light crossing a
@@ -291,8 +292,10 @@ class Place:
         #: cannot play a room you have never seen the shape of; re-entry is
         #: precisely the case where you are supposed to be living off what you
         #: held in your head, and flashing every time would make the fade
-        #: pointless and hand the building over for free.
-        self.opening = sources.Flash()
+        #: pointless and hand the building over for free. Its length is the
+        #: user's number (issue #64), passed in so that `--flash-frames` can
+        #: override it without a second constant existing anywhere.
+        self.opening = sources.Flash(frames=flash_frames)
         self.seen = False
 
     @property
@@ -350,7 +353,8 @@ class Session:
                  blood: int = BLOOD_FULL, lives: int = LIVES,
                  metrics: bool = False,
                  surge_frames: int = surge_mod.SURGE_FRAMES,
-                 sound: bool = True) -> None:
+                 sound: bool = True,
+                 flash_frames: int = sources.FLASH_FRAMES) -> None:
         self.seed = seed
         scene.validate()
         self.building = scene.BUILDING
@@ -407,7 +411,8 @@ class Session:
             flies = [clegs_mod.Cleg(cx, cy, seed=cleg_seed + made + n)
                      for n, (cx, cy) in enumerate(room.clegs)]
             made += len(flies)
-            self.places.append(Place(i, room, flies, beam_seed))
+            self.places.append(Place(i, room, flies, beam_seed,
+                                     flash_frames=flash_frames))
         #: Every swarm in the building, read as one. See `clegs.Swarms`: the
         #: counters are the building's because a fly that walked through a
         #: doorway is the same fly.
@@ -665,14 +670,18 @@ class Session:
 
         The swarm's prey list (issue #19). Three things it is careful about:
 
-        * **It is the same test that decides whether a person is drawn.**
-          `LightField.prey_at` is what `draw` uses through `reveals_at`, one
-          step stricter: a person a *lit* revealing light is on, not one merely
-          glimpsed in your own dim glow. So *if you can see them, so can the
-          flies*, and the player is never surprised by a rule they cannot
-          observe. Room lights are excluded by `prey_at` itself and
-          deliberately: they show the room and not who is in it, to Clegs
-          exactly as to the player.
+        * **It is the same light that decides whether a person is drawn, one
+          step stricter** -- `LightField.prey_at` beside `draw`'s
+          `reveals_at`: a person a *lit* light is on, not one merely glimpsed
+          in your own dim glow. So *if you can see them, so can the flies*,
+          and the player is never surprised by a rule they cannot observe.
+          Room lights are excluded by `prey_at` itself and deliberately: they
+          show the room and not who is in it, to Clegs exactly as to the
+          player. **And since issue #64 the two read different flags**, so the
+          opening flash can be the one exception, in the safe direction: it
+          shows everybody and hands nobody over. This list is what the swarm
+          reads, and the flash does not change it -- which is why the event
+          log did not move when the flash started showing people.
         * **It reads last frame's field**, because `_light()` runs at the end of
           `step` -- the swarm reacts to the light the player was standing in
           when they last saw it, which is a frame of lag nobody can perceive and

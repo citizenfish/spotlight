@@ -39,8 +39,10 @@ ignored, and one standing in your cone is prey."
 The asymmetry is the mechanic and not an implementation detail. **Darkness
 protects the tail; light endangers it.** So a Cleg finds a worker exactly where
 a *player* would see one -- see `Swarm.tick`'s `prey` argument, which the
-session fills from the same `LightField.prey_at` the drawing uses. If you can
-see them, so can the flies.
+session fills from `LightField.prey_at`, the prey flag beside the reveal flag
+the drawing uses. If you can see them, so can the flies -- with one exception
+since issue #64, in the safe direction: the opening flash shows everybody and
+hands nobody over.
 
 No pathfinding, and nothing here should ever acquire any. A Cleg steers for the
 nearest lit source by comparing squared distances -- a handful of integer
@@ -666,7 +668,8 @@ class Swarm:
 
         `prey` is whoever is **plainly lit this frame and not the player**: see
         `Session._lit_people`, which builds it from `LightField.prey_at`, the
-        same test that decides whether a person is drawn at all. A person in
+        prey flag beside the reveal flag that decides whether a person is
+        drawn -- the same light, except under the opening flash. A person in
         darkness is not in this map and is therefore ignored, which is the
         whole of the tail's tension (issue #19).
 

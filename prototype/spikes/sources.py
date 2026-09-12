@@ -14,6 +14,11 @@ while it is shining, and the **memory** it leaves once it has gone. They are
 separate on purpose -- the searchlight is as bright as the carried spotlight
 and forgotten far sooner.
 
+And two bits about the people it falls on: whether it **reveals** them, and,
+since issue #64, whether what it reveals is **prey**. They were one bit until
+the user ruled that the opening flash shows the workers and the Clegs without
+handing anybody to the swarm; every other revealing source still sets both.
+
 There was a third, a **hue** that cells with no colour of their own took on,
 and it is what made the searchlight yellow. Issue #47 withdrew it: after
 per-room colour no cell is without a hue of its own, so a light's colour had
@@ -175,15 +180,20 @@ class Source:
     """Common switching. Subclasses implement `emit`."""
 
     def __init__(self, level: int = LIT, memory: int = CHARGE_LIT,
-                 enabled: bool = True, reveals: bool = True) -> None:
+                 enabled: bool = True, reveals: bool = True,
+                 prey: bool | None = None) -> None:
         self.level = level
         self.memory = memory
         self.enabled = enabled
         #: Whether this light shows people, or only the room they stand in.
         self.reveals = reveals
+        #: Whether the people it shows are prey (issue #64). A source that
+        #: does not say follows `reveals` -- *if you can see them, so can the
+        #: flies* -- and the opening flash is the one that says otherwise.
+        self.prey = reveals if prey is None else prey
 
     def light(self, field: LightField, cx: int, cy: int) -> None:
-        field.add(cx, cy, self.level, self.memory, self.reveals)
+        field.add(cx, cy, self.level, self.memory, self.reveals, self.prey)
 
     # --- what Clegs steer for ----------------------------------------------
 
@@ -386,6 +396,27 @@ class Cone(Source):
             self.light(field, cx, cy)
 
 
+#: How long the opening flash lasts, in frames.
+#:
+#: **Provisional, and it is the user's number to settle at a keyboard** (issue
+#: #64) -- the same shape as `surge.SURGE_FRAMES`: one named constant, nothing
+#: derived from it, threaded through the session so that `spike1
+#: --flash-frames N` overrides it and a sitting can try five values without
+#: five rebuilds. When the user settles it the value is recorded in the design
+#: notes and this line changes.
+#:
+#: The reason for twelve, so the default is not the one that never gets
+#: revisited: it was chosen for a **layout** -- walls are big, and a fifth of a
+#: second is enough to take in the shape of a room. Since the ruling on
+#: *After look-1* item 8 the flash also shows the workers and the Clegs, and
+#: twelve frames may be too short to take in three people and five flies: the
+#: surge went from 12 to 50 for exactly that reason, when a player reported
+#: that people were "not reliably showing". A longer flash leaves a longer
+#: memory behind it by the same amount, which is the fade doing its job and
+#: not a second change.
+FLASH_FRAMES = 12
+
+
 class Flash(Source):
     """The whole room, lit for a moment, at the start of a level.
 
@@ -396,15 +427,28 @@ class Flash(Source):
     keeps is what they managed to hold in their head, which is the whole
     premise of the game rather than a convenience bolted onto it.
 
-    **It shows the building, not who is in it.** Same rule as the room lights:
-    a flash that handed you every worker at the start would answer the question
-    the level exists to ask. See the design notes on the mains surge, which is
-    the moment that *does* show you everything, and is a different thing.
+    **It shows the building and who is in it, and it hands nobody to the
+    swarm** (issue #64). Until then it showed the room and hid the people --
+    the same rule as the room lights -- and the user saw a room light up fully
+    and empty, and then found people in it, which reads as a fault to the
+    person the game is for. So the flash is the one source with the reveal bit
+    and not the prey bit: the drawing sees everyone under it, the prey list
+    does not, and nothing the flies do changes. Setting `reveals=True` alone
+    would have made everybody prey for twelve frames and moved every event
+    log; that is why the second bit exists.
+
+    What that gives up is said in the vault, *Light and Darkness*: in a
+    building whose workers do not wander, twelve frames of the occupants is a
+    true map of where they are for the whole run, and *finding people stays
+    the player's job* is now half true. The mains surge is still the different
+    thing -- a plan of the whole building, drawn on a frozen game, in
+    `surge.py` -- and does not change.
     """
 
-    def __init__(self, frames: int = 12, level: int = LIT,
+    def __init__(self, frames: int = FLASH_FRAMES, level: int = LIT,
                  memory: int = CHARGE_LIT) -> None:
-        super().__init__(level, memory, enabled=False, reveals=False)
+        super().__init__(level, memory, enabled=False, reveals=False,
+                         prey=False)
         self.frames = frames
         self.left = 0
         #: Debug: held on indefinitely rather than counting down.
@@ -413,34 +457,42 @@ class Flash(Source):
     def fire(self, surge: bool = False) -> None:
         """Start a flash. Firing again while one is running restarts it.
 
-        A plain flash is the level opening: the **room**, and not who is in it.
+        A plain flash is the level opening: the room **and who is in it**, and
+        nobody under it is prey (issue #64).
 
-        A `surge` is the mains coming back for a moment, and it shows
-        everything -- people included. That is the design's own distinction and
-        it is the difference between being told the shape of the building and
-        being told where everybody is. One is a floor plan you are given; the
-        other is the memorisation beat the whole game is built around, and it
-        should be rare and startling rather than a key you lean on.
+        A `surge` is the older in-field surge -- everything lit and everybody
+        prey -- kept for the tests that still drive it. The mains surge the
+        game plays is `surge.py`, a plan drawn on a frozen game that adds
+        nothing to any field, and it is not this.
         """
         self.left = self.frames
         self.enabled = True
-        self.reveals = surge
+        self.reveals = True
+        self.prey = surge
 
     def hold(self, on: bool) -> None:
-        """Hold the surge on, or let it go. **A debug view, not a mechanic.**
+        """Hold the flash on, or let it go. **A debug view, not a mechanic.**
 
-        A real surge is a quarter of a second, which is the point of it and also
+        A real flash is a fifth of a second, which is the point of it and also
         why it is no use for watching anything: by the time you have registered
         what is on screen it has gone. Held on, the room stays lit and everything
         in it stays drawn, so the Clegs can be watched deciding where to go.
 
-        It changes nothing about their behaviour. A flash lures nobody -- a light
-        that is everywhere offers nothing to steer toward -- so the swarm does
-        exactly what it would have done in the dark, in full view.
+        It changes nothing about their behaviour, **and since issue #64 that
+        sentence is true.** A flash lures nobody -- a light that is everywhere
+        offers nothing to steer toward -- but this used to set the one
+        reveal-and-prey bit, so everybody under the held view was prey to any
+        fly that blundered near them: the swarm was *not* doing what it would
+        have done in the dark, and the docstring claimed it was. It now sets
+        the reveal bit and not the prey bit, like the flash it holds. The
+        gallery's lit room shots and every test that lights a room through
+        `hold` were photographing and measuring a room whose people were prey;
+        none of them read the prey list, so none of them moved.
         """
         self.held = on
         self.enabled = on
         self.reveals = on
+        self.prey = False
         if not on:
             self.left = 0
 

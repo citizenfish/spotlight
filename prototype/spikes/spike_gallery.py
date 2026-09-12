@@ -412,6 +412,38 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     return kept if kept is not None else copy_of(screen)
 
 
+#: Which frame of the opening flash is photographed. The second: the first
+#: is the frame a player sees first and the flash is at full strength on
+#: either, so this is one frame in from the edge of the window rather than on
+#: it, and it is inside the shortest flash anybody could set.
+FLASH_SHOT_FRAME = 2
+
+
+def flash_room(index: int = scene.NEAR) -> Screen:
+    """A room during its opening flash, with the people in it (issue #64).
+
+    **The picture the user asked for**: they saw a room light up fully and
+    empty, and then found people in it. The ruling is that the flash shows
+    the workers and the Clegs without making anybody prey, and this is the
+    frame that shows it -- the whole room lit, every worker and every fly
+    drawn in their own colours, and the player at the start cell.
+
+    Photographed from the run's own flash rather than from `Flash.hold`, so
+    what is in the picture is what the flash draws and not what the debug
+    view draws: the two share a source but only one of them is the game.
+    """
+    run = session_mod.Session(seed=GALLERY_SEED)
+    enter(run, index)
+    for _ in range(FLASH_SHOT_FRAME):
+        run.step()
+    if not run.place.opening.enabled:
+        raise RuntimeError("the opening flash has gone out, so this would be "
+                           "a picture of the fade and not of the flash")
+    screen = Screen()
+    run.draw(screen)
+    return screen
+
+
 def draw_on_frame(run, screen: Screen, frame: int | None) -> None:
     """Draw the run's current frame with every person on walk frame `frame`.
 
@@ -801,6 +833,10 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     # the game had them -- the walk is judged on the pair above, not here.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-torch-off",
           room_screen(scene.NEAR, lit=False, torch=False))
+    # **During the opening flash, with the people in it** (issue #64): the
+    # one whole-room moment the game gives, which used to hide everybody.
+    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-flash",
+          flash_room(scene.NEAR))
     # The one thing on the sprite sheet that a played frame cannot otherwise
     # show: a spotlight burning where somebody put it down.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",

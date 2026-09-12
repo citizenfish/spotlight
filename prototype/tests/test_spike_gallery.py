@@ -91,7 +91,10 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # say it is off for 80 to 95 per cent of a run.
     dark = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-torch-off"
     assert f"{dark}_x1.png" in names and f"{dark}_x3.png" in names
-    assert len(paths) == len(names) == 24 + 6 * len(scene.BUILDING.rooms)
+    # **During the opening flash, with the people in it** (issue #64).
+    flash = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-flash"
+    assert f"{flash}_x1.png" in names and f"{flash}_x3.png" in names
+    assert len(paths) == len(names) == 26 + 6 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -430,6 +433,41 @@ def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
                if tiles.WALL_DIM[mask][1] & 0x3C == 0x28
                or tiles.WALL_DIM[mask][5] & 0x3C == 0x28]
     assert coursed, "no remembered wall in the frame shows its courses"
+
+
+def test_the_flash_frame_shows_the_people_and_the_flies(monkeypatch):
+    """**What the user asked for, in the frame they asked about** (issue
+    #64): the opening flash, and the workers and the Clegs drawn in it. It
+    is taken from the run's own flash and not through `Flash.hold`, so it is
+    the game's frame and not the debug view's; and the same run, stepped the
+    same way here, says where everybody was standing so the ink can be
+    checked at their feet rather than anywhere on the screen.
+    """
+    held = []
+    real = sources.Flash.hold
+    monkeypatch.setattr(sources.Flash, "hold",
+                        lambda self, on: held.append(on) or real(self, on))
+    screen = gallery.flash_room(scene.NEAR)
+    assert held == [], "the flash frame went through the debug hold"
+
+    run = gallery.session_mod.Session(seed=gallery.GALLERY_SEED)
+    for _ in range(gallery.FLASH_SHOT_FRAME):
+        run.step()
+    assert run.place.opening.enabled
+    here = [w for w in run.rescue.workers if w.room == run.here]
+    assert len(here) == 3
+    for worker in here:
+        assert any(screen.pixels[(worker.y + dy) * SCREEN_W + worker.x + dx]
+                   for dy in range(16) for dx in range(CELL)), \
+            f"the worker at {worker.cell()} is not in the flash frame"
+    for cleg in run.place.swarm.clegs:
+        assert any(screen.pixels[(cleg.cy * CELL + dy) * SCREEN_W
+                                 + cleg.cx * CELL + dx]
+                   for dy in range(CELL) for dx in range(CELL)), \
+            f"the fly at {(cleg.cx, cleg.cy)} is not in the flash frame"
+    # ...and the whole room is lit, which is what makes it the flash.
+    assert lit_cells(screen) > lit_cells(
+        gallery.room_screen(scene.NEAR, lit=False, frame=0)) * 2
 
 
 def test_each_lit_room_is_the_room_it_is_named_after():
