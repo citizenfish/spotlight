@@ -1,7 +1,8 @@
 """Sprites: pixel positioning, and never touching an attribute."""
 
-from spikes import lighting as L, sprites as SP
+from spikes import bots, floor, lighting as L, sprites as SP
 from spikes.layout import PLAY_ROWS, STRIP_TOP
+from spikes.session import Session
 from spotlight.core.constants import CELL, COLS, SCREEN_W, YELLOW
 from spotlight.core.screen import Screen
 
@@ -127,11 +128,225 @@ def test_sprites_cannot_be_drawn_into_the_status_strip():
 
 # --- compositing -----------------------------------------------------------
 
-def test_sprites_set_pixels_without_clearing_the_background():
+def test_sprites_touch_nothing_outside_their_mask():
+    """A sprite composites over the room; it does not punch a box-shaped hole
+    in it. Since issue #70 it clears its halo, and the halo is inside the box,
+    so the pixel diagonally outside the corner of the box is untouched -- as
+    is every pixel of the box its mask does not name."""
     s = Screen()
     s.fill_cell_pixels(5, 5, on=True)
+    s.fill_cell_pixels(6, 5, on=True)
+    s.fill_cell_pixels(5, 6, on=True)
+    s.fill_cell_pixels(6, 6, on=True)
     SP.draw(s, SP.CLEG_A, 41, 41)
-    assert s.point(40, 40), "background pixel was cleared"
+    assert s.point(40, 40), "a pixel outside the box was cleared"
+    mask = SP.MASK_OF[SP.CLEG_A]
+    for dy in range(8):
+        for dx in range(8):
+            if not mask[dy] & (0x80 >> dx):
+                assert s.point(41 + dx, 41 + dy), \
+                    f"({dx}, {dy}) is outside the mask and was cleared"
+
+
+# --- the halo mask (issue #70) ----------------------------------------------
+
+def _stipple(screen, cells) -> None:
+    """Lit floor under a test, drawn with the game's own stipple."""
+    for cx, cy in cells:
+        for dy, bits in enumerate(floor.STIPPLE_LIT):
+            for dx in range(CELL):
+                if bits & (0x80 >> dx):
+                    screen.plot(cx * CELL + dx, cy * CELL + dy)
+
+
+def _ink_pixels(sprite) -> set:
+    return {(dx + 8 * octet, dy)
+            for dy, row in enumerate(sprite)
+            for octet, bits in enumerate(SP.row_bytes(row))
+            for dx in range(8) if bits & (0x80 >> dx)}
+
+
+def test_every_sprite_has_a_mask_the_size_of_its_own_box():
+    """The size table gains the masks and is not weakened by them: a mask is
+    the same width and height as the sprite it belongs to, and every sprite
+    the game draws has one."""
+    for name, sprite in SP.SPRITES.items():
+        mask = SP.MASK_OF.get(sprite)
+        assert mask is not None, f"{name} has no mask"
+        assert len(mask) == len(sprite), name
+        assert SP.width_of(mask) == SP.width_of(sprite), name
+
+
+def test_a_sprite_on_lit_stipple_leaves_no_dot_within_a_pixel_of_its_ink():
+    """**The thing that was wrong before.** On lit floor a figure was made of
+    the stipple it stood on: every dot inside its box survived and the ink
+    joined up with it. Now, inside the box, every pixel within one of the ink
+    -- the eight neighbours -- is clear; the ink is set; and a dot further
+    from the ink than that is still there, because the mask is a halo and
+    not a box."""
+    for name, sprite in SP.SPRITES.items():
+        s = Screen()
+        x, y = 8 * CELL, 4 * CELL
+        _stipple(s, SP.cells_spanned(x, y, len(sprite), SP.width_of(sprite)))
+        SP.draw(s, sprite, x, y)
+        ink = _ink_pixels(sprite)
+        w, h = SP.width_of(sprite), len(sprite)
+        for dy in range(h):
+            for dx in range(w):
+                near = any((dx + ex, dy + ey) in ink
+                           for ex in (-1, 0, 1) for ey in (-1, 0, 1))
+                want = (dx, dy) in ink
+                if near:
+                    assert s.point(x + dx, y + dy) == want, \
+                        f"{name}: ({dx}, {dy}) is {'ink' if want else 'halo'}"
+        # And the halo is a halo: at least one stipple dot in the box is out
+        # of its reach and survives, for every sprite whose box has room.
+        outside = {(dx, dy) for dy in range(h) for dx in range(w)
+                   if not any((dx + ex, dy + ey) in ink
+                              for ex in (-1, 0, 1) for ey in (-1, 0, 1))}
+        dots = {(dx, dy) for dx, dy in outside
+                if floor.STIPPLE_LIT[dy % CELL] & (0x80 >> (dx % CELL))}
+        for dx, dy in dots:
+            assert s.point(x + dx, y + dy), f"{name}: a dot at ({dx}, {dy}) " \
+                f"outside the halo was cleared"
+
+
+def test_a_half_visible_sprite_clears_nothing_in_its_invisible_half():
+    """**What a coder gets wrong**, from the vault: the mask is under the
+    `visible` test exactly as the ink is. A worker straddling the edge of a
+    beam is drawn in the lit column and *not cleared* in the dark one; a
+    hole punched in the dark half would show, by the hole, where they were."""
+    s = Screen()
+    x, y = 10 * CELL + 4, 5 * CELL        # straddling columns 10 and 11
+    _stipple(s, [(10, 5), (11, 5), (10, 6), (11, 6)])
+    before = bytes(s.pixels)
+    SP.draw(s, SP.WORKER_A, x, y, visible=lambda cx, cy: cx == 10)
+    for py in range(y, y + 16):
+        for px in range(11 * CELL, 12 * CELL):
+            assert s.pixels[py * SCREEN_W + px] == before[py * SCREEN_W + px], \
+                f"({px}, {py}) in the dark column was touched"
+    # And the lit column really was masked: a dot next to the ink is gone.
+    ink = _ink_pixels(SP.WORKER_A)
+    cleared = [(dx, dy) for dy in range(16) for dx in range(4)
+               if (dx, dy) not in ink
+               and any((dx + ex, dy + ey) in ink
+                       for ex in (-1, 0, 1) for ey in (-1, 0, 1))
+               and floor.STIPPLE_LIT[(y + dy) % CELL] & (0x80 >> ((x + dx) % CELL))]
+    assert cleared, "no dot to clear in the lit half; the test proves nothing"
+    assert not any(s.point(x + dx, y + dy) for dx, dy in cleared)
+
+
+def test_a_fly_over_a_person_clears_a_ring_and_the_person_drawn_after_restores_it():
+    """The Knight Lore look, and the vault calls it correct: a fly landing on
+    somebody takes a ring of them with its halo. Drawn the other way round the
+    person's halo takes the ring off the fly. Whoever is drawn last wins, and
+    nothing is lost -- the person's ink comes back whole.
+
+    **The ring stops at the fly's box.** The fly's legs are on its bottom row,
+    so the person's pixels on the row under the fly are within one pixel of
+    its ink and are *not* cleared -- the mask is clipped to the box, and the
+    first draft of this test forgot that and failed on exactly those pixels.
+    A halo that reached out of the box would be the third byte per row the
+    port refused, so the pin says so."""
+    s = Screen()
+    x, y = 12 * CELL, 6 * CELL
+    fly_at = 4
+    SP.draw(s, SP.WORKER_A, x, y)
+    person = bytes(s.pixels)
+    SP.draw(s, SP.CLEG_A, x, y + fly_at)
+    fly_ink = {(dx, dy + fly_at) for dx, dy in _ink_pixels(SP.CLEG_A)}
+    near_fly = {(dx, dy) for dx, dy in _ink_pixels(SP.WORKER_A)
+                if (dx, dy) not in fly_ink
+                and any((dx + ex, dy + ey) in fly_ink
+                        for ex in (-1, 0, 1) for ey in (-1, 0, 1))}
+    in_box = {(dx, dy) for dx, dy in near_fly if fly_at <= dy < fly_at + 8}
+    under = near_fly - in_box
+    assert in_box, "the fly does not overlap the person; the test proves nothing"
+    assert under, "no person pixel under the fly's box; the clip is untested"
+    assert not any(s.point(x + dx, y + dy) for dx, dy in in_box), \
+        "the fly's halo did not clear the person around it"
+    assert all(s.point(x + dx, y + dy) for dx, dy in under), \
+        "the fly's halo reached outside its box"
+    assert bytes(s.pixels) != person, "the fly was never drawn"
+    SP.draw(s, SP.WORKER_A, x, y)
+    for dx, dy in _ink_pixels(SP.WORKER_A):
+        assert s.point(x + dx, y + dy), f"the person's ink at ({dx}, {dy}) " \
+            f"did not come back"
+    # And whatever the fly left inside the person's mask is gone with it: a
+    # person drawn over a fly is the person, whole, and the fly's ink shows
+    # only where the person's halo does not reach.
+    for dx, dy in fly_ink:
+        if SP.MASK_OF[SP.WORKER_A][dy] & (0x80 >> dx):
+            assert s.point(x + dx, y + dy) == ((dx, dy) in _ink_pixels(SP.WORKER_A))
+
+
+def test_columns_governs_the_mask_as_it_governs_the_ink():
+    """A body in a one-cell gap is its head end alone: the second byte of the
+    mask is not drawn any more than the second byte of the ink is."""
+    s = Screen()
+    _stipple(s, [(5, 9), (6, 9)])
+    before = bytes(s.pixels)
+    SP.draw(s, SP.BODY, 5 * CELL, 9 * CELL, columns=1)
+    for py in range(9 * CELL, 10 * CELL):
+        for px in range(6 * CELL, 7 * CELL):
+            assert s.pixels[py * SCREEN_W + px] == before[py * SCREEN_W + px]
+
+
+def test_an_explicit_empty_mask_draws_by_or_and_none_looks_the_sprites_own_up():
+    a, b, c = Screen(), Screen(), Screen()
+    for screen in (a, b, c):
+        _stipple(screen, [(5, 5)])
+    SP.draw(a, SP.CLEG_A, 5 * CELL, 5 * CELL, mask=())
+    SP.draw(b, SP.CLEG_A, 5 * CELL, 5 * CELL)
+    SP.draw(c, SP.CLEG_A, 5 * CELL, 5 * CELL, mask=SP.MASK_OF[SP.CLEG_A])
+    assert bytes(b.pixels) == bytes(c.pixels)
+    assert bytes(a.pixels) != bytes(b.pixels), "the mask did nothing"
+    # By OR: every stipple dot in the cell survives under the unmasked one.
+    for dy, bits in enumerate(floor.STIPPLE_LIT):
+        for dx in range(CELL):
+            if bits & (0x80 >> dx):
+                assert a.point(5 * CELL + dx, 5 * CELL + dy)
+
+
+def _run_drawn(seed: int, frames: int, masked: bool, monkeypatch):
+    """A listener run, drawn every frame, with the masks as built or with
+    every sprite's mask taken away -- which is what the commit before did.
+    Returns the run, a hash of every frame's pixels, and the attribute grid
+    at the end."""
+    if not masked:
+        monkeypatch.setattr(SP, "MASK_OF", {})
+    run = Session(seed=seed, metrics=True)
+    screen = Screen()
+    bot = bots.make("listener", seed=seed, light=True)
+    frames_seen = []
+    for _ in range(frames):
+        run.step(bot.intent(run))
+        if run.over is not None:
+            break
+        run.draw(screen)
+        frames_seen.append(hash(bytes(screen.pixels)))
+    return run, frames_seen, bytes(screen.attrs)
+
+
+def test_the_mask_is_drawing_state_and_the_log_cannot_see_it(monkeypatch):
+    """**The pin for the acceptance criterion**, in the shape issue #60 used
+    for the walk. The same seed and bot, drawn every frame with the masks and
+    without them: the event log, the positions, the blood and the repaint
+    figures are identical -- the counter prices cells changing light level
+    and a mask clears pixels in cells the sprite was already dirtying -- and
+    the two screens differ, which is the masks having been there at all."""
+    with_masks, drawn, drawn_attrs = _run_drawn(7, 1500, True, monkeypatch)
+    without, plain, plain_attrs = _run_drawn(7, 1500, False, monkeypatch)
+    assert with_masks.over is None and without.over is None
+    assert [(e.frame, e.kind, e.who, e.count, e.room) for e in with_masks.log] \
+        == [(e.frame, e.kind, e.who, e.count, e.room) for e in without.log]
+    assert with_masks.log, "the runs did nothing worth logging"
+    assert (with_masks.player.x, with_masks.player.y) == \
+        (without.player.x, without.player.y)
+    assert with_masks.blood == without.blood
+    assert with_masks.repaint.stats() == without.repaint.stats()
+    assert drawn != plain, "the masks changed nothing on screen, all run"
+    assert drawn_attrs == plain_attrs, "a mask touched an attribute"
 
 
 # --- silhouettes -----------------------------------------------------------

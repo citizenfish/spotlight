@@ -6,6 +6,10 @@
 ;
 ; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight
 ; pixels -- so a 16-wide row is two bytes, left cell first.
+; Every sprite is followed by NAME_MASK: its ink dilated one pixel,
+; clipped to the box, a set bit being a pixel to clear. The sprite
+; routine's AND-mask is the complement, taken when the rotations are
+; built, so that this file and the Python hold the same bytes.
 ; No timestamp: the file is committed and a test compares it byte for
 ; byte, so any diff is art and code having drifted.
 
@@ -19,6 +23,16 @@ BATTEN:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+BATTEN_MASK:
+        DEFB $00                   ; ........
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+
 BODY:
         DEFB $03,$00               ; ......##........   the arm, flung back over the head
         DEFB $3D,$00               ; ..####.#........
@@ -28,6 +42,16 @@ BODY:
         DEFB $03,$DC               ; ......####.###..   hips, and one leg trailing
         DEFB $00,$63               ; .........##...##   the other leg, splayed differently
         DEFB $00,$00               ; ................
+
+BODY_MASK:
+        DEFB $7F,$80               ; .########.......
+        DEFB $FF,$F8               ; #############...
+        DEFB $FF,$FF               ; ################
+        DEFB $FF,$FF               ; ################
+        DEFB $FF,$FF               ; ################
+        DEFB $7F,$FF               ; .###############
+        DEFB $07,$FF               ; .....###########
+        DEFB $00,$F7               ; ........####.###
 
 CLEG_A:
         DEFB $00                   ; ........
@@ -39,6 +63,16 @@ CLEG_A:
         DEFB $18                   ; ...##...
         DEFB $42                   ; .#....#.   legs
 
+CLEG_A_MASK:
+        DEFB $3C                   ; ..####..
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $3C                   ; ..####..
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+
 CLEG_B:
         DEFB $00                   ; ........
         DEFB $18                   ; ...##...   head, unchanged
@@ -48,6 +82,16 @@ CLEG_B:
         DEFB $99                   ; #..##..#
         DEFB $81                   ; #......#   wingtips, past the abdomen
         DEFB $24                   ; ..#..#..   legs, tucked
+
+CLEG_B_MASK:
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
 
 DOORWAY_00:
         DEFB $00                   ; ........   mask  0, -
@@ -227,6 +271,24 @@ DOOR_LOCKED:
         DEFB $81                   ; #......#
         DEFB $FF                   ; ########
 
+DOOR_LOCKED_MASK:
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+
 DOOR_OPEN:
         DEFB $C3                   ; ##....##   two jambs, a four-pixel gap
         DEFB $C3                   ; ##....##
@@ -244,6 +306,24 @@ DOOR_OPEN:
         DEFB $C3                   ; ##....##
         DEFB $C3                   ; ##....##
         DEFB $C3                   ; ##....##   no head and no sill: open at both ends
+
+DOOR_OPEN_MASK:
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
 
 FLOOR_DIM:
         DEFB $00                   ; ........   one dot in sixty-four -- ground you are remembering, not seeing
@@ -283,6 +363,24 @@ FOLLOWER_A:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+FOLLOWER_A_MASK:
+        DEFB $00                   ; ........
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7F                   ; .#######
+        DEFB $7E                   ; .######.
+        DEFB $78                   ; .####...
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
 FOLLOWER_B:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
@@ -301,6 +399,24 @@ FOLLOWER_B:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+FOLLOWER_B_MASK:
+        DEFB $00                   ; ........
+        DEFB $3C                   ; ..####..
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FE                   ; #######.
+        DEFB $7E                   ; .######.
+        DEFB $1E                   ; ...####.
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
 HOUSING:
         DEFB $3C                   ; ..####..   a ring with a lens: the searchlight, bolted down
         DEFB $42                   ; .#....#.
@@ -310,6 +426,16 @@ HOUSING:
         DEFB $81                   ; #......#
         DEFB $42                   ; .#....#.
         DEFB $3C                   ; ..####..
+
+HOUSING_MASK:
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
 
 KEY:
         DEFB $00                   ; ........
@@ -321,6 +447,16 @@ KEY:
         DEFB $0E                   ; ....###.   teeth
         DEFB $00                   ; ........
 
+KEY_MASK:
+        DEFB $3E                   ; ..#####.
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $3F                   ; ..######
+        DEFB $1F                   ; ...#####
+        DEFB $1F                   ; ...#####
+
 LAMP_OFF:
         DEFB $3C                   ; ..####..   a hollow octagon: a spotlight lying dark
         DEFB $42                   ; .#....#.
@@ -330,6 +466,16 @@ LAMP_OFF:
         DEFB $81                   ; #......#
         DEFB $42                   ; .#....#.
         DEFB $3C                   ; ..####..
+
+LAMP_OFF_MASK:
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $E7                   ; ###..###
+        DEFB $C3                   ; ##....##
+        DEFB $C3                   ; ##....##
+        DEFB $E7                   ; ###..###
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
 
 LAMP_ON:
         DEFB $3C                   ; ..####..   filled: the same spotlight burning
@@ -341,6 +487,16 @@ LAMP_ON:
         DEFB $7E                   ; .######.
         DEFB $3C                   ; ..####..
 
+LAMP_ON_MASK:
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+
 NEST:
         DEFB $00                   ; ........
         DEFB $30                   ; ..##....   the lip, broken and off-centre
@@ -350,6 +506,16 @@ NEST:
         DEFB $FF                   ; ########
         DEFB $7E                   ; .######.
         DEFB $2C                   ; ..#.##..   it does not sit square
+
+NEST_MASK:
+        DEFB $78                   ; .####...
+        DEFB $FE                   ; #######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
 
 PLAYER_A:
         DEFB $00                   ; ........
@@ -369,6 +535,24 @@ PLAYER_A:
         DEFB $FF                   ; ########   the mark: the only figure with ground under him
         DEFB $FF                   ; ########
 
+PLAYER_A_MASK:
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7F                   ; .#######
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+
 PLAYER_B:
         DEFB $00                   ; ........
         DEFB $3C                   ; ..####..   the lamp
@@ -385,6 +569,24 @@ PLAYER_B:
         DEFB $0C                   ; ....##..
         DEFB $00                   ; ........
         DEFB $FF                   ; ########   the mark
+        DEFB $FF                   ; ########
+
+PLAYER_B_MASK:
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FE                   ; #######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
         DEFB $FF                   ; ########
 
 SPRAY:
@@ -735,6 +937,24 @@ WORKER_A:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+WORKER_A_MASK:
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $3E                   ; ..#####.
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $78                   ; .####...
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
 WORKER_B:
         DEFB $00                   ; ........
         DEFB $C3                   ; ##....##   hands, raised
@@ -750,5 +970,23 @@ WORKER_B:
         DEFB $30                   ; ..##....   feet swapped
         DEFB $0C                   ; ....##..
         DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
+WORKER_B_MASK:
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7C                   ; .#####..
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $1E                   ; ...####.
         DEFB $00                   ; ........
         DEFB $00                   ; ........

@@ -60,10 +60,25 @@ recalling, because they will still be where they were. People and Clegs move,
 so drawing them from stale light would show the player where somebody is now
 using light that has gone -- see `draw`'s `visible` argument.
 
-**The colour rule.** A sprite sets pixels and never touches an attribute. Each
-cell keeps whatever ink its light level gives it, so a sprite spanning a light
-boundary is drawn part bright and part dim -- and two things can never disagree
-about a cell's colour, because only one thing ever decides it.
+**Every sprite is drawn with a mask a pixel wider than its ink** (issue #70).
+Before a row's ink is set, every pixel its mask row names is cleared, so a
+figure stands in a thin black halo on the stippled floor instead of being
+made of it -- the thing The Great Escape did, and the thing the user's *clunky*
+was measured to be in *Why the figures read as clunky*. The mask is the ink's
+one-pixel dilation, clipped to the sprite's own box, and **it is derived by
+`tools/bitmaps.py` and never drawn**: `MASKS` sits beside `BITMAPS` in the
+generated table, and a change to a figure's hand changes its halo with it.
+The port's sprite routine has been mask-and-OR since the cycle budget was
+priced, so this is the prototype catching up with the model rather than the
+model growing; the mask bytes cost the port nothing it was not already paying.
+Tiles, the stipples and glyphs are not masked and composite by OR as they
+always did -- see `draw`, and `MASK_OF` for how a sprite finds its own.
+
+**The colour rule.** A sprite sets and clears pixels and never touches an
+attribute. Each cell keeps whatever ink its light level gives it, so a sprite
+spanning a light boundary is drawn part bright and part dim -- and two things
+can never disagree about a cell's colour, because only one thing ever decides
+it.
 
 That is the whole mechanism for avoiding attribute clash, and it costs the
 ability to tell entities apart by colour. So they are told apart by **size
@@ -99,7 +114,7 @@ issue #11.
 
 from spotlight.core.constants import CELL, COLS, SCREEN_H, SCREEN_W
 
-from .bitmaps_gen import BITMAPS
+from .bitmaps_gen import BITMAPS, MASKS
 from .layout import PLAY_ROWS
 
 PLAY_BOTTOM_PX = PLAY_ROWS * CELL
@@ -285,6 +300,16 @@ WIDTH = 8
 #: The two-cell class: sixteen pixels across, which is BODY and nothing else.
 WIDE = 16
 
+#: Each sprite's mask, keyed by the sprite itself (issue #70). On the port a
+#: sprite's record holds its mask bytes interleaved with its data, so the mask
+#: is a property of the sprite and not an argument the caller has to remember;
+#: this table is the prototype's way of saying the same thing, and it means
+#: no call site had to change to be masked. Keyed by value: the generated
+#: rows are tuples, and `test_every_silhouette_is_distinct` already promises
+#: no two sprites share one. A sprite not in it -- a tile handed to `draw`, or
+#: a test's own tuple -- draws by OR, exactly as everything did before.
+MASK_OF = {BITMAPS[name]: mask for name, mask in MASKS.items()}
+
 
 def row_bytes(row) -> tuple:
     """One row of a sprite, as its bytes, whatever width the sprite is.
@@ -306,25 +331,43 @@ def width_of(sprite) -> int:
 
 def draw(screen, sprite, x: int, y: int,
          clip_bottom: int = PLAY_BOTTOM_PX, visible=None,
-         columns: int | None = None) -> None:
-    """Draw a sprite at pixel (x, y). Sets pixels; never writes an attribute.
+         columns: int | None = None, mask=None) -> None:
+    """Draw a sprite at pixel (x, y). Clears its mask, sets its ink; never
+    writes an attribute.
 
-    Pixels are set, never cleared, so a sprite composites over what is already
-    there rather than punching a hole in it.
+    **For each drawn row: clear every pixel the mask row sets, then set every
+    pixel the ink row sets** (issue #70). Until then pixels were set and never
+    cleared, so a figure on lit floor was made of the stipple it stood on;
+    now it stands in a one-pixel black halo, inside its own box. Outside the
+    mask nothing is touched, so a sprite still composites over the room
+    rather than punching a box-shaped hole in it. The two passes are one loop
+    here because the ink is inside the mask by construction: a pixel is set
+    if it is ink, cleared if it is only halo, and left alone otherwise. That
+    is the same picture as clear-then-OR and it is what the Z80's
+    `AND mask : OR data` does per byte.
+
+    `mask` is the sprite's own by default, from `MASK_OF`; a sprite with no
+    entry draws by OR. It can be given explicitly, and the sprite sheet and
+    the tests are the only callers that do.
 
     `visible` is an optional test taking a cell and returning whether the
     sprite may be drawn in it. People and Clegs pass one, so that they show
     only where a light is actually on them; the building's fixtures do not,
     because the fade is allowed to remember those. Drawing is already per cell,
     so a worker half inside a beam is drawn half -- the same mechanism that
-    gives a figure its two-tone edge, cutting all the way to nothing.
+    gives a figure its two-tone edge, cutting all the way to nothing. **The
+    mask is under the same test**: a cell the ink may not be drawn in is a
+    cell the mask may not clear either, or a figure half in a beam would punch
+    a hole in the dark half and show, by the hole, where it was.
 
     `columns` is how many **bytes** of each row to draw, and it exists for one
     case: a body in a one-cell gap, which is drawn as its head end alone. The
     default is the whole sprite. It is a count of bytes rather than of pixels
     because on the Z80 that is a loop counter, and half a byte is not something
-    that routine could do cheaply.
+    that routine could do cheaply. It governs the mask as it governs the ink.
     """
+    if mask is None and isinstance(sprite, tuple):
+        mask = MASK_OF.get(sprite)
     shown: dict[tuple[int, int], bool] = {}
     for dy, row in enumerate(sprite):
         py = y + dy
@@ -333,12 +376,16 @@ def draw(screen, sprite, x: int, y: int,
         cy = py // CELL
         base = py * SCREEN_W
         octets = row_bytes(row)
+        halo = row_bytes(mask[dy]) if mask else ()
         for octet, bits in enumerate(octets[:columns]):
-            if not bits:
+            clear = halo[octet] if octet < len(halo) else 0
+            touched = bits | clear
+            if not touched:
                 continue
             left = x + octet * WIDTH
             for dx in range(WIDTH):
-                if not bits & (0x80 >> dx):
+                bit = 0x80 >> dx
+                if not touched & bit:
                     continue
                 px = left + dx
                 if not 0 <= px < SCREEN_W:
@@ -350,7 +397,7 @@ def draw(screen, sprite, x: int, y: int,
                         ok = shown[cell] = bool(visible(*cell))
                     if not ok:
                         continue
-                screen.pixels[base + px] = 1
+                screen.pixels[base + px] = 1 if bits & bit else 0
 
 
 def cells_spanned(x: int, y: int, height: int,

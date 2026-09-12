@@ -162,23 +162,37 @@ def test_the_sprite_sheet_fits_between_its_heading_and_its_legend():
     assert last <= ROWS - 3, f"the sheet needs {last} rows and has {ROWS - 3}"
 
 
-def test_the_sprite_sheet_draws_every_sprite():
+def test_the_sprite_sheet_draws_every_sprite_on_stipple_with_its_halo():
     """The picture, not only the caption. Each block has the sprite's own
-    pixels in it."""
+    pixels in it, **on lit stipple, inside its halo** (issue #70): a pixel of
+    the box is set where the ink is, clear where the mask is and the ink is
+    not, and the stipple's own dot where the mask does not reach. Beside the
+    box the floor carries on unbroken, so the halo can be seen against it."""
+    from spikes import floor
     screen = Screen()
     gallery.draw_sprite_sheet(screen)
     for n, sprite in enumerate(sprites.SPRITES.values()):
         cx, cy = gallery.block_at(n)
         px, py = (cx + 3) * CELL, gallery.sprite_top(cy, len(sprite))
-        for dy, row in enumerate(sprite):
+        mask = sprites.MASK_OF[sprite]
+        for dy, (row, halo) in enumerate(zip(sprite, mask)):
             # A row is one byte, or two for the body, which is the only thing
             # on the sheet that is sixteen pixels across.
-            for octet, bits in enumerate(sprites.row_bytes(row)):
+            for octet, (bits, clear) in enumerate(
+                    zip(sprites.row_bytes(row), sprites.row_bytes(halo))):
                 for dx in range(sprites.WIDTH):
-                    want = 1 if bits & (0x80 >> dx) else 0
-                    at = (py + dy) * SCREEN_W + px + octet * sprites.WIDTH + dx
-                    assert screen.pixels[at] == want, \
-                        f"sprite {n} differs at row {dy}"
+                    x = px + octet * sprites.WIDTH + dx
+                    dot = floor.STIPPLE_LIT[(py + dy) % CELL] & (0x80 >> (x % CELL))
+                    want = (1 if bits & (0x80 >> dx) else
+                            0 if clear & (0x80 >> dx) else
+                            1 if dot else 0)
+                    assert screen.pixels[(py + dy) * SCREEN_W + x] == want, \
+                        f"sprite {n} differs at ({dx}, {dy})"
+        # The cell to the left of the box is plain lit floor.
+        for dy, bits in enumerate(floor.STIPPLE_LIT):
+            for dx in range(CELL):
+                at = (cy * CELL + dy) * SCREEN_W + (cx + 2) * CELL + dx
+                assert screen.pixels[at] == (1 if bits & (0x80 >> dx) else 0)
 
 
 def test_every_sprite_on_the_sheet_stands_on_its_own_caption():

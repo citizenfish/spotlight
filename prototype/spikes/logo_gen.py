@@ -8,6 +8,11 @@ Bit 7 is the leftmost pixel, rows top to bottom -- the Spectrum's
 own order, which is what `core.Screen` models. A row is one byte,
 or a tuple of two for the 16-wide class, left cell first.
 
+Every sprite has a `NAME_MASK` beside it, collected in `MASKS`: its
+ink dilated one pixel and clipped to the box, derived by the tool and
+never drawn by hand. A set bit is a pixel to clear before the ink is
+set. Tiles have none; they composite by OR.
+
 There is no timestamp here on purpose: this file is committed, and a
 test regenerates it and compares byte for byte, so any diff at all is
 art and code having drifted.
@@ -176,4 +181,9 @@ BITMAPS = {
     "LOGO_P": LOGO_P,
     "LOGO_S": LOGO_S,
     "LOGO_T": LOGO_T,
+}
+
+#: Every sprite's mask, keyed by the sprite's name (issue #70).
+#: Tiles are not in it: they composite by OR and have none.
+MASKS = {
 }

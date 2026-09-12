@@ -59,8 +59,8 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, lighting, moments, player as player_mod, screens, scene
-from . import sprites
+from . import bots, floor, lighting, moments, player as player_mod
+from . import screens, scene, sprites
 from . import session as session_mod, tiles
 from . import spike_snap
 from .building import EAST
@@ -106,6 +106,12 @@ _BLOCK_H = 3
 _LEFT = 1
 _TOP = 3
 
+#: The stippled ground under each sprite on the sheet, in cells from the
+#: block's left edge: the sprite's own cell or two, and a cell of floor either
+#: side of it, so the halo is seen against stipple that carries on unbroken
+#: past the box. Two rows deep, because the box is.
+_GROUND = range(2, 6)
+
 
 def block_at(n: int) -> tuple[int, int]:
     """Where the nth entry's block starts, in cells."""
@@ -141,6 +147,15 @@ def sprite_top(cy: int, height: int) -> int:
     return (cy + _BLOCK_H - 1) * CELL - height
 
 
+def stipple_cell(screen: Screen, cx: int, cy: int) -> None:
+    """One cell of lit floor, drawn with the game's own stipple by OR."""
+    for dy, bits in enumerate(floor.STIPPLE_LIT):
+        base = (cy * CELL + dy) * SCREEN_W + cx * CELL
+        for dx in range(CELL):
+            if bits & (0x80 >> dx):
+                screen.pixels[base + dx] = 1
+
+
 def label(name: str) -> str:
     """What an entry is called on the sheet.
 
@@ -173,6 +188,13 @@ def draw_sprite_sheet(screen: Screen) -> None:
     captioned with its letter, so a reviewer can see what a stride changes and
     that the lamp and the mark are in both of the player's.
 
+    **Every sprite stands on lit stipple** (issue #70), a patch of floor a
+    cell wider than its box on either side, so the mask can be seen doing its
+    job: the dots stop a pixel short of the ink inside the box and carry on
+    unbroken outside it. On black paper the halo is invisible, and a sheet
+    that could not show the one thing the round added would be no use for
+    judging it.
+
     Labelled in the game's font rather than anything prettier, for the same
     reason the rest of the sheet is drawn through `core.Screen`: what a reviewer
     is looking at has to be made of the things the Spectrum can make.
@@ -188,14 +210,17 @@ def draw_sprite_sheet(screen: Screen) -> None:
         # caption rather than at one end of it. The 16-wide body starts there
         # too and takes the cell after it, which is still inside its block.
         px, py = (cx + 3) * CELL, sprite_top(cy, len(sprite))
+        # The ground first, then the sprite over it with its mask, in the
+        # order the game draws them.
+        for gx in _GROUND:
+            for gy in (cy, cy + 1):
+                stipple_cell(screen, cx + gx, gy)
+                screen.set_attr(cx + gx, gy, _attr(WHITE, bright=True))
         # clip_bottom is the play area's floor in the game and there is no play
         # area here, so it is opened up to the whole screen; without that the
         # bottom row of the grid would be cut off mid-sprite.
         sprites.draw(screen, sprite, px, py, clip_bottom=SCREEN_H)
         people = name in sprites.PEOPLE
-        for scx, scy in sprites.cells_spanned(px, py, len(sprite),
-                                              sprites.width_of(sprite)):
-            screen.set_attr(scx, scy, _attr(WHITE, bright=True))
         screens.write(screen, cx, cy + 2, label(name),
                       YELLOW if people else CYAN, bright=True)
 

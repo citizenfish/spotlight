@@ -1935,8 +1935,9 @@ class Session:
         # has no visible shape -- it only reveals what it falls on.
         floor.draw(screen, field, is_solid)
 
-        # Sprites set pixels only. Their colour comes from whichever cells they
-        # happen to be standing in.
+        # Sprites set and clear pixels only -- each clears its one-pixel halo
+        # and sets its ink (issue #70). Their colour comes from whichever
+        # cells they happen to be standing in.
         for spr, sx, sy in place.fixtures:
             sprites.draw(screen, spr, sx, sy)
         # **The spotlights lying on this room's floor** (issue #49). There was

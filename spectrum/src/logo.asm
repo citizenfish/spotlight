@@ -6,6 +6,10 @@
 ;
 ; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight
 ; pixels -- so a 16-wide row is two bytes, left cell first.
+; Every sprite is followed by NAME_MASK: its ink dilated one pixel,
+; clipped to the box, a set bit being a pixel to clear. The sprite
+; routine's AND-mask is the complement, taken when the rotations are
+; built, so that this file and the Python hold the same bytes.
 ; No timestamp: the file is committed and a test compares it byte for
 ; byte, so any diff is art and code having drifted.
 

@@ -311,6 +311,12 @@ def test_the_asm_and_the_python_hold_the_same_bytes():
 
     flat = {name: [b for row in rows for b in bitmaps.row_bytes(row)]
             for name, rows in bitmaps_gen.BITMAPS.items()}
+    # **And the masks, since issue #70**: every `NAME_MASK` label in the
+    # assembly is the Python `MASKS[NAME]`, byte for byte, and there is no
+    # label in either file the other has not got.
+    flat.update({f"{name}_MASK": [b for row in rows
+                                  for b in bitmaps.row_bytes(row)]
+                 for name, rows in bitmaps_gen.MASKS.items()})
     assert {k: list(v) for k, v in from_asm.items()} == flat
 
 
@@ -468,3 +474,124 @@ def test_writing_only_happens_when_something_changed(tmp_path):
     assert bitmaps.write_if_changed(path, "one\n") is True
     assert bitmaps.write_if_changed(path, "one\n") is False
     assert bitmaps.write_if_changed(path, "two\n") is True
+
+
+# --- the halo mask is derived, never drawn (issue #70) ----------------------
+
+def _dilated(block) -> tuple:
+    """A reference dilation written the slow way -- pixel by pixel, on a grid
+    of the block's art -- so the tool's shift-and-OR is checked against
+    something that does not share its arithmetic."""
+    grid = [[c == "#" for c in row] for row in block.art]
+    h, w = block.height, block.width
+    out = []
+    for y in range(h):
+        bits = 0
+        for x in range(w):
+            near = any(grid[yy][xx]
+                       for yy in range(max(0, y - 1), min(h, y + 2))
+                       for xx in range(max(0, x - 1), min(w, x + 2)))
+            if near:
+                bits |= 1 << (w - 1 - x)
+        out.append(bitmaps._row_pack(bits, w))
+    return tuple(out)
+
+
+def test_every_sprite_mask_is_the_one_pixel_dilation_of_its_ink():
+    """**The pin.** For every sprite in `assets/sprites/`, the committed
+    `MASKS` entry is exactly the eight-neighbour dilation of its ink by one
+    pixel, clipped to the box -- and it is the *tool's* mask, so an edit to
+    the ink that is not regenerated fails here as well as in the drift test.
+    """
+    from spikes import bitmaps_gen
+
+    blocks = bitmaps.read_tree(["assets/sprites"], str(ROOT))
+    assert blocks, "no sprites read"
+    for block in blocks:
+        assert block.masked, f"{block.name} came from sprites/ and is unmasked"
+        assert bitmaps_gen.MASKS[block.name] == _dilated(block) == block.mask, \
+            block.name
+        assert len(block.mask) == block.height
+        # The ink is inside its own mask: AND-then-OR on the port needs it.
+        for ink, halo in zip(block.rows, block.mask):
+            for a, b in zip(bitmaps.row_bytes(ink), bitmaps.row_bytes(halo)):
+                assert a & b == a, f"{block.name}: ink outside its mask"
+
+
+def test_tiles_the_stipples_and_the_logo_have_no_mask():
+    """Masks are for sprites. A tile composites by OR, the floor is the thing
+    a mask clears, and the logo is on a screen with no floor at all; a mask
+    for any of them would be bytes the port never reads."""
+    from spikes import bitmaps_gen, logo_gen
+
+    sprites = {b.name for b in bitmaps.read_tree(["assets/sprites"], str(ROOT))}
+    tiles = bitmaps.read_tree(["assets/tiles"], str(ROOT))
+    assert tiles and not any(b.masked for b in tiles)
+    assert set(bitmaps_gen.MASKS) == sprites
+    assert logo_gen.MASKS == {}
+    asm = GENERATED_ASM.read_text()
+    for block in tiles:
+        assert f"{block.name}_MASK:" not in asm
+
+
+def test_a_sprite_with_no_ink_has_an_empty_mask():
+    """Nothing to grow from, in both widths."""
+    assert bitmaps.dilate((0,) * 8, 8) == (0,) * 8
+    assert bitmaps.dilate(((0, 0),) * 8, 16) == ((0, 0),) * 8
+
+
+def test_the_mask_is_clipped_to_the_box_and_never_wraps():
+    """Ink on the edge of the box dilates inward, not out of it -- a halo
+    outside the box is a third byte per row on the port and was refused --
+    and it does **not** come round the other side, which is what a rotate
+    would do and what a shift must not."""
+    # One pixel in the top-left corner: three of its four box-neighbours.
+    mask = bitmaps.dilate((0x80, 0, 0, 0, 0, 0, 0, 0), 8)
+    assert mask == (0xC0, 0xC0, 0, 0, 0, 0, 0, 0)
+    # One pixel at the right edge of the bottom row.
+    mask = bitmaps.dilate((0, 0, 0, 0, 0, 0, 0, 0x01), 8)
+    assert mask == (0, 0, 0, 0, 0, 0, 0x03, 0x03)
+    # A full-width row grows a row above and below and nothing sideways.
+    mask = bitmaps.dilate((0, 0, 0xFF, 0, 0, 0, 0, 0), 8)
+    assert mask == (0, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0)
+
+
+def test_the_bodys_halo_crosses_the_join_between_its_two_bytes():
+    """The one place a per-byte dilation would be wrong. Ink at pixel 7 of a
+    16-wide row has a neighbour at pixel 8, which is bit 7 of the *other*
+    byte, and a seam down the middle of the body is exactly the fault the
+    two-cell class was warned about."""
+    rows = ((0x01, 0x00),) + ((0, 0),) * 7
+    assert bitmaps.dilate(rows, 16)[0] == (0x03, 0x80)
+    rows = ((0x00, 0x80),) + ((0, 0),) * 7
+    assert bitmaps.dilate(rows, 16)[0] == (0x01, 0xC0)
+
+
+def test_a_block_parsed_on_its_own_is_not_masked_and_a_sprite_file_is(tmp_path):
+    """What decides it is the directory the block was read from, so the
+    tests and a stray file do not grow masks by accident."""
+    block, = parse(BLOCK)
+    assert not block.masked
+    sprites = tmp_path / "sprites"
+    sprites.mkdir()
+    (sprites / "thing.txt").write_text(BLOCK)
+    tiles = tmp_path / "tiles"
+    tiles.mkdir()
+    (tiles / "other.txt").write_text(BLOCK.replace("THING", "OTHER"))
+    read = {b.name: b.masked for b in bitmaps.read_tree([str(sprites),
+                                                         str(tiles)])}
+    assert read == {"THING": True, "OTHER": False}
+    module = bitmaps.python_module(bitmaps.read_tree([str(sprites)]),
+                                   [str(sprites)])
+    assert "THING_MASK = (" in module and '"THING": THING_MASK' in module
+
+
+def test_each_mask_follows_its_sprite_in_the_assembly():
+    """`NAME:` then `NAME_MASK:`, adjacent, so the port's interleaved record
+    can be assembled by walking the two side by side."""
+    labels = [line[:-1] for line in GENERATED_ASM.read_text().splitlines()
+              if line.endswith(":")]
+    from spikes import bitmaps_gen
+    for name in bitmaps_gen.MASKS:
+        at = labels.index(name)
+        assert labels[at + 1] == f"{name}_MASK", name

@@ -34,10 +34,30 @@ code cannot drift without the suite failing.
 
 What it deliberately does not do (all three from the decision note):
 
-* **No pre-shifting, no masks, no rotation tables.** That expansion belongs to
-  the port's sprite routine and depends on a decision nobody has taken; baking
-  it into the asset format would bake in the unmade decision. This converts a
+* **No pre-shifting, no rotation tables.** That expansion belongs to the
+  port's sprite routine and depends on a decision nobody has taken; baking it
+  into the asset format would bake in the unmade decision. This converts a
   picture into bytes and stops.
+
+  **Masks are the one exception, since issue #70, and they are derived and
+  never drawn.** Every sprite block gets a mask block of the same size: its
+  ink dilated by one pixel in all eight directions, clipped to the block's own
+  box. The port's sprite routine (*2026-09-06 The 48K cycle budget*) is
+  mask-and-OR already and prices the mask bytes; the prototype ORed and had no
+  mask at all, which was the design reference being *cheaper* than the thing
+  it is a reference for. A mask is a function of the ink, so it lives here
+  beside the byte packing and not in a second `.txt`: a second file would be a
+  second author, and the halo would drift from the figure the first time
+  somebody moved a hand. `dilate` is the whole rule. Tiles, the stipples and
+  the logo get no mask -- they composite by OR and a mask for them would be
+  bytes the port never reads -- and *sprite* means *read from a directory
+  called `sprites`*, see `SPRITE_DIR`.
+
+  **Mask polarity is the dilation itself: a set bit is a pixel to clear.** The
+  Z80 routine wants the complement (`AND` with 0 where the halo is), and it
+  wants it padded out to two bytes per rotation, so the complement is taken
+  where the rotations are built and not here -- that keeps the `.asm` and the
+  Python holding the same bytes, which `tests/test_bitmaps_tool.py` compares.
 * **No colour.** A bitmap has no ink -- hue is per cell and comes from the
   room's palette. An asset that could name a colour would be an asset that
   could break the clash guarantee.
@@ -75,6 +95,14 @@ SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
 #: The default width: an attribute cell is 8 pixels across, so nearly
 #: everything is.
 WIDTH = 8
+
+#: Blocks read from a directory of this name are sprites and get a mask
+#: (issue #70). It is the directory and not a header in the block because the
+#: split between `assets/sprites/` and `assets/tiles/` is already the split
+#: between things drawn with a mask and things composited by OR -- a person,
+#: a fly, a lamp against the floor on one side, masonry and stipple on the
+#: other -- and a header could say the opposite of where the file lives.
+SPRITE_DIR = "sprites"
 
 #: Every size a bitmap is allowed to be, and the list is short on purpose:
 #: **each one is a drawing routine on the Z80**, so a new size is a decision
@@ -117,9 +145,10 @@ class Block:
     """One named bitmap: its size, its rows as bytes, and its row comments."""
 
     __slots__ = ("name", "width", "height", "rows", "art", "notes", "source",
-                 "line")
+                 "line", "masked")
 
-    def __init__(self, name, width, height, rows, art, notes, source, line):
+    def __init__(self, name, width, height, rows, art, notes, source, line,
+                 masked: bool = False):
         self.name = name
         self.width = width
         self.height = height
@@ -134,9 +163,19 @@ class Block:
         self.notes = tuple(notes)
         self.source = source
         self.line = line
+        #: Whether the emitters write a mask for this block. Set by
+        #: `read_tree` from where the block came from; a block parsed on its
+        #: own has no directory and is not masked.
+        self.masked = masked
 
     def __repr__(self) -> str:
         return f"Block({self.name!r}, {self.width}x{self.height})"
+
+    @property
+    def mask(self) -> tuple:
+        """The block's halo: `dilate` of its ink. Defined for every block,
+        emitted only for sprites."""
+        return dilate(self.rows, self.width)
 
 
 def _is_comment(line: str) -> bool:
@@ -308,7 +347,11 @@ def read_tree(paths, root: str = "") -> list:
         for source in sorted(_asset_files(full)):
             label = os.path.relpath(source, root) if root else source
             text = open(source, encoding="utf-8").read()
-            blocks.extend(parse_text(text, label.replace(os.sep, "/")))
+            found = parse_text(text, label.replace(os.sep, "/"))
+            masked = _is_sprite_source(source)
+            for block in found:
+                block.masked = masked
+            blocks.extend(found)
     seen: dict = {}
     for block in blocks:
         first = seen.get(block.name)
@@ -320,6 +363,14 @@ def read_tree(paths, root: str = "") -> list:
                 f"whole tree")
         seen[block.name] = block
     return sorted(blocks, key=lambda b: b.name)
+
+
+def _is_sprite_source(source: str) -> bool:
+    """Whether a file is under a directory called `SPRITE_DIR`, and so holds
+    sprites rather than tiles. Any ancestor counts, so `assets/sprites/x.txt`
+    and a file given directly both answer the same."""
+    parts = os.path.normpath(os.path.abspath(source)).split(os.sep)
+    return SPRITE_DIR in parts[:-1]
 
 
 def _asset_files(path: str):
@@ -341,6 +392,69 @@ def row_bytes(row) -> tuple:
     everything that walks a table needs one line to stop caring which it has.
     """
     return row if isinstance(row, tuple) else (row,)
+
+
+def _row_int(row, width: int) -> int:
+    """One row as a single integer `width` bits wide, leftmost pixel highest.
+
+    Only ever used inside `dilate`, where the shift across a byte boundary is
+    the point: the body's halo has to reach from its left byte into its right
+    one, and two bytes shifted separately would leave a seam down the join.
+    """
+    value = 0
+    for octet in row_bytes(row):
+        value = (value << WIDTH) | octet
+    return value
+
+
+def _row_pack(value: int, width: int):
+    """`_row_int` undone: back to a bare byte or a left-first pair."""
+    octets = tuple((value >> (width - WIDTH * (i + 1))) & 0xFF
+                   for i in range(width // WIDTH))
+    return octets[0] if len(octets) == 1 else octets
+
+
+def dilate(rows, width: int) -> tuple:
+    """The one-pixel, eight-neighbour dilation of a block's ink, clipped to
+    its box. The rule that makes a mask, and the whole of it (issue #70).
+
+    A pixel of the mask is set where the ink is set, or where any of the
+    eight pixels around it is. The ink's own pixels are in it, so clearing
+    the mask and then ORing the ink is the same picture as clearing only the
+    ring -- and the port's routine does `AND mask` then `OR data`, which needs
+    the ink inside the mask. **Clipped to the box**: ink on the edge of the
+    box dilates inward and not out of it. A halo that left the box would be a
+    third byte per row on the port, priced in the round's plan and refused.
+
+    The clip is what the `& full` and the plain right shift do: a left shift
+    past the leftmost pixel is masked off, and a right shift past the
+    rightmost falls off the end. Neither wraps, which is the bug this would
+    otherwise have -- a fly's wingtip at column 7 reappearing at column 0.
+
+    A blank block dilates to a blank mask: there is nothing to grow.
+    """
+    ints = [_row_int(row, width) for row in rows]
+    full = (1 << width) - 1
+    out = []
+    for i in range(len(ints)):
+        acc = 0
+        for j in (i - 1, i, i + 1):
+            if 0 <= j < len(ints):
+                r = ints[j]
+                acc |= r | ((r << 1) & full) | (r >> 1)
+        out.append(_row_pack(acc, width))
+    return tuple(out)
+
+
+def mask_art(mask, width: int) -> tuple:
+    """A mask drawn as the grid it would have been authored as, so the
+    generated file can be read as a picture beside the ink it came from."""
+    art = []
+    for row in mask:
+        value = _row_int(row, width)
+        art.append("".join(INK if value & (1 << (width - 1 - i)) else CLEAR
+                           for i in range(width)))
+    return tuple(art)
 
 
 def _sources_line(paths) -> str:
@@ -372,6 +486,11 @@ def python_module(blocks, paths) -> str:
         "own order, which is what `core.Screen` models. A row is one byte,",
         "or a tuple of two for the 16-wide class, left cell first.",
         "",
+        "Every sprite has a `NAME_MASK` beside it, collected in `MASKS`: its",
+        "ink dilated one pixel and clipped to the box, derived by the tool and",
+        "never drawn by hand. A set bit is a pixel to clear before the ink is",
+        "set. Tiles have none; they composite by OR.",
+        "",
         "There is no timestamp here on purpose: this file is committed, and a",
         "test regenerates it and compares byte for byte, so any diff at all is",
         "art and code having drifted.",
@@ -379,19 +498,15 @@ def python_module(blocks, paths) -> str:
         "",
     ]
     for block in blocks:
-        out.append(f"{block.name} = (")
-        for row, art, note in zip(block.rows, block.art, block.notes):
-            comment = f"  # {art}" + (f"   {note}" if note else "")
-            octets = row_bytes(row)
-            # A row of the two-cell class comes out as its own tuple, so the
-            # table says which bytes are one row and a reader cannot mistake
-            # sixteen bytes for a sixteen-row sprite. Anything that draws it
-            # fails loudly on the shape rather than quietly on the height.
-            value = (f"0x{octets[0]:02X}," if len(octets) == 1 else
-                     "(" + ", ".join(f"0x{b:02X}" for b in octets) + "),")
-            out.append(f"    {value}{comment}")
-        out.append(")")
-        out.append("")
+        _python_block(out, block.name, block.rows, block.art, block.notes)
+        if block.masked:
+            out.append(f"#: {block.name}'s mask: the ink dilated one pixel, "
+                       f"clipped to its box.")
+            out.append("#: Derived by tools/bitmaps.py; a set bit is a pixel "
+                       "to clear.")
+            _python_block(out, f"{block.name}_MASK", block.mask,
+                          mask_art(block.mask, block.width),
+                          ("",) * block.height)
     out.append("#: Every bitmap by name, for the tools and tests that want to")
     out.append("#: walk them all.")
     out.append("BITMAPS = {")
@@ -399,7 +514,32 @@ def python_module(blocks, paths) -> str:
         out.append(f'    "{block.name}": {block.name},')
     out.append("}")
     out.append("")
+    out.append("#: Every sprite's mask, keyed by the sprite's name (issue #70).")
+    out.append("#: Tiles are not in it: they composite by OR and have none.")
+    out.append("MASKS = {")
+    for block in blocks:
+        if block.masked:
+            out.append(f'    "{block.name}": {block.name}_MASK,')
+    out.append("}")
+    out.append("")
     return "\n".join(out)
+
+
+def _python_block(out, name, rows, art, notes) -> None:
+    """One named tuple of rows, the grid beside each byte."""
+    out.append(f"{name} = (")
+    for row, drawn, note in zip(rows, art, notes):
+        comment = f"  # {drawn}" + (f"   {note}" if note else "")
+        octets = row_bytes(row)
+        # A row of the two-cell class comes out as its own tuple, so the
+        # table says which bytes are one row and a reader cannot mistake
+        # sixteen bytes for a sixteen-row sprite. Anything that draws it
+        # fails loudly on the shape rather than quietly on the height.
+        value = (f"0x{octets[0]:02X}," if len(octets) == 1 else
+                 "(" + ", ".join(f"0x{b:02X}" for b in octets) + "),")
+        out.append(f"    {value}{comment}")
+    out.append(")")
+    out.append("")
 
 
 def asm_module(blocks, paths) -> str:
@@ -418,22 +558,35 @@ def asm_module(blocks, paths) -> str:
         ";",
         "; Bit 7 is the leftmost pixel, rows top to bottom, one byte per eight",
         "; pixels -- so a 16-wide row is two bytes, left cell first.",
+        "; Every sprite is followed by NAME_MASK: its ink dilated one pixel,",
+        "; clipped to the box, a set bit being a pixel to clear. The sprite",
+        "; routine's AND-mask is the complement, taken when the rotations are",
+        "; built, so that this file and the Python hold the same bytes.",
         "; No timestamp: the file is committed and a test compares it byte for",
         "; byte, so any diff is art and code having drifted.",
         "",
     ]
     for block in blocks:
-        out.append(f"{block.name}:")
-        for row, art, note in zip(block.rows, block.art, block.notes):
-            comment = f"; {art}" + (f"   {note}" if note else "")
-            # Two bytes on one line for a 16-wide row, because the row is the
-            # unit the sprite routine reads and splitting it over two lines
-            # would hide that. `ljust` keeps the comment column where it has
-            # always been, so a 16-wide block does not reflow the file.
-            operand = "DEFB " + ",".join(f"${b:02X}" for b in row_bytes(row))
-            out.append(f"        {operand.ljust(27)}{comment}")
-        out.append("")
+        _asm_block(out, block.name, block.rows, block.art, block.notes)
+        if block.masked:
+            _asm_block(out, f"{block.name}_MASK", block.mask,
+                       mask_art(block.mask, block.width),
+                       ("",) * block.height)
     return "\n".join(out)
+
+
+def _asm_block(out, name, rows, art, notes) -> None:
+    """One label and its `DEFB` lines, the grid beside each."""
+    out.append(f"{name}:")
+    for row, drawn, note in zip(rows, art, notes):
+        comment = f"; {drawn}" + (f"   {note}" if note else "")
+        # Two bytes on one line for a 16-wide row, because the row is the
+        # unit the sprite routine reads and splitting it over two lines
+        # would hide that. `ljust` keeps the comment column where it has
+        # always been, so a 16-wide block does not reflow the file.
+        operand = "DEFB " + ",".join(f"${b:02X}" for b in row_bytes(row))
+        out.append(f"        {operand.ljust(27)}{comment}")
+    out.append("")
 
 
 def write_if_changed(path: str, text: str) -> bool:

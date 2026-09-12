@@ -8,6 +8,11 @@ Bit 7 is the leftmost pixel, rows top to bottom -- the Spectrum's
 own order, which is what `core.Screen` models. A row is one byte,
 or a tuple of two for the 16-wide class, left cell first.
 
+Every sprite has a `NAME_MASK` beside it, collected in `MASKS`: its
+ink dilated one pixel and clipped to the box, derived by the tool and
+never drawn by hand. A set bit is a pixel to clear before the ink is
+set. Tiles have none; they composite by OR.
+
 There is no timestamp here on purpose: this file is committed, and a
 test regenerates it and compares byte for byte, so any diff at all is
 art and code having drifted.
@@ -24,6 +29,19 @@ BATTEN = (
     0x00,  # ........
 )
 
+#: BATTEN's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+BATTEN_MASK = (
+    0x00,  # ........
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x00,  # ........
+)
+
 BODY = (
     (0x03, 0x00),  # ......##........   the arm, flung back over the head
     (0x3D, 0x00),  # ..####.#........
@@ -33,6 +51,19 @@ BODY = (
     (0x03, 0xDC),  # ......####.###..   hips, and one leg trailing
     (0x00, 0x63),  # .........##...##   the other leg, splayed differently
     (0x00, 0x00),  # ................
+)
+
+#: BODY's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+BODY_MASK = (
+    (0x7F, 0x80),  # .########.......
+    (0xFF, 0xF8),  # #############...
+    (0xFF, 0xFF),  # ################
+    (0xFF, 0xFF),  # ################
+    (0xFF, 0xFF),  # ################
+    (0x7F, 0xFF),  # .###############
+    (0x07, 0xFF),  # .....###########
+    (0x00, 0xF7),  # ........####.###
 )
 
 CLEG_A = (
@@ -46,6 +77,19 @@ CLEG_A = (
     0x42,  # .#....#.   legs
 )
 
+#: CLEG_A's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+CLEG_A_MASK = (
+    0x3C,  # ..####..
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x3C,  # ..####..
+    0xFF,  # ########
+    0xFF,  # ########
+)
+
 CLEG_B = (
     0x00,  # ........
     0x18,  # ...##...   head, unchanged
@@ -55,6 +99,19 @@ CLEG_B = (
     0x99,  # #..##..#
     0x81,  # #......#   wingtips, past the abdomen
     0x24,  # ..#..#..   legs, tucked
+)
+
+#: CLEG_B's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+CLEG_B_MASK = (
+    0x3C,  # ..####..
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
 )
 
 DOORWAY_00 = (
@@ -252,6 +309,27 @@ DOOR_LOCKED = (
     0xFF,  # ########
 )
 
+#: DOOR_LOCKED's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+DOOR_LOCKED_MASK = (
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+)
+
 DOOR_OPEN = (
     0xC3,  # ##....##   two jambs, a four-pixel gap
     0xC3,  # ##....##
@@ -269,6 +347,27 @@ DOOR_OPEN = (
     0xC3,  # ##....##
     0xC3,  # ##....##
     0xC3,  # ##....##   no head and no sill: open at both ends
+)
+
+#: DOOR_OPEN's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+DOOR_OPEN_MASK = (
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
 )
 
 FLOOR_DIM = (
@@ -312,6 +411,27 @@ FOLLOWER_A = (
     0x00,  # ........
 )
 
+#: FOLLOWER_A's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+FOLLOWER_A_MASK = (
+    0x00,  # ........
+    0x3C,  # ..####..
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7F,  # .#######
+    0x7E,  # .######.
+    0x78,  # .####...
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
 FOLLOWER_B = (
     0x00,  # ........
     0x00,  # ........
@@ -331,6 +451,27 @@ FOLLOWER_B = (
     0x00,  # ........
 )
 
+#: FOLLOWER_B's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+FOLLOWER_B_MASK = (
+    0x00,  # ........
+    0x3C,  # ..####..
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFE,  # #######.
+    0x7E,  # .######.
+    0x1E,  # ...####.
+    0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
 HOUSING = (
     0x3C,  # ..####..   a ring with a lens: the searchlight, bolted down
     0x42,  # .#....#.
@@ -340,6 +481,19 @@ HOUSING = (
     0x81,  # #......#
     0x42,  # .#....#.
     0x3C,  # ..####..
+)
+
+#: HOUSING's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+HOUSING_MASK = (
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
 )
 
 KEY = (
@@ -353,6 +507,19 @@ KEY = (
     0x00,  # ........
 )
 
+#: KEY's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+KEY_MASK = (
+    0x3E,  # ..#####.
+    0x7F,  # .#######
+    0x7F,  # .#######
+    0x7F,  # .#######
+    0x7F,  # .#######
+    0x3F,  # ..######
+    0x1F,  # ...#####
+    0x1F,  # ...#####
+)
+
 LAMP_OFF = (
     0x3C,  # ..####..   a hollow octagon: a spotlight lying dark
     0x42,  # .#....#.
@@ -362,6 +529,19 @@ LAMP_OFF = (
     0x81,  # #......#
     0x42,  # .#....#.
     0x3C,  # ..####..
+)
+
+#: LAMP_OFF's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+LAMP_OFF_MASK = (
+    0xFF,  # ########
+    0xFF,  # ########
+    0xE7,  # ###..###
+    0xC3,  # ##....##
+    0xC3,  # ##....##
+    0xE7,  # ###..###
+    0xFF,  # ########
+    0xFF,  # ########
 )
 
 LAMP_ON = (
@@ -375,6 +555,19 @@ LAMP_ON = (
     0x3C,  # ..####..
 )
 
+#: LAMP_ON's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+LAMP_ON_MASK = (
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+)
+
 NEST = (
     0x00,  # ........
     0x30,  # ..##....   the lip, broken and off-centre
@@ -384,6 +577,19 @@ NEST = (
     0xFF,  # ########
     0x7E,  # .######.
     0x2C,  # ..#.##..   it does not sit square
+)
+
+#: NEST's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+NEST_MASK = (
+    0x78,  # .####...
+    0xFE,  # #######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
 )
 
 PLAYER_A = (
@@ -405,6 +611,27 @@ PLAYER_A = (
     0xFF,  # ########
 )
 
+#: PLAYER_A's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+PLAYER_A_MASK = (
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7F,  # .#######
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+)
+
 PLAYER_B = (
     0x00,  # ........
     0x3C,  # ..####..   the lamp
@@ -421,6 +648,27 @@ PLAYER_B = (
     0x0C,  # ....##..
     0x00,  # ........
     0xFF,  # ########   the mark
+    0xFF,  # ########
+)
+
+#: PLAYER_B's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+PLAYER_B_MASK = (
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFE,  # #######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
     0xFF,  # ########
 )
 
@@ -806,6 +1054,27 @@ WORKER_A = (
     0x00,  # ........
 )
 
+#: WORKER_A's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+WORKER_A_MASK = (
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x3E,  # ..#####.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x78,  # .####...
+    0x00,  # ........
+    0x00,  # ........
+)
+
 WORKER_B = (
     0x00,  # ........
     0xC3,  # ##....##   hands, raised
@@ -821,6 +1090,27 @@ WORKER_B = (
     0x30,  # ..##....   feet swapped
     0x0C,  # ....##..
     0x00,  # ........
+    0x00,  # ........
+    0x00,  # ........
+)
+
+#: WORKER_B's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+WORKER_B_MASK = (
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7C,  # .#####..
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x1E,  # ...####.
     0x00,  # ........
     0x00,  # ........
 )
@@ -896,4 +1186,26 @@ BITMAPS = {
     "WALL_LIT_15": WALL_LIT_15,
     "WORKER_A": WORKER_A,
     "WORKER_B": WORKER_B,
+}
+
+#: Every sprite's mask, keyed by the sprite's name (issue #70).
+#: Tiles are not in it: they composite by OR and have none.
+MASKS = {
+    "BATTEN": BATTEN_MASK,
+    "BODY": BODY_MASK,
+    "CLEG_A": CLEG_A_MASK,
+    "CLEG_B": CLEG_B_MASK,
+    "DOOR_LOCKED": DOOR_LOCKED_MASK,
+    "DOOR_OPEN": DOOR_OPEN_MASK,
+    "FOLLOWER_A": FOLLOWER_A_MASK,
+    "FOLLOWER_B": FOLLOWER_B_MASK,
+    "HOUSING": HOUSING_MASK,
+    "KEY": KEY_MASK,
+    "LAMP_OFF": LAMP_OFF_MASK,
+    "LAMP_ON": LAMP_ON_MASK,
+    "NEST": NEST_MASK,
+    "PLAYER_A": PLAYER_A_MASK,
+    "PLAYER_B": PLAYER_B_MASK,
+    "WORKER_A": WORKER_A_MASK,
+    "WORKER_B": WORKER_B_MASK,
 }
