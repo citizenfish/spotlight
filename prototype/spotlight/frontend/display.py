@@ -9,7 +9,8 @@ nothing else.
 import pygame
 
 from ..core.constants import (
-    CELL, COLS, PALETTE, PALETTE_BRIGHT, ROWS, SCREEN_H, SCREEN_W,
+    CELL, COLS, COLOUR_NAMES, PALETTE, PALETTE_BRIGHT, ROWS, SCREEN_H,
+    SCREEN_W, rgb,
 )
 from ..core.screen import Screen, unpack_attr
 
@@ -18,6 +19,40 @@ SURFACE_PALETTE = list(PALETTE) + list(PALETTE_BRIGHT)
 
 #: Frames between flash inversions. Real hardware toggles every 16 frames.
 FLASH_PERIOD = 16
+
+#: **The border** (issue #75). The Spectrum surrounds its 256x192 with a
+#: margin in one of its eight base colours -- the BORDER, one port write on
+#: the port -- and until this the window was the 256x192 and nothing else, so
+#: nobody could try whether a dark room inside a frame of colour reads as a
+#: room. Four cells' width on every side, scaled with the frame; the number is
+#: a window size, not a rule, and nothing measures it.
+BORDER_CELLS = 4
+
+#: What the window shows if nobody asks for a colour: today's picture with a
+#: black margin, which is also what a Spectrum shows until the BORDER is set.
+DEFAULT_BORDER = "black"
+
+#: The names `--border` takes: the eight base colours and the seven that have
+#: a bright form. There is no `bright-black` because the Spectrum has no such
+#: colour -- bright black is black -- and offering it would be offering a
+#: sixteenth colour the hardware does not have.
+BORDER_NAMES = tuple(COLOUR_NAMES) + tuple(
+    f"bright-{name}" for name in COLOUR_NAMES[1:])
+
+
+def border_colour(name: str) -> tuple[int, int, int]:
+    """The RGB a border name means, or ValueError naming what is accepted.
+
+    Host-side: the port sets a three-bit register and never sees a name.
+    Case is forgiven because a flag typed at a keyboard is not a table lookup.
+    """
+    key = str(name).strip().lower()
+    if key not in BORDER_NAMES:
+        raise ValueError(
+            f"no such border colour: {name!r}; one of {', '.join(BORDER_NAMES)}")
+    bright = key.startswith("bright-")
+    base = key[len("bright-"):] if bright else key
+    return rgb(COLOUR_NAMES.index(base), bright)
 
 
 def _build_tables() -> tuple[list[bytes], list[bytes]]:
@@ -78,10 +113,17 @@ def resolve(screen: Screen, buffer: bytearray, flashing: bool = False) -> bytear
 class Display:
     """Owns the Pygame window and blits Screen contents into it."""
 
-    def __init__(self, scale: int = 3, title: str = "Spotlight") -> None:
+    def __init__(self, scale: int = 3, title: str = "Spotlight",
+                 border: str = DEFAULT_BORDER) -> None:
         self.scale = scale
+        # Resolved before the window opens, so a bad name fails with a message
+        # and no window rather than a window and a traceback behind it.
+        self.border = border_colour(border)
+        margin = BORDER_CELLS * CELL * scale
+        #: Where the 256x192 frame's top-left lands in the window.
+        self.origin = (margin, margin)
         self.window = pygame.display.set_mode(
-            (SCREEN_W * scale, SCREEN_H * scale)
+            (SCREEN_W * scale + 2 * margin, SCREEN_H * scale + 2 * margin)
         )
         pygame.display.set_caption(title)
         # 8-bit paletted surface at true Spectrum resolution.
@@ -91,16 +133,31 @@ class Display:
         # so the paletted frame is blitted through a scratch surface that
         # already carries the display format.
         self._scratch = pygame.Surface((SCREEN_W, SCREEN_H)).convert(self.window)
+        # The scaled frame, at the window's format, blitted inside the margin.
+        # It used to be scaled straight into the window; now the window is
+        # bigger than the frame and the margin is the border.
+        self._scaled = pygame.Surface(
+            (SCREEN_W * scale, SCREEN_H * scale)).convert(self.window)
         self._buffer = bytearray(SCREEN_W * SCREEN_H)
         self._frame = 0
 
     def render(self, screen: Screen) -> None:
-        """Resolve pixels + attributes into colour, then present the frame."""
+        """Resolve pixels + attributes into colour, then present the frame.
+
+        The border is filled every frame rather than once, because whether the
+        window keeps what was under the last frame across a flip is the
+        driver's business, not ours, and a border that went black on the
+        second frame under one driver would be a bug nobody could reproduce.
+        It is a host fill of a few thousand pixels; the port writes one port.
+        """
         flashing = (self._frame // FLASH_PERIOD) % 2 == 1
         buf = resolve(screen, self._buffer, flashing)
 
         self.surface.get_buffer().write(bytes(buf))
         self._scratch.blit(self.surface, (0, 0))
-        pygame.transform.scale(self._scratch, self.window.get_size(), self.window)
+        pygame.transform.scale(self._scratch, self._scaled.get_size(),
+                               self._scaled)
+        self.window.fill(self.border)
+        self.window.blit(self._scaled, self.origin)
         pygame.display.flip()
         self._frame += 1

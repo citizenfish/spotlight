@@ -15,9 +15,12 @@ pip install -r requirements-dev.txt   # or requirements.txt for runtime only
 ```sh
 cd prototype
 python -m spotlight            # --scale N to resize the window (default 3)
+python -m spotlight --border blue   # a Spectrum BORDER round the frame
 ```
 
-That starts the game. Three controls, and the title screen names them: arrow
+That starts the game. `--border` takes one of the Spectrum's fifteen colours
+(`black` … `white`, `bright-blue` … `bright-white`), default `black`; it is the
+window's margin and nothing else -- no snapshot shows it and no rule reads it. Three controls, and the title screen names them: arrow
 keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
 
 ## Developer keys

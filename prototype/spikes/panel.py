@@ -13,7 +13,9 @@ Two rules the issue is explicit about:
 
 from dataclasses import dataclass
 
-from spotlight.core.constants import BLACK, CYAN, GREEN, RED, WHITE, YELLOW
+from spotlight.core.constants import (
+    BLACK, CELL, COLS, CYAN, GREEN, RED, WHITE, YELLOW,
+)
 from spotlight.core.screen import Screen, attr_byte
 
 from . import font
@@ -22,6 +24,55 @@ from .layout import ACTION_LEFT, STATUS_LEFT, STRIP_BOTTOM, STRIP_TOP
 #: Labels are the dimmest thing on screen; values carry a little colour.
 #: True of the tally's word too, since issue #47 -- see `Region.attr_of_label`.
 LABEL_INK = WHITE
+
+#: **The rule under the play area** (issue #75). One dotted pixel row along the
+#: top of the strip -- screen row 176, the first pixel row of cell row 22 --
+#: so the panel has an edge and the play area has a floor. With the torch off
+#: the black of the ground and the black of the panel were one black; this is
+#: the smallest thing that separates them, and it is the whole of what the
+#: reference game's frame did that this game wanted.
+#:
+#: It costs no bytes and no attribute: the dots are pixels only, so each cell's
+#: dot wears whatever ink that cell already has -- white under a label, red
+#: under the blood bar, yellow under the light bar. A blank strip cell wears
+#: `LABEL_INK` from `blank_strip`, so across a blank stretch the rule is white
+#: too; the strip's attributes are exactly what they were before the rule.
+RULE_ROW = STRIP_TOP * CELL          # 176
+
+#: Every other pixel, from the cell's left edge. On the port this is the byte
+#: OR'd into the first pixel row of each strip cell.
+RULE_BITS = 0xAA
+
+
+def draw_rule(screen: Screen) -> None:
+    """Dot screen row `RULE_ROW` across all 32 columns. Pixels only."""
+    for cx in range(COLS):
+        rule_cell(screen, cx)
+
+
+def rule_cell(screen: Screen, cx: int) -> None:
+    """Restore the rule's dots in one cell.
+
+    The dots are set and never cleared -- an OR, not a write -- because the
+    rule shares its pixel row with the strip's glyphs: every glyph the strip
+    draws has a blank top row, so `draw_glyph` clears row 176 in any cell it
+    repaints. Every repaint of a readout on the strip's top row therefore ends
+    by putting its cell's dots back, and a glyph with ink on its top row would
+    run into the rule -- pinned in the tests, so the font cannot grow one
+    quietly.
+    """
+    base = RULE_ROW * (COLS * CELL) + cx * CELL
+    for dx in range(CELL):
+        if RULE_BITS & (0x80 >> dx):
+            screen.pixels[base + dx] = 1
+
+
+def strip_glyph(screen: Screen, cx: int, cy: int, glyph) -> None:
+    """Draw a glyph on the strip, keeping the rule where the glyph would have
+    cleared it. Every glyph the strip draws goes through here."""
+    font.draw_glyph(screen, cx, cy, glyph)
+    if cy == STRIP_TOP:
+        rule_cell(screen, cx)
 
 #: TALLY draws "n/m" -- a count against a total, which a row of pips cannot do
 #: once the total stops being small enough to count at a glance.
@@ -206,12 +257,19 @@ class Panel:
     # --- drawing -----------------------------------------------------------
 
     def draw_labels(self, screen: Screen) -> None:
-        """Paint the static labels. Once, not per frame."""
+        """Paint the static labels and the rule. Once, not per frame.
+
+        The rule goes on after the labels, because a label's glyphs clear the
+        top pixel row of their cells on the way in; the play area's per-frame
+        clear stops at row 175 and never reaches it, so once painted it stays
+        until the strip is blanked again.
+        """
         label_attr = attr_byte(ink=LABEL_INK, paper=BLACK, bright=False)
         for row, col, text in LABELS:
             font.draw_text(screen, col, row, text)
             for i in range(len(text)):
                 screen.set_attr(col + i, row, label_attr)
+        draw_rule(screen)
 
     def draw(self, screen: Screen, force: bool = False) -> list[tuple[int, int]]:
         """Repaint dirty readouts. Returns the cells actually touched."""
@@ -237,7 +295,7 @@ class Panel:
             else:
                 glyph = region.glyph if value else font.BLANK
             cx = region.col + i
-            font.draw_glyph(screen, cx, region.row, glyph)
+            strip_glyph(screen, cx, region.row, glyph)
             screen.set_attr(cx, region.row, attr)
             touched.append((cx, region.row))
         return touched
@@ -270,12 +328,14 @@ class Panel:
             font.draw_text(screen, region.label_col, region.row, region.label)
             for i in range(len(region.label)):
                 cx = region.label_col + i
+                if region.row == STRIP_TOP:
+                    rule_cell(screen, cx)
                 screen.set_attr(cx, region.row, label_attr)
                 touched.append((cx, region.row))
         for i, ch in enumerate(text):
             cx = region.col + i
-            font.draw_glyph(screen, cx, region.row,
-                            font.GLYPHS.get(ch, font.BLANK))
+            strip_glyph(screen, cx, region.row,
+                        font.GLYPHS.get(ch, font.BLANK))
             screen.set_attr(cx, region.row, attr)
             touched.append((cx, region.row))
         return touched

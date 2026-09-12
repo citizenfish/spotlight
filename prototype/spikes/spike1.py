@@ -89,6 +89,7 @@ import pygame  # noqa: E402
 
 from spotlight.core.constants import FRAME_RATE
 from spotlight.core.screen import Screen
+from spotlight.frontend import display as display_mod
 from spotlight.frontend.display import Display
 
 from . import (
@@ -552,16 +553,42 @@ def flash_frames_from(argv: list[str]) -> int:
     return int(argv[argv.index(FLASH_FLAG) + 1])
 
 
+#: `--border COLOUR` (issue #75): the Spectrum's BORDER, as a margin round the
+#: window in one of its fifteen colours. It exists so the user can try in a
+#: minute whether a dark room inside a frame of colour reads as a room; it
+#: reaches the window and nothing else -- no rule reads it and no snapshot
+#: shows it, because a snapshot is the 256x192 and the border is outside it.
+BORDER_FLAG = "--border"
+
+
+def border_from(argv: list[str]) -> str:
+    """The border colour's name, or the default if it is not asked for.
+
+    The name is checked here, before any window opens, so that a mistyped
+    colour is one line on stderr and not a window with a traceback behind it.
+    """
+    if BORDER_FLAG not in argv:
+        return display_mod.DEFAULT_BORDER
+    name = argv[argv.index(BORDER_FLAG) + 1]
+    display_mod.border_colour(name)      # raises ValueError, naming the set
+    return name
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     scale = int(argv[argv.index("--scale") + 1]) if "--scale" in argv else 3
     surge_frames = surge_frames_from(argv)
     flash_frames = flash_frames_from(argv)
     debug = DEBUG_FLAG in argv
+    try:
+        border = border_from(argv)
+    except ValueError as err:
+        print(err, file=sys.stderr)
+        return 2
 
     pygame.init()
     try:
-        display = Display(scale=scale, title="Spotlight")
+        display = Display(scale=scale, title="Spotlight", border=border)
         clock = pygame.time.Clock()
         screen = Screen()
         speaker = spike_sound.Speaker()

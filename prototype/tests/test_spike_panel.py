@@ -400,3 +400,119 @@ def test_an_alert_on_an_unknown_readout_is_a_mistake():
     p = panel.Panel()
     with pytest.raises(KeyError):
         p.alert("torch")
+
+
+# --- the rule under the play area (issue #75) --------------------------------
+#
+# One dotted pixel row along the top of the strip, in the strip's own inks, so
+# the panel has an edge and the play area has a floor. With the torch off the
+# black of the ground and the black of the panel were one black.
+
+from spikes.layout import PLAY_BOTTOM, PLAY_TOP  # noqa: E402
+from spotlight.core.constants import CELL, SCREEN_W  # noqa: E402
+
+
+def _rule_row(s: Screen) -> bytes:
+    start = panel.RULE_ROW * SCREEN_W
+    return bytes(s.pixels[start:start + SCREEN_W])
+
+
+def _rule_intact(s: Screen) -> bool:
+    row = _rule_row(s)
+    return all(row[x] == 1 for x in range(0, SCREEN_W, 2)) and \
+        all(row[x] == 0 for x in range(1, SCREEN_W, 2))
+
+
+def test_the_rule_is_the_first_pixel_row_of_the_strip():
+    """Screen row 176: the top row of cell row 22, where the issue put it."""
+    assert panel.RULE_ROW == layout.STRIP_TOP * CELL == 176
+
+
+def test_after_the_strip_is_painted_row_176_is_dotted_across_all_32_columns():
+    """A set pixel at every even x and none at odd, the whole width."""
+    s, _ = _fresh()
+    assert _rule_intact(s)
+
+
+def test_the_play_areas_clear_leaves_the_rule():
+    """The per-frame clear stops at row 175. This is the same call the surge
+    makes when it blanks the room, so it covers that too."""
+    s, _ = _fresh()
+    s.clear_rows(PLAY_TOP, PLAY_BOTTOM, attr_byte(ink=7, paper=BLACK))
+    assert _rule_intact(s)
+
+
+def test_the_rule_writes_no_attribute(monkeypatch):
+    """The dots wear whatever ink their cell already has. The strip's
+    attributes after the rule are the strip's attributes before it: the same
+    paint sequence with the rule switched off gives the same 64 bytes."""
+    s, _ = _fresh()
+    with_rule = bytes(s.attrs[layout.STRIP_TOP * COLS:])
+    monkeypatch.setattr(panel, "draw_rule", lambda screen: None)
+    monkeypatch.setattr(panel, "rule_cell", lambda screen, cx: None)
+    t, _ = _fresh()
+    assert bytes(t.attrs[layout.STRIP_TOP * COLS:]) == with_rule
+    # And directly: dotting a screen with a known attribute grid moves none.
+    u = Screen()
+    for cx in range(COLS):
+        u.set_attr(cx, layout.STRIP_TOP, attr_byte(ink=cx & 7, paper=BLACK))
+    before = bytes(u.attrs)
+    panel.draw_rule(u)
+    assert bytes(u.attrs) == before
+
+
+def test_a_dot_wears_its_cells_ink():
+    """White under a label, red under the blood bar, yellow under the light
+    bar: the rule is pixels, and the cell's chooser chooses for it."""
+    s, _ = _fresh()
+    blood, light = panel.REGIONS["blood"], panel.REGIONS["light"]
+    assert unpack_attr(s.attr_at_pixel(0, panel.RULE_ROW))[0] == WHITE
+    assert unpack_attr(s.attr_at_pixel(blood.col * CELL, panel.RULE_ROW))[0] \
+        == RED
+    assert unpack_attr(s.attr_at_pixel(light.col * CELL, panel.RULE_ROW))[0] \
+        == YELLOW
+
+
+def test_a_readout_repaint_keeps_the_rule():
+    """**What would have been wrong.** Every glyph on the strip has a blank
+    top row and `draw_glyph` clears what it does not set, so a readout
+    repainting on cell row 22 would cut its cells out of the rule -- the blood
+    bar and the light bar, every time either moved. A repaint puts the dots
+    back."""
+    s, p = _fresh()
+    p.set("blood", 5)
+    p.set("light", 3)
+    p.set("lit", 1)
+    p.alert("light")
+    p.draw(s)
+    assert _rule_intact(s)
+    p.set("blood", 0)
+    p.set("light", 0)
+    p.set("lit", 0)
+    p.draw(s, force=True)
+    assert _rule_intact(s)
+
+
+def test_every_glyph_the_strip_draws_has_a_blank_top_row():
+    """The pin behind the rule sharing a pixel row with the labels: nothing
+    the strip draws has ink on row 0 of its cell, so the dots never run into
+    a letter and the odd pixels stay clear. A glyph that grew a top row would
+    fail here rather than in a screenshot."""
+    strip_glyphs = list(font.GLYPHS.values()) + [
+        font.BAR_FULL, font.BAR_EMPTY, font.PIP, font.HEART, font.KEY,
+        font.LIT, font.BLANK, font.MISSING,
+    ]
+    for rows in strip_glyphs:
+        assert rows[0] == 0, rows
+
+
+def test_the_rule_is_in_every_played_frame():
+    """Through the session's own draw: painted with the strip on the first
+    frame, and still there after the frames that clear the play area."""
+    from spikes.session import Intent, Session
+    run = Session(seed=1)
+    s = Screen()
+    for _ in range(3):
+        run.step(Intent())
+        run.draw(s)
+        assert _rule_intact(s)
