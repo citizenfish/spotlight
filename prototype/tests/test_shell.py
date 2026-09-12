@@ -36,20 +36,54 @@ def test_the_title_waits_for_a_key(shell):
     assert shell.run is None
 
 
-def test_any_key_starts_the_game(shell):
-    assert shell.key(pygame.K_j) is True
+def test_s_starts_the_game(shell):
+    assert shell.key(pygame.K_s) is True
     assert shell.state == spike1.PLAY
     assert shell.run is not None and shell.run.frame == 0
 
 
+@pytest.mark.parametrize("key", [
+    pygame.K_t, pygame.K_SPACE, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP,
+    pygame.K_DOWN, pygame.K_j, pygame.K_RETURN,
+])
+def test_no_other_key_starts_the_game(shell, key):
+    """**Any key used to start it, and that is the fault** (issue #63).
+
+    A tester leaning on the keyboard, or pressing `T` for the torch while
+    still reading the controls, started a run they had not finished reading
+    about -- and the title is the only instructions most testers ever read.
+    So the two game keys, the arrows, a letter that is not `S` and RETURN are
+    all asked here, and none of them may start anything. The prompt names `S`
+    and the string is pinned in `test_screens`.
+    """
+    assert shell.key(key) is True
+    assert shell.state == spike1.TITLE
+    assert shell.run is None
+
+
+def test_s_is_still_the_searchlight_speed_key_in_play():
+    """`S` is a debug key in play and stays one. The title branch is taken
+    before the debug keys are read, so the two never meet: on the title `S`
+    starts a run and touches no searchlight; in play, with `--debug`, it
+    cycles the speed and starts nothing."""
+    shell = spike1.Shell(Screen(), debug=True)
+    shell.key(pygame.K_s)
+    run = shell.run
+    assert shell.state == spike1.PLAY
+    speed = run.roaming.step_every
+    shell.key(pygame.K_s)
+    assert shell.run is run, "S in play started a new run"
+    assert run.roaming.step_every != speed, "S in play did not reach debug"
+
+
 def test_escape_quits_from_anywhere(shell):
     assert shell.key(pygame.K_ESCAPE) is False
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     assert shell.key(pygame.K_ESCAPE) is False
 
 
 def test_playing_advances_the_run(shell):
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     for _ in range(30):
         shell.frame(dx=1)
     assert shell.run.frame == 30
@@ -57,7 +91,7 @@ def test_playing_advances_the_run(shell):
 
 def test_the_torch_and_the_spray_are_edge_triggered(shell):
     """Holding a key down must not strobe the torch or empty the can."""
-    shell.key(pygame.K_SPACE)          # start
+    shell.key(pygame.K_s)              # start
     shell.key(pygame.K_t)
     shell.frame()
     assert shell.run.cone.enabled is True
@@ -81,7 +115,7 @@ def _out_of_the_pause(shell):
 
 
 def test_an_ending_replaces_the_play_screen(shell):
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     shell.run.lives = 1
     shell.run.blood = 0
     shell.frame()
@@ -99,7 +133,7 @@ def test_space_from_the_ending_starts_a_clean_run(shell):
     blood gone; none of that may survive, and the cheapest way to guarantee it
     is that the object does not.
     """
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     first = shell.run
     first.player.x, first.player.y = first.rescue.workers[0].x, \
         first.rescue.workers[0].y
@@ -125,7 +159,7 @@ def test_space_from_the_ending_starts_a_clean_run(shell):
 
 def test_other_keys_do_not_restart_from_the_ending(shell):
     """The ending names one key, so only that key does it."""
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     shell.run.lives = 1
     shell.run.blood = 0
     shell.frame()
@@ -143,7 +177,7 @@ def _dead_but_not_out(shell):
     pause and then the game **carries on**, which is what makes the frames
     after it playable rather than an ending screen.
     """
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     shell.run.lives = 5
     for _ in range(10):
         shell.frame(dx=1)
@@ -226,7 +260,7 @@ def test_the_two_fixes_do_not_cover_for_each_other():
 def test_a_whole_session_prints_nothing(capsys):
     """Start to finish with no debug key touched: stdout stays empty."""
     shell = spike1.Shell(Screen())
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     shell.run.lives = 1
     for _ in range(100):
         shell.frame(dx=1)

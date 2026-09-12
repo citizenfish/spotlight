@@ -351,7 +351,11 @@ def test_not_one_word_of_the_screen_has_been_rewritten():
         "IT ALSO SHOWS THE BITING FLIES",
         "WHERE YOU ARE.",
     )
-    assert screens.START_PROMPT == "PRESS ANY KEY TO START"
+    # `PRESS ANY KEY TO START` until issue #63: any key is what a tester
+    # pressing `T` while reading the controls triggers by accident, and `S`
+    # is not a game key. Moved with the string, in the same commit, as the
+    # docstring above asks.
+    assert screens.START_PROMPT == "PRESS S TO START"
     assert screens.AGAIN_PROMPT == "PRESS SPACE TO PLAY AGAIN"
     assert screens.STOP_PROMPT == "PRESS ESC TO STOP"
 

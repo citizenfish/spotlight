@@ -309,7 +309,7 @@ def test_the_freeze_does_not_reach_the_session():
     about it.
     """
     shell = spike1.Shell(Screen())
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     run = shell.run
     run.surge.due = run.frame + 1
     while run.surge.count == 0 and run.frame < 100:
@@ -332,7 +332,7 @@ def test_the_plan_stays_on_screen_for_the_whole_freeze():
     """Nothing is drawn during the held frames because nothing changes, which
     is why the other forty-eight frames of a surge cost the port nothing."""
     shell = spike1.Shell(Screen())
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     shell.run.surge.due = shell.run.frame + 1
     while shell.run.surge.count == 0:
         shell.frame()
@@ -366,7 +366,7 @@ def test_a_death_and_a_surge_on_one_frame_do_not_fight():
     for a reason nobody could ever have found.
     """
     shell = spike1.Shell(Screen())
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     run = shell.run
     for _ in range(20):
         shell.frame()
@@ -691,7 +691,7 @@ def test_the_surge_frames_flag_overrides_it_at_both_extremes(frames):
     between and it is theirs to find."""
     assert spike1.main.__module__  # the flag is parsed in spike1
     shell = spike1.Shell(Screen(), surge_frames=frames)
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     run = shell.run
     assert run.surge.frames == frames
     run.surge.due = run.frame + 1
@@ -717,7 +717,7 @@ def test_the_flag_reaches_the_session_through_the_shell():
     """Parsed in `main` and carried on the shell, because a restart builds a
     new `Session` and the setting belongs to the sitting rather than the run."""
     shell = spike1.Shell(Screen(), surge_frames=7)
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     assert shell.run.surge.frames == 7
     shell.start()
     assert shell.run.surge.frames == 7, "a restart lost the setting"
@@ -784,7 +784,7 @@ def test_the_debug_key_brings_a_surge_forward_and_nothing_else():
     who fidgets must not be able to conjure the plan.
     """
     shell = spike1.Shell(Screen(), debug=True)
-    shell.key(pygame.K_j)
+    shell.key(pygame.K_s)
     run = shell.run
     for _ in range(10):
         shell.frame()
@@ -798,7 +798,7 @@ def test_the_debug_key_brings_a_surge_forward_and_nothing_else():
     assert run.surge.due - run.frame >= surge.INTERVAL_MIN
 
     quiet = spike1.Shell(Screen())
-    quiet.key(pygame.K_j)
+    quiet.key(pygame.K_s)
     for _ in range(10):
         quiet.frame()
     quiet.key(pygame.K_u)

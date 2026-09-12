@@ -252,7 +252,7 @@ def test_the_game_does_not_count(monkeypatch):
 
     monkeypatch.setattr(lighting.Repaint, "frame", explode)
     shell = spike1.Shell(Screen())
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     for _ in range(60):
         shell.frame(dx=1)
     assert shell.run is not None

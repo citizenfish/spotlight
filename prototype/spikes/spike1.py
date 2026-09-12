@@ -32,6 +32,12 @@ save, or the last try gone. It carries the tally -- out, died, still inside --
 and it adds up, which the spike's printed report did not. Space plays again from
 a clean start.
 
+**`S` starts a run from the title, and nothing else does** (issue #63). It was
+any key, and any key is what a tester leaning on the keyboard or pressing `T`
+while still reading the controls triggers by accident. `S` is also a debug key
+in play -- the searchlight's speed -- and stays one: the title branch in
+`Shell.key` is taken before the debug keys are read, so the two never meet.
+
 **The room is shown once, at the start.** A flash of the whole layout, which
 then fades over three seconds -- you cannot play a room you have never seen the
 shape of, and what you keep is what you held in your head. It shows the building
@@ -136,7 +142,8 @@ class Debug:
         V  searchlight: vary <-> repeat
         B  searchlight: radius 3 <-> 4
         A  searchlight: knight's tour <-> straight rows
-        S  searchlight: frames per cell
+        S  searchlight: frames per cell   (also starts a run from the title,
+                                           where it is read first; #63)
         I  searchlight: run to the wall <-> turn short of it
         M  searchlight: how long the wake lingers, in frames
         3/4  lives, still a placeholder    0  keys, still a placeholder
@@ -329,7 +336,13 @@ class Shell:
             # a window a tester cannot close is a bug.
             return False
         if self.state == TITLE:
-            self.start()
+            # **`S` and only `S`** (issue #63). Any key used to start a run,
+            # which is what a tester reading the controls and trying `T`
+            # triggered by accident. This branch comes before the debug keys
+            # on purpose: `S` is the searchlight-speed key in play, and the
+            # two never collide because a title has no run for it to act on.
+            if key == pygame.K_s:
+                self.start()
         elif self.state == ENDED:
             if key == pygame.K_SPACE:
                 self.start()

@@ -83,7 +83,12 @@ WARNING = (
     "WHERE YOU ARE.",
 )
 
-START_PROMPT = "PRESS ANY KEY TO START"
+#: **`S`, and not any key** (issue #63). Any-key start is what a tester leaning
+#: on the keyboard, or pressing `T` for the torch while still reading the
+#: controls, triggers by accident -- and this screen is the only instructions
+#: most testers ever read. `S` is not a game key, so nothing a player reaches
+#: for in play starts a run they had not finished reading about.
+START_PROMPT = "PRESS S TO START"
 AGAIN_PROMPT = "PRESS SPACE TO PLAY AGAIN"
 STOP_PROMPT = "PRESS ESC TO STOP"
 

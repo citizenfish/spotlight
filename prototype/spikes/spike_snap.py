@@ -56,7 +56,7 @@ def surface(screen: Screen, flashing: bool = False) -> pygame.Surface:
     `flashing` is the phase of the hardware flash, and it is a parameter rather
     than a clock because a snapshot has no time in it: a still of a flashing
     cell has to be able to show either half of the cycle, and the title
-    screen's PRESS ANY KEY is flashing text that would otherwise only ever be
+    screen's PRESS S TO START is flashing text that would otherwise only ever be
     photographed one way round.
     """
     surf = pygame.Surface((SCREEN_W, SCREEN_H), depth=8)

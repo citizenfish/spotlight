@@ -45,7 +45,7 @@ def snapshot(run):
 
 def started(debug=False):
     shell = spike1.Shell(Screen(), debug=debug)
-    shell.key(pygame.K_j)          # any key starts it
+    shell.key(pygame.K_s)          # S starts it (issue #63)
     for _ in range(40):
         shell.frame(dx=1)
     return shell

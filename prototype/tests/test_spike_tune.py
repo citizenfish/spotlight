@@ -542,7 +542,7 @@ def test_the_theme_plays_on_the_title_screen_and_the_ending_is_silent():
     assert shell.title_voice.music.position == 60
 
     import pygame
-    shell.key(pygame.K_SPACE)
+    shell.key(pygame.K_s)
     assert shell.run.voice.music.tune is tune.OSTINATO
     assert shell.title_voice.music.position == 0, "the theme did not stop"
 
