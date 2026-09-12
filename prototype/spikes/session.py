@@ -747,7 +747,7 @@ class Session:
                 lures.append(spill)
         return lures
 
-    def _held_beyond(self, place: Place):
+    def _held_beyond(self, place: Place, arriving: bool = True):
         """The personal-space rule, seen through this room's doorways.
 
         Returns what `Swarm.tick` takes as `held_beyond`: is the cell (cx, cy),
@@ -791,6 +791,19 @@ class Session:
         swarm on every call, as it was -- nothing is cached across calls,
         because the tests move a fly and ask again -- and it runs only when
         the swarm asks, which is only near the edge.
+
+        **`arriving=False` is the same question for a fly being placed
+        rather than stepped** -- `Swarm.detach`, the scatter off a player who
+        bled out (issue #69). The two translations are the whole of what a
+        scatter needs from here and the reason it reuses this rather than a
+        second copy of them; what it does not need is either exemption, both
+        of which are about arriving at prey: a scattering fly is leaving a
+        body. So the player's cell next door is not waived -- nobody arrives
+        on the player by dying -- and the ring is not asked about at all,
+        because a scatter keeps no personal space at home (`clegs.SCATTER`
+        puts flies beside each other on purpose) and a rule kept only
+        through a wall is one nobody could state. The cell itself, held by a
+        free fly next door, is refused; that is the hole and the whole of it.
         """
         room = place.room
 
@@ -809,14 +822,17 @@ class Session:
                 wall = ((COLS - 1, COLS, COLS + 1) if door.side == EAST
                         else (-2, -1, 0))
                 other = self.places[door.to]
-                if door.to == self.here and (cx, cy) == (self.player.cx + shift,
-                                                         self.player.cy):
+                if (arriving and door.to == self.here
+                        and (cx, cy) == (self.player.cx + shift,
+                                         self.player.cy)):
                     return False
                 cells = [(c.cx + shift, c.cy) for c in other.swarm.clegs
                          if c.state != clegs_mod.ATTACHED
                          and c.cx + shift in wall]
                 if (cx, cy) in cells:
                     return True
+                if not arriving:
+                    continue
                 if clegs_mod._beside_any(cx, cy, cells):
                     return ((cx, cy) not in haven_of(door.to, shift)
                             and (cx, cy) not in haven_of(place.index, 0))
@@ -1515,7 +1531,14 @@ class Session:
         self.here = self.start_room
         self.player.x, self.player.y = self.building.rooms[self.here].player_start
         self._migrate()
-        room.swarm.detach(room.room.is_solid)
+        # The scatter asks the room next door before it lands a fly near the
+        # edge, exactly as a step does (issue #69). A death in a doorway used
+        # to scatter a fly onto the landing beyond it, checked against this
+        # room's cells only, and the door light pinned it there on top of
+        # whichever fly next door already held the cell. Asked as a placing
+        # and not an arrival -- see `_held_beyond`.
+        room.swarm.detach(room.room.is_solid,
+                          held_beyond=self._held_beyond(room, arriving=False))
 
     def finish(self, reason: str) -> None:
         """End the run, for a reason inside the game or outside it."""

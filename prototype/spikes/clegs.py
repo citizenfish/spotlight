@@ -1127,7 +1127,7 @@ class Swarm:
         # head belongs to nothing -- which is a finding, not a gap.
         cleg.goal_source = LURE_NONE
 
-    def detach(self, is_solid) -> int:
+    def detach(self, is_solid, held_beyond=None) -> int:
         """Take every attached Cleg off the player. Returns how many.
 
         Called when the player bleeds out. **Nothing is removed from the
@@ -1138,6 +1138,28 @@ class Swarm:
         fell. Both choices are argued at `SCATTER` above. A fly that finds
         nowhere free stays exactly where it is: it may be inconvenient, it is
         never deleted.
+
+        `held_beyond` is the no-two-share-a-cell rule through a doorway, for
+        a scatter (issue #69). `taken` is this swarm's cells and nothing
+        else's, and a scatter from a doorway cell reaches the landing next
+        door -- `is_solid` lets a fly have the column past a doorway (issue
+        #21) -- so a fly scattered off a player who died in a doorway could
+        land on a cell a fly of the room beyond already held, and the door
+        light then pinned both there. The same hole issue #65 closed for a
+        *step* through a doorway, in the one path that places flies rather
+        than stepping them; found by the coder who fixed the other and left
+        because it was not a step. The session answers, for a cell near this
+        room's edge or past it, whether a free fly next door is standing on
+        it -- the same two translations `tick` asks through, and asked only
+        near the edge for the same reason. **The exemption for prey does not
+        apply**: a scattering fly is leaving a body, not arriving at prey,
+        so the session is asked with `arriving=False` and answers on the
+        cell alone -- no waiver for the player's cell next door, and no
+        ring, because a scatter keeps no personal space at home either
+        (`SCATTER` puts flies beside each other by design) and it would be a
+        rule nobody could state if it kept one only through a wall.
+        `None` means there is no room next door, which is every test that
+        detaches a swarm on its own.
         """
         # **Only the flies on the player.** One on a follower is not riding the
         # person who just bled out, and scattering it would teleport it across
@@ -1152,6 +1174,9 @@ class Swarm:
             for dx, dy in SCATTER:
                 nx, ny = cleg.cx + dx, cleg.cy + dy
                 if (nx, ny) in taken or is_solid(nx, ny):
+                    continue
+                if (held_beyond is not None and _near_the_edge(nx)
+                        and held_beyond(nx, ny)):
                     continue
                 cleg.cx, cleg.cy = nx, ny
                 break
@@ -1299,11 +1324,12 @@ class Swarms:
     def kill(self, dead) -> int:
         return sum(s.kill(dead) for s in self.swarms)
 
-    def detach(self, is_solid) -> int:
+    def detach(self, is_solid, held_beyond=None) -> int:
         """Take every attached fly off the player, wherever its swarm is.
 
         The player is in one room, so at most one swarm has anything to do here
         -- but which one is not this object's business, and asking them all is
-        one comparison each.
+        one comparison each. `held_beyond` is per room, so a caller with more
+        than one room asks the swarm directly, as the session does.
         """
-        return sum(s.detach(is_solid) for s in self.swarms)
+        return sum(s.detach(is_solid, held_beyond) for s in self.swarms)

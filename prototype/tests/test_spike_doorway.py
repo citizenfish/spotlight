@@ -591,6 +591,147 @@ def test_the_player_in_the_doorway_next_door_is_not_held_ground():
     assert from_near(COLS, fly.cy)
 
 
+# --- dying in a doorway scatters nobody onto a fly next door (issue #69) ------
+
+def _die_in_the_doorway(run, attached: int, landing_rows):
+    """Stand the player in the near room's doorway with `attached` flies on
+    them and one bite of blood left, park a far-room fly on each of the
+    landing cells beyond, and step once. The bite lands, the player bleeds
+    out, and the flies on them scatter from the doorway cell. Returns the
+    far-room flies on the landing.
+    """
+    at_door(run)
+    cell = (run.player.cx, run.player.cy)
+    assert cell == (COLS - 1, DOOR_ROW)
+    far = _put_flies(run, scene.FAR, [(0, row) for row in landing_rows])
+    near = run.places[scene.NEAR].swarm
+    # The near room is authored with three flies; a death under more than
+    # that is what pushes the scatter past the edge.
+    while len(near.clegs) < attached:
+        near.clegs.append(clegs_mod.Cleg(*cell, seed=len(near.clegs)))
+    for fly in near.clegs[:attached]:
+        fly.cx, fly.cy = cell
+        near._attach(fly)
+    near.clegs[0]._timer = clegs_mod.DRAIN_EVERY - 1
+    run.blood = 1
+    run.step()
+    assert any(e.kind == session.LIFE_LOST for e in run.frame_events), \
+        "the staging did not kill the player"
+    assert run.here == scene.NEAR and run.player.cx < COLS - 2, \
+        "the player was not put back at the entrance"
+    return far
+
+
+def _scattered_onto_the_landing(run) -> set:
+    """Cells past the near room's edge that a free near-room fly and a free
+    far-room fly both stand on: the same cell, seen from both rooms."""
+    near = {(c.cx, c.cy) for c in run.places[scene.NEAR].swarm.clegs
+            if c.state != clegs_mod.ATTACHED}
+    far = {(c.cx + COLS, c.cy) for c in run.places[scene.FAR].swarm.clegs
+           if c.state != clegs_mod.ATTACHED}
+    return near & far
+
+
+def test_dying_in_a_doorway_scatters_no_fly_onto_one_next_door():
+    """**The thing that was wrong** (issue #69): the hole issue #65 closed
+    for a step through a doorway, in the one path that places flies rather
+    than stepping them. `Swarm.detach` scattered the flies off a dead player
+    into the ring round the cell they fell on, checking only that room's
+    cells; the ring round a doorway cell includes the landing next door,
+    `is_solid` lets a fly have it (issue #21), and the far room's flies hold
+    it -- their light is one cell in from the door. So the fourth fly off a
+    player who died at (31, 11) landed on (32, 11), which is the far room's
+    (0, 11), on top of the fly already there, and the door light pinned the
+    pair for the rest of the run.
+
+    Four flies on the player, three cells free on this side of the wall, so
+    the fourth has to look past the edge. On the commit before this one it
+    lands on the held landing; now it is refused there and takes the next
+    cell in `SCATTER`'s order on this side.
+    """
+    run = Session(seed=1)
+    far = _die_in_the_doorway(run, attached=4, landing_rows=scene.DOOR_ROWS)
+    assert all((c.cx, c.cy) == (0, row) for c, row in zip(far, scene.DOOR_ROWS)), \
+        "the staging did not keep the landing held"
+    assert _scattered_onto_the_landing(run) == set()
+    freed = [c for c in run.places[scene.NEAR].swarm.clegs[:4]]
+    assert all(c.state == clegs_mod.SATED for c in freed)
+    where = [(c.cx, c.cy) for c in freed]
+    assert len(set(where)) == 4, f"stacked: {where}"
+    assert (COLS - 1, DOOR_ROW) not in where, "one stayed on the death cell"
+    assert all(cx < COLS for cx, _cy in where), \
+        f"a fly was scattered through the doorway onto held ground: {where}"
+
+
+def test_a_scatter_through_a_doorway_is_refused_only_where_a_fly_holds_it():
+    """The landing is refused cell by cell, not as a door. With only the
+    middle landing cell held, a scatter may still take the ones beside it:
+    a scatter keeps no personal space at home -- `SCATTER` puts flies beside
+    each other on purpose -- and it keeps none through a wall either. The
+    prey exemption is not in play: nobody is arriving at anyone."""
+    run = Session(seed=1)
+    _die_in_the_doorway(run, attached=6, landing_rows=(DOOR_ROW,))
+    assert _scattered_onto_the_landing(run) == set()
+    where = {(c.cx, c.cy) for c in run.places[scene.NEAR].swarm.clegs[:6]}
+    assert (COLS, DOOR_ROW) not in where, "landed on the held cell"
+    assert where & {(COLS, DOOR_ROW - 1), (COLS, DOOR_ROW + 1)}, \
+        "the free landing cells beside a held one were refused too"
+
+
+def test_the_swarm_asks_next_door_about_a_scatter_only_at_the_edge():
+    """The same economy as the step (issue #65): the other room's list is
+    walked only for a cell within a column of the edge or past it. A death
+    in the middle of the room asks nothing."""
+    from tests.test_spike_clegs import OPEN
+    asked = []
+
+    def record(cx, cy):
+        asked.append((cx, cy))
+        return False
+
+    swarm = clegs_mod.Swarm([clegs_mod.Cleg(20, 10, seed=i) for i in range(6)])
+    for fly in swarm.clegs:
+        swarm._attach(fly)
+    assert swarm.detach(OPEN, held_beyond=record) == 6
+    assert asked == []
+
+    swarm = clegs_mod.Swarm([clegs_mod.Cleg(COLS - 1, DOOR_ROW, seed=i)
+                             for i in range(6)])
+    for fly in swarm.clegs:
+        swarm._attach(fly)
+    assert swarm.detach(OPEN, held_beyond=record) == 6
+    assert asked, "a scatter from the edge never asked next door"
+    assert all(cx >= COLS - 2 for cx, _cy in asked), sorted(set(asked))
+
+
+def test_a_placing_is_the_cell_alone_and_an_arrival_is_the_ring():
+    """`Session._held_beyond` answers two questions with one pair of
+    translations. Asked for an arrival -- a step, as `Swarm.tick` asks --
+    a fly next door holds its cell and the ring round it, and the player's
+    cell next door is never held. Asked for a placing -- a scatter, as
+    `Swarm.detach` asks -- only the cell a fly stands on is held: no ring,
+    and no waiver for the player, who nobody arrives on by dying."""
+    run = Session(seed=1)
+    run.step()
+    near = run.places[scene.NEAR]
+    arriving = run._held_beyond(near)
+    placing = run._held_beyond(near, arriving=False)
+
+    _put_flies(run, scene.FAR, [(0, DOOR_ROW)])
+    assert arriving(COLS, DOOR_ROW) and placing(COLS, DOOR_ROW)
+    assert arriving(COLS, DOOR_ROW + 1), "an arrival is refused the ring"
+    assert not placing(COLS, DOOR_ROW + 1), "a placing is refused only the cell"
+    assert not placing(COLS - 1, DOOR_ROW + 1)
+
+    # The player standing next door on the fly's cell: an arrival may land
+    # on them; a placing still may not land on the fly.
+    run.here = scene.FAR
+    run.player.x, run.player.y = 0, (DOOR_ROW - 1) * CELL
+    assert (run.player.cx, run.player.cy) == (0, DOOR_ROW)
+    assert not arriving(COLS, DOOR_ROW)
+    assert placing(COLS, DOOR_ROW)
+
+
 # --- the tail at a doorway ---------------------------------------------------
 
 def _tail_of(run, count):
