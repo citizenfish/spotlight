@@ -414,6 +414,17 @@ class Cone(Source):
 #: that people were "not reliably showing". A longer flash leaves a longer
 #: memory behind it by the same amount, which is the fade doing its job and
 #: not a second change.
+#:
+#: **It is a count of lit frames** (issue #68). It was not, from the day the
+#: flash was written until 2026-09-12: `Flash.update` took a frame off the
+#: counter and switched the light off on reaching zero, *before* the field was
+#: built, so the twelfth step turned the flash off before the twelfth frame was
+#: lit and twelve meant eleven. Nobody counted -- the driver's docstring said
+#: "frames 1 to 12" throughout. Left alone when the constant was named, because
+#: the fix moves the light field; fixed before the user tunes it, because a
+#: number turned at a keyboard has to mean what it says. The default is still
+#: twelve, so the flash is one frame longer than it was: a correction, not a
+#: retune.
 FLASH_FRAMES = 12
 
 
@@ -497,13 +508,27 @@ class Flash(Source):
             self.left = 0
 
     def update(self) -> None:
-        """Burn down. Call once a frame, before applying."""
+        """Burn down. Call once a frame, **before applying**.
+
+        A flash of N frames lights N frames (issue #68). `left` is the lit
+        frames still owed *after this one*: `fire` sets it to N, each update
+        takes one off, and the flash goes out on the update that finds nothing
+        left -- so the frame on which `left` reaches zero is still lit, and it
+        is the Nth. Until 2026-09-12 the light went off on the same update that
+        reached zero, which, called before the field is built as the contract
+        says, lit N - 1 frames; `FLASH_FRAMES = 12` was eleven lit frames and
+        the tests that counted twelve were counting in the other order,
+        checking `enabled` before the update rather than after it.
+
+        The order matters and is the whole bug, so it is pinned:
+        `test_a_flash_of_n_frames_lights_n_frames` counts through the session.
+        """
         if self.held:
             return
         if self.left > 0:
             self.left -= 1
-            if self.left == 0:
-                self.enabled = False
+        else:
+            self.enabled = False
 
     def origin(self) -> tuple[int, int]:
         return COLS // 2, PLAY_ROWS // 2

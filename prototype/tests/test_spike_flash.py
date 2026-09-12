@@ -325,6 +325,8 @@ def test_the_flash_frames_flag_reaches_the_session():
     assert run.place.opening.enabled
     for _ in range(3):
         run.step()
+        assert run.place.opening.enabled, "a three-frame flash ran short"
+    run.step()
     assert not run.place.opening.enabled, "a three-frame flash ran long"
 
 
@@ -350,3 +352,80 @@ def test_a_longer_flash_leaves_a_longer_memory_and_nothing_else():
     assert [long.rescue.workers.index(w) for w in long._lit_people(long.place)] \
         == [short.rescue.workers.index(w)
             for w in short._lit_people(short.place)]
+
+
+# --- a flash of N frames lights N frames (issue #68) --------------------------
+
+def _whole_room_revealed(run: Session) -> bool:
+    """Is every cell of the room the player is in under a revealing light?
+    Only the flash lights a whole room, so this is the flash and nothing
+    else: a room light shows its own patch, the torch its cone."""
+    from spikes.layout import PLAY_ROWS
+    from spotlight.core.constants import COLS
+    field = run.place.field
+    return all(field.reveals_at(cx, cy)
+               for cy in range(PLAY_ROWS) for cx in range(COLS))
+
+
+def test_a_flash_of_n_frames_lights_n_frames():
+    """**The thing that was wrong** (issue #68): `FLASH_FRAMES = 12` lit
+    eleven. `Flash.update` took a frame off and turned the light off on
+    reaching zero, and the session calls it before the field is built, so
+    the twelfth update turned the flash off before the twelfth frame was
+    lit. On the commit before this one the count below is `FLASH_FRAMES -
+    1`; the user is about to tune this number at a keyboard, and would have
+    been turning one short of whatever they typed.
+
+    Counted through the real loop, from the run's first frame, on the field
+    the player would be drawn from: the frames on which every cell of the
+    room is under a revealing light. Then the same count at a room entry,
+    where the far room's own flash fires, so the count is the flash's and
+    not an accident of the first frame."""
+    run = Session(seed=1)
+    lit = 0
+    for _ in range(sources.FLASH_FRAMES + 10):
+        run.step()
+        if _whole_room_revealed(run):
+            lit += 1
+    assert lit == sources.FLASH_FRAMES
+    assert not run.place.opening.enabled
+
+    from tests.test_spike_doorway import at_door, walk
+    from spikes import scene
+    run = at_door(Session(seed=1))
+    _flash_out(run)
+    far = run.places[scene.FAR]
+    lit = 0
+    for _ in range(60):
+        walk(run, 1, 1)
+        if run.here == scene.FAR and _whole_room_revealed(run):
+            lit += 1
+    assert far.seen and not far.opening.enabled
+    assert lit == sources.FLASH_FRAMES
+
+
+def test_the_flash_length_is_the_flag_and_not_one_short_of_it():
+    """`--flash-frames N` lights N. Three values, one loop, no arithmetic
+    on the constant: the number typed is the number lit."""
+    for frames in (1, 3, 20):
+        run = Session(seed=1, flash_frames=frames)
+        lit = sum(1 for _ in range(frames + 5)
+                  if (run.step(), _whole_room_revealed(run))[1])
+        assert lit == frames, f"a flash of {frames} lit {lit}"
+
+
+def test_the_flash_counts_in_the_order_the_session_calls_it():
+    """The unit of the bug: `update` before `apply`, as the docstring says
+    and as `Session.step` does. Lit frames, counted by whether the field
+    was lit on each, equal the number the flash was fired with."""
+    flash = sources.Flash(frames=4)
+    flash.fire()
+    lit = 0
+    for _ in range(8):
+        flash.update()
+        field = lighting.LightField()
+        field.begin(); flash.apply(field); field.commit()
+        if field.level_at(3, 3) == lighting.LIT:
+            lit += 1
+    assert lit == 4
+    assert not flash.enabled

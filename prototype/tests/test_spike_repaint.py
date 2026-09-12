@@ -193,6 +193,12 @@ def test_the_three_room_entry_frames_are_visible():
     port model the first is 102,620 T-states against 52,416 spendable. An
     average hides all three; this test is here so that a slice which makes them
     worse cannot do it quietly.
+
+    The two fade frames were +41 and +161 until issue #68, when the flash
+    went from eleven lit frames to the twelve its constant had always said:
+    the memory it leaves runs one frame later, so they moved to +42 and +162.
+    That is the only movement the fix was allowed and the whole-field frames
+    themselves are still the fault they were.
     """
     run = session_mod.Session(metrics=True)
     counts = []
@@ -208,7 +214,7 @@ def test_the_three_room_entry_frames_are_visible():
 
     whole_field = [(i, c) for i, c in enumerate(counts, 1) if c > CELLS // 2]
     frames = [i for i, _c in whole_field]
-    assert frames == [1, 41, 161], whole_field
+    assert frames == [1, 42, 162], whole_field
     # The flash arrives on a screen that is still black, so its own frame is
     # every cell there is. The two fade frames are all but the handful the
     # player's own glow is holding up.

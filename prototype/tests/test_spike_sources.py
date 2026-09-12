@@ -449,11 +449,17 @@ def test_the_flash_lights_the_whole_room():
 
 
 def test_the_flash_is_brief_and_then_stops_by_itself():
+    """Five frames, counted in the order the contract says -- update, then
+    apply -- which is the order the session uses. This used to check
+    `enabled` *before* each update and so counted five where the session
+    got four (issue #68)."""
     flash = S.Flash(frames=5)
     flash.fire()
     for _ in range(5):
-        assert flash.enabled
         flash.update()
+        assert flash.enabled
+        assert _lit_cells(_field(flash))
+    flash.update()
     assert not flash.enabled
     assert not _lit_cells(_field(flash))
 
@@ -464,7 +470,7 @@ def test_the_room_fades_after_the_flash_rather_than_snapping_back():
     flash = S.Flash(frames=2)
     flash.fire()
     for _ in range(2):
-        field.begin(); flash.apply(field); field.commit(); flash.update()
+        flash.update(); field.begin(); flash.apply(field); field.commit()
     assert field.level_at(5, 5) == L.LIT
     for _ in range(L.LIT_FRAMES + 1):
         field.begin(); field.commit()
@@ -694,6 +700,8 @@ def test_a_timed_surge_still_counts_down_after_a_hold():
     flash.fire(surge=True)
     for _ in range(4):
         flash.update()
+        assert flash.enabled
+    flash.update()
     assert not flash.enabled
 
 
