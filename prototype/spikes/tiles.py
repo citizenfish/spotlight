@@ -144,11 +144,16 @@ def dim_of(rows) -> tuple:
     what the port's ROM holds. If the port ends up storing the dim table
     instead, this is where to say so.
 
-    **One tile the rule does not thin**: the grating as authored is three
-    rows of dots on the odd pixels of odd rows, the half the rule keeps, so
-    its ghost is itself. Found building this and left as drawn -- see the
-    asset's header and `tests/test_spike_furniture.py`, which pins it until
-    the designer says whether the tile or the rule gives.
+    **The rule thins all seven, and the grating only since issue #77.** As
+    first drawn its dots were the odd pixels of odd rows, the half the rule
+    keeps, so its ghost was itself: the one tile that showed more when
+    remembered than its neighbours. The ruling was that the art gives, not
+    the rule -- the rule is what makes every remembered thing a coarser
+    dither of the same pattern, and a tile exempt from it is a tile that
+    hands over more when remembered than when seen -- so the grille's middle
+    row is staggered a pixel and the rule drops it. Nothing here changed;
+    `tests/test_spike_furniture.py` pins that the rule thins the grating
+    exactly as it pins the other six.
     """
     return tuple(bits & (DIM_ODD if y & 1 else DIM_EVEN)
                  for y, bits in enumerate(rows))

@@ -284,8 +284,10 @@ def test_the_tiles_are_the_ones_the_issue_drew():
         0x3C, 0x42, 0x42, 0x42, 0xC3, 0x42, 0x42, 0xC3)
     assert tiles.FURNITURE[building.CRATE] == (
         0xFF, 0x81, 0xA5, 0x99, 0x99, 0xA5, 0x81, 0xFF)
+    # Row 3 is 0x2A and not 0x54 since issue #77, so that the dim rule drops
+    # it: see `test_the_grating_thins_when_remembered_like_everything_else`.
     assert tiles.FURNITURE[building.GRATING] == (
-        0x00, 0x54, 0x00, 0x54, 0x00, 0x54, 0x00, 0x00)
+        0x00, 0x54, 0x00, 0x2A, 0x00, 0x54, 0x00, 0x00)
     assert tiles.FURNITURE[building.DESK_L] == (
         0xFF, 0x81, 0xBD, 0xA5, 0xBD, 0x81, 0xFF, 0x00)
     assert tiles.FURNITURE[building.DESK_R] == (
@@ -329,33 +331,50 @@ def test_the_dim_rule_loses_about_half_of_every_solid_tile():
     """The point of the rule is a ghost, and a ghost is thinner. Nothing has
     to be exactly half -- an outline row of 0xFF loses four of eight, a row of
     0x81 may keep both or neither -- but no solid tile keeps more than it
-    loses. The grating is the exception and has its own test below."""
+    loses. The grating keeps six of nine, and has its own test below, because
+    a grille of dots is already sparse and a third of it is all the rule can
+    take without taking the lot."""
     for kind in building.SOLID_FURNITURE:
         lit = tiles.ink_of(tiles.FURNITURE[kind])
         dim = tiles.ink_of(tiles.FURNITURE_DIM[kind])
         assert 0 < dim <= lit // 2 + 1, (kind, lit, dim)
 
 
-def test_the_grating_is_the_one_tile_the_rule_does_not_thin():
-    """**Found building the slice, and pinned so it is a decision.** The
-    grating as the issue drew it is three rows of `.#.#.#..` on rows 1, 3 and
-    5, and the rule keeps the odd pixels of odd rows: the grille is a
-    sub-lattice of the dim checker, so the rule keeps every dot of it and a
-    remembered grating is as dense as a seen one -- nine dots on ground whose
-    neighbours remember one. Shifting the dots to even rows would lose all
-    nine instead, because the rule is itself a two-pixel checker and any
-    single-parity grille either survives it whole or not at all.
+def test_the_grating_thins_when_remembered_like_everything_else():
+    """**The exception that became the ordinary case** (issue #77). As #74
+    drew it the grating was three rows of `.#.#.#..` on rows 1, 3 and 5 --
+    every dot on an odd pixel of an odd row, the half the rule keeps -- so
+    `dim_of(GRATING) == GRATING` and a remembered grating showed nine dots
+    beside floor that remembers one: the one tile that handed over more when
+    remembered than when seen, the opposite of what the fade says. The
+    ruling was that the art gives, not the rule: row 3 is `..#.#.#.` now,
+    and the rule drops it.
 
-    Nothing was changed: the tiles are the issue's and the rule is the
-    issue's, and which of them gives is the designer's call. This test says
-    what is true now, so that whichever is changed changes this on purpose.
+    So the grating is pinned exactly as the other six are -- the dim tile is
+    the rule applied to the lit one and a strict subset of it -- and with
+    the numbers the ruling named: nine lit, six remembered. The last two
+    assertions pin the thing that was wrong, on the two drawings that were
+    considered and refused: a grille all on one pixel parity survives the
+    rule whole (the #74 tile) or not at all (the same dots on even pixels),
+    which is why a shift of one row and not of all three.
     """
     lit = tiles.FURNITURE[building.GRATING]
-    assert tiles.FURNITURE_DIM[building.GRATING] == lit
+    dim = tiles.FURNITURE_DIM[building.GRATING]
     assert tiles.ink_of(lit) == 9
+    assert tiles.ink_of(dim) == 6
+    assert dim == tiles.dim_of(lit)
+    assert dim != lit
+    assert all(d & ~l == 0 for d, l in zip(dim, lit)), "dim is a subset of lit"
+    # Rows 1 and 5 survive whole; row 3, the staggered one, goes.
     assert [y for y, bits in enumerate(lit) if bits] == [1, 3, 5]
-    assert all(bits & 0x55 == bits for bits in lit), \
-        "every dot of the grille is on a pixel the odd-row half of the rule keeps"
+    assert [y for y, bits in enumerate(dim) if bits] == [1, 5]
+    assert lit[3] == 0x2A and dim[3] == 0x00
+    assert dim[1] == lit[1] and dim[5] == lit[5]
+    # The two refused drawings, so the reason for the stagger stays checkable.
+    as_first_drawn = (0x00, 0x54, 0x00, 0x54, 0x00, 0x54, 0x00, 0x00)
+    assert tiles.dim_of(as_first_drawn) == as_first_drawn
+    all_even_pixels = (0x00, 0xA8, 0x00, 0xA8, 0x00, 0xA8, 0x00, 0x00)
+    assert tiles.ink_of(tiles.dim_of(all_even_pixels)) == 0
 
 
 #: The lamp's outline: an octagon, and the lamp family's alone. LAMP_OFF is

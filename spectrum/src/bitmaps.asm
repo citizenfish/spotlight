@@ -817,10 +817,10 @@ GRATING:
         DEFB $00                   ; ........   a grating, floor: a grille of dots, denser than the stipple
         DEFB $54                   ; .#.#.#..
         DEFB $00                   ; ........
-        DEFB $54                   ; .#.#.#..
-        DEFB $00                   ; ........
-        DEFB $54                   ; .#.#.#..
-        DEFB $00                   ; ........
+        DEFB $2A                   ; ..#.#.#.   staggered one pixel (issue #77) so the dim rule drops this row:
+        DEFB $00                   ; ........   nine dots lit, six remembered. On odd pixels like rows 1 and 5 the
+        DEFB $54                   ; .#.#.#..   rule kept all nine and a remembered grating was as dense as a seen
+        DEFB $00                   ; ........   one; on even rows for all three it would have kept none.
         DEFB $00                   ; ........
 
 HOUSING:

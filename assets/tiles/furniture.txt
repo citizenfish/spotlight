@@ -22,14 +22,13 @@
 ; is the crate's ghost, the Knight Lore coarser dither, and the port stores 56
 ; bytes for the lot and not 112. See `spikes/tiles.py`, `dim_of`.
 ;
-; **The rule does not thin the grating**, found when the tiles were built and
-; left as drawn: its dots are on rows 1, 3 and 5 at the odd pixels, which is
-; exactly the half of the checker the rule keeps on odd rows, so a remembered
-; grating is the seen grating -- nine dots on ground whose neighbours remember
-; one. Moving the dots to even rows would lose all nine instead; any grille
-; on a single row parity survives the rule whole or not at all. Whether the
-; grating or the rule gives is a design call, and
-; tests/test_spike_furniture.py pins what is true until it is made.
+; **The rule thins every tile here, the grating included** -- but the grating
+; only since issue #77. As first drawn its dots were the odd pixels of odd
+; rows, exactly the half of the checker the rule keeps on odd rows, so a
+; remembered grating was the seen grating: nine dots on ground whose
+; neighbours remember one, the one tile that handed over more when
+; remembered than when seen. The art gave, not the rule: the middle row of
+; the grille is shifted one pixel so the rule drops it. See the block.
 ;
 ; **None of these is round.** The lamp family is octagons -- LAMP_OFF, LAMP_ON
 ; and the housing -- and a spotlight lying on the floor is the one object a
@@ -82,10 +81,10 @@ size: 8x8
 ........   a grating, floor: a grille of dots, denser than the stipple
 .#.#.#..
 ........
-.#.#.#..
-........
-.#.#.#..
-........
+..#.#.#.   staggered one pixel (issue #77) so the dim rule drops this row:
+........   nine dots lit, six remembered. On odd pixels like rows 1 and 5 the
+.#.#.#..   rule kept all nine and a remembered grating was as dense as a seen
+........   one; on even rows for all three it would have kept none.
 ........
 
 name: DESK_L
