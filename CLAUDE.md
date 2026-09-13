@@ -108,19 +108,19 @@ rests on. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
 music, and the mains surge.
 
-The second look-and-feel round, with The Great Escape as the reference, gave it
-a noise floor in place of the dot lattice, people drawn in elevation on the
-plan floor with a four-stride walk, a halo mask on every sprite, a three-frame
-wingbeat, seven furniture tiles (drawn, not yet placed), a rule under the play
-area, a border colour flag, and a beam across the title. All seven slices left
-the event log byte-identical. See *Look and feel 2* in the vault.
-
 The round after it, from the user's own play, added walking overhead figures,
 flies that beat their wings, coursed walls, the flash showing everyone, a
 distant siren, and two rule changes: flies keep personal space, and no two
 share a cell through a doorway. **Those two move the game**: about six per
 cent fewer bites a minute, recorded and not tuned. Everything before them was
 checked to leave the event log byte-identical.
+
+The second look-and-feel round after that, with The Great Escape as the reference, gave it
+a noise floor in place of the dot lattice, people drawn in elevation on the
+plan floor with a four-stride walk, a halo mask on every sprite, a three-frame
+wingbeat, seven furniture tiles (drawn, not yet placed), a rule under the play
+area, a border colour flag, and a beam across the title. All seven slices left
+the event log byte-identical. See *Look and feel 2* in the vault.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the
