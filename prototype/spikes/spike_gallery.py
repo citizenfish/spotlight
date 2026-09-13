@@ -148,12 +148,13 @@ def sprite_top(cy: int, height: int) -> int:
 
 
 def stipple_cell(screen: Screen, cx: int, cy: int) -> None:
-    """One cell of lit floor, drawn with the game's own stipple by OR."""
-    for dy, bits in enumerate(floor.STIPPLE_LIT):
-        base = (cy * CELL + dy) * SCREEN_W + cx * CELL
-        for dx in range(CELL):
-            if bits & (0x80 >> dx):
-                screen.pixels[base + dx] = 1
+    """One cell of lit floor, drawn with the game's own stipple by OR.
+
+    The block is the one the cell's position picks (issue #71), exactly as in
+    a room, so the ground under a sprite on the sheet is the noise the game
+    draws and not a lattice the game no longer has.
+    """
+    floor.stipple(screen, cx, cy, lighting.LIT)
 
 
 def label(name: str) -> str:
@@ -242,16 +243,30 @@ def draw_sprite_sheet(screen: Screen) -> None:
 #: one-cell-thick partition with a `d` gap in it, which is the case the doorway
 #: character was added for -- room A's inner door. If the masonry ever stops
 #: tiling, it shows here as a broken course or a doubled joint.
+#:
+#: Twenty-two cells wide rather than the full thirty-two since issue #71, so
+#: that the floor's 32x32 tile fits beside it at the same height: a 4x4-cell
+#: tile is exactly as tall as the plan, and the floor's two densities sit
+#: beside the wall's two, lit beside lit and remembered beside remembered.
+#: Nothing the plan is there to show needed the ten columns -- the seams are
+#: in the interior and the ends, and both are still here.
 PLAN = (
-    "################################",
-    "####.........d..............####",
-    "####.........#..............####",
-    "################################",
+    "######################",
+    "####.........d....####",
+    "####.........#....####",
+    "######################",
 )
 
 #: Where the plan is drawn: lit first, then the same plan remembered.
 _PLAN_LIT_TOP = ROWS - 8
 _PLAN_DIM_TOP = ROWS - 4
+
+#: Where the floor's 32x32 tile is drawn, in cells: beside each plan, at the
+#: same rows, the sixteen blocks in the arrangement a room would give them --
+#: `floor.tile_index` on the sheet's own cell coordinates, which is what makes
+#: the picture the tile and not sixteen blocks in a row. The column is a
+#: multiple of four so that block 00 is top-left, as the asset draws it.
+_FLOOR_LEFT = 28 - floor.TILE
 
 #: The tile rows: a label, the sixteen tiles two columns apart, and the mask
 #: number under each in hexadecimal -- one character, because a tile is one
@@ -324,10 +339,31 @@ def draw_tile_sheet(screen: Screen) -> None:
             # reason the game needs no lookup, and the labels say so.
             screens.write(screen, cx, top + 2, f"{mask:X}", YELLOW)
 
-    label = "JOINED UP: LIT, THEN REMEMBERED"
+    label = "JOINED UP: LIT, DIM"
     screens.write(screen, 0, _PLAN_LIT_TOP - 1, label, CYAN, bright=True)
     draw_plan(screen, _PLAN_LIT_TOP, tiles.WALL_LIT)
     draw_plan(screen, _PLAN_DIM_TOP, tiles.WALL_DIM)
+    # **The floor's tile, whole, at both densities** (issue #71): the thing a
+    # reviewer has to be able to see is that there is no row of dots for the
+    # eye to run along, which no table of sixteen blocks shows anybody.
+    screens.write(screen, _FLOOR_LEFT, _PLAN_LIT_TOP - 1, "FLOOR", CYAN,
+                  bright=True)
+    draw_floor_tile(screen, _FLOOR_LEFT, _PLAN_LIT_TOP, lighting.LIT)
+    draw_floor_tile(screen, _FLOOR_LEFT, _PLAN_DIM_TOP, lighting.DIM)
+
+
+def draw_floor_tile(screen: Screen, left: int, top: int, level: int) -> None:
+    """The 32x32 floor tile at `level`, its top-left block at `(left, top)`.
+
+    Drawn by the game's own `floor.stipple` on the sheet's cell coordinates,
+    so `left` and `top` are multiples of `floor.TILE` and the picture is the
+    tile as the asset draws it -- block 00 top-left, 15 bottom-right.
+    """
+    assert left % floor.TILE == 0 and top % floor.TILE == 0
+    for cy in range(top, top + floor.TILE):
+        for cx in range(left, left + floor.TILE):
+            floor.stipple(screen, cx, cy, level)
+            screen.set_attr(cx, cy, _attr(WHITE, bright=level == lighting.LIT))
 
 
 # --- the rooms --------------------------------------------------------------

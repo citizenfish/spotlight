@@ -168,7 +168,7 @@ def test_the_sprite_sheet_draws_every_sprite_on_stipple_with_its_halo():
     the box is set where the ink is, clear where the mask is and the ink is
     not, and the stipple's own dot where the mask does not reach. Beside the
     box the floor carries on unbroken, so the halo can be seen against it."""
-    from spikes import floor
+    from spikes import floor, lighting
     screen = Screen()
     gallery.draw_sprite_sheet(screen)
     for n, sprite in enumerate(sprites.SPRITES.values()):
@@ -182,14 +182,15 @@ def test_the_sprite_sheet_draws_every_sprite_on_stipple_with_its_halo():
                     zip(sprites.row_bytes(row), sprites.row_bytes(halo))):
                 for dx in range(sprites.WIDTH):
                     x = px + octet * sprites.WIDTH + dx
-                    dot = floor.STIPPLE_LIT[(py + dy) % CELL] & (0x80 >> (x % CELL))
+                    dot = floor.dot_at(lighting.LIT, x, py + dy)
                     want = (1 if bits & (0x80 >> dx) else
                             0 if clear & (0x80 >> dx) else
                             1 if dot else 0)
                     assert screen.pixels[(py + dy) * SCREEN_W + x] == want, \
                         f"sprite {n} differs at ({dx}, {dy})"
-        # The cell to the left of the box is plain lit floor.
-        for dy, bits in enumerate(floor.STIPPLE_LIT):
+        # The cell to the left of the box is plain lit floor, in the block
+        # its position on the sheet picks (issue #71).
+        for dy, bits in enumerate(floor.tile_at(lighting.LIT, cx + 2, cy)):
             for dx in range(CELL):
                 at = (cy * CELL + dy) * SCREEN_W + (cx + 2) * CELL + dx
                 assert screen.pixels[at] == (1 if bits & (0x80 >> dx) else 0)

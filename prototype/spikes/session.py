@@ -1932,8 +1932,11 @@ class Session:
         tiles.draw(screen, place.room, field, painted)
 
         # Lit floor is stippled, denser when fully lit. Without this the light
-        # has no visible shape -- it only reveals what it falls on.
-        floor.draw(screen, field, is_solid)
+        # has no visible shape -- it only reveals what it falls on. The same
+        # `painted` set as the walls: a sign or a shout on the floor sits on
+        # black rather than on the stipple (issue #71), because the noise tile
+        # does not fall between the letters the way the lattice happened to.
+        floor.draw(screen, field, is_solid, painted)
 
         # Sprites set and clear pixels only -- each clears its one-pixel halo
         # and sets its ink (issue #70). Their colour comes from whichever
@@ -2031,8 +2034,9 @@ class Session:
                      self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
-        # clears none, so the wall tile under the word survives and the sign
-        # composites onto the stipple when it is written on floor.
+        # clears none, so the wall tile under the word survives. On floor the
+        # cell was left unstippled above (issue #71), so there the word is on
+        # black and there is nothing under it to survive.
         for i, (cx, cy) in enumerate(place.sign_cells):
             font.paint_glyph(screen, cx, cy, font.GLYPHS[scene.EXIT_SIGN[i]])
 

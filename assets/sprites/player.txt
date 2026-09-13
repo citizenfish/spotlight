@@ -57,11 +57,15 @@
 ;     to draw a bar on.
 ;   * The BAR under his feet -- the bottom two rows of the box, with
 ;     one clear row above so it reads as ground rather than as feet.
-;     The lit floor stipple puts a dot every four pixels, so nothing
-;     narrower than five pixels of solid ink is a mark on that floor.
+;     The lit floor stipple put a dot every four pixels when this was
+;     measured, so nothing narrower than five pixels of solid ink was a
+;     mark on that floor. Since issue #71 the floor is a noise tile
+;     with four dots a cell and no two adjacent: no row of it has a run
+;     of two, let alone five, so the clause still holds and the bar is
+;     still the only unbroken run of five on the ground.
 ;
 ; The feet are two pixels wide and not the mock's one, because a
-; single pixel on a floor with a dot every four pixels IS a dot.
+; single pixel on a floor of single dots IS a dot.
 ;
 ; 76 pixels of ink in either frame, against 42 for a waiting worker
 ; and 36 for a follower.

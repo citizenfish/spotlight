@@ -27,8 +27,9 @@ from .sources import _AXES
 #: outside the drift test that guards every other bitmap and gave the port
 #: nothing to assemble. Not one pixel moved in the transcription -- the gallery
 #: was regenerated and compared byte for byte -- and the pattern's density and
-#: its stagger against the floor's columns are both load-bearing, so the asset
-#: file, not this line, is where the reasoning lives.
+#: its stagger against the floor's columns were both load-bearing, so the asset
+#: file, not this line, is where the reasoning lives -- including what issue
+#: #71 did to the second of them when the floor stopped having columns.
 STIPPLE = BITMAPS["SPRAY"]
 
 #: Frames a patch stays active. 50 is one second.

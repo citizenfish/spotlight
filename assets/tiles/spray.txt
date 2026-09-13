@@ -9,8 +9,16 @@
 ; a black-and-white television both exist. So the droplets are twice as dense
 ; as the lit stipple and, more to the point, **staggered**: two dots on every
 ; other row, the pairs shifted two pixels between rows, where the floor's dots
-; line up in columns. A column of dots and a scatter of them are still different
+; lined up in columns. A column of dots and a scatter of them are still different
 ; when both are the same colour.
+;
+; **The floor stopped being columns in issue #71** -- it is a noise tile now,
+; sixteen blocks with dots in every column -- so the stagger no longer has a
+; lattice to be staggered against, and what tells sprayed ground from lit floor
+; in mono is the count alone: over any of the sixteen lit blocks the droplets
+; add at least six dots, ten or more in the cell against four. Whether the
+; spray should become a noise tile of its own is a question for the vault; the
+; droplets were not redrawn here because the issue was the floor's.
 ;
 ; Drawn over the floor rather than instead of it -- the play area composites,
 ; nothing clears -- so a lit sprayed cell carries both patterns, which is why

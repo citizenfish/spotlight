@@ -355,8 +355,14 @@ def test_every_bitmap_the_game_draws_came_out_of_the_pipeline():
                           (tiles.DOORWAY, "DOORWAY")):
         for mask, rows in enumerate(table):
             assert rows == bitmaps_gen.BITMAPS[f"{prefix}_{mask:02d}"]
-    assert floor.STIPPLE_LIT == bitmaps_gen.BITMAPS["FLOOR_LIT"]
-    assert floor.STIPPLE_DIM == bitmaps_gen.BITMAPS["FLOOR_DIM"]
+    # Thirty-two floor blocks since issue #71: sixteen a density, all 8x8.
+    for n in range(floor.BLOCKS):
+        assert floor.FLOOR_LIT[n] == bitmaps_gen.BITMAPS[f"FLOOR_LIT_{n:02d}"]
+        assert floor.FLOOR_DIM[n] == bitmaps_gen.BITMAPS[f"FLOOR_DIM_{n:02d}"]
+    floor_blocks = [b for b in bitmaps.read_tree(["assets/tiles"], str(ROOT))
+                    if b.name.startswith("FLOOR_")]
+    assert len(floor_blocks) == 32
+    assert all((b.width, b.height) == (8, 8) for b in floor_blocks)
     assert spray.STIPPLE == bitmaps_gen.BITMAPS["SPRAY"]
 
 
@@ -458,8 +464,11 @@ def test_the_stipples_are_inside_the_tree_the_drift_test_watches(tmp_path):
         shutil.copytree(ROOT / "assets" / name, tree / name)
     floor_txt = tree / "tiles" / "floor.txt"
     text = floor_txt.read_text()
-    assert "...#...." in text, "the dim stipple is not where this test looks"
-    floor_txt.write_text(text.replace("...#....", "....#...", 1))
+    # The first row of block 00, found by its row comment so that the header,
+    # which draws the whole tile as a comment, cannot be what gets edited.
+    row = "..#.....   cell 0:"
+    assert row in text, "block 00 is not where this test looks"
+    floor_txt.write_text(text.replace(row, "...#....   cell 0:", 1))
 
     paths = [str(tree / "sprites"), str(tree / "tiles")]
     blocks = bitmaps.read_tree(paths)

@@ -129,8 +129,9 @@ PLAY_BOTTOM_PX = PLAY_ROWS * CELL
 #: be seen against** (issue #49), and neither moved in the redraw. The lamp on
 #: his helmet is what tells him from a follower on a wall cell, in a doorway
 #: and on the sprite sheet; the solid bar under his feet is what tells him from
-#: a follower on lit floor, where the stipple's dot-every-four-pixels swallows
-#: anything narrower than five pixels of solid ink. The reasoning, the
+#: a follower on lit floor, where the stipple swallows anything narrower than
+#: five pixels of solid ink -- measured against the lattice, and still true of
+#: the noise tile (issue #71), which has no run of two. The reasoning, the
 #: measurement and the rejected alternatives are in `assets/sprites/player.txt`,
 #: beside the drawing, with the walk's own reasons.
 PLAYER_A = BITMAPS["PLAYER_A"]

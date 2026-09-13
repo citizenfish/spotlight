@@ -460,11 +460,15 @@ def test_the_mark_on_lit_floor_is_five_pixels_of_solid_ink():
     """The companion rule, and **it is about a mark on a figure standing on lit
     floor** -- not about everything drawn.
 
-    The lit floor stipple puts a dot every four pixels. A mark four pixels wide
-    is the same width as the gap between two dots, so the eye pools it with the
-    floor: **nothing narrower than five pixels of solid ink is a mark on this
-    ground.** The player's bar is eight, twice the stipple's spacing, and it is
-    in the bottom two rows of the box, which every other figure leaves blank.
+    The lit floor stipple put a dot every four pixels when this was written. A
+    mark four pixels wide is the same width as the gap between two dots, so the
+    eye pools it with the floor: **nothing narrower than five pixels of solid
+    ink is a mark on this ground.** The player's bar is eight, twice the
+    stipple's spacing, and it is in the bottom two rows of the box, which every
+    other figure leaves blank. The floor became a noise tile in issue #71 --
+    four dots a cell, none adjacent, so no row of it holds a run of two -- and
+    the clause was re-run against it unweakened; `test_spike_floor` pins the
+    ground's half of it.
 
     The one clear row above it is not decoration: without it the bar reads as
     feet rather than as ground.

@@ -151,12 +151,15 @@ def test_sprites_touch_nothing_outside_their_mask():
 # --- the halo mask (issue #70) ----------------------------------------------
 
 def _stipple(screen, cells) -> None:
-    """Lit floor under a test, drawn with the game's own stipple."""
+    """Lit floor under a test, drawn with the game's own stipple -- the block
+    each cell's position picks, since issue #71."""
     for cx, cy in cells:
-        for dy, bits in enumerate(floor.STIPPLE_LIT):
-            for dx in range(CELL):
-                if bits & (0x80 >> dx):
-                    screen.plot(cx * CELL + dx, cy * CELL + dy)
+        floor.stipple(screen, cx, cy, L.LIT)
+
+
+def _lit_dot(x: int, y: int) -> bool:
+    """Whether lit floor has a dot at screen pixel (x, y)."""
+    return floor.dot_at(L.LIT, x, y)
 
 
 def _ink_pixels(sprite) -> set:
@@ -204,8 +207,7 @@ def test_a_sprite_on_lit_stipple_leaves_no_dot_within_a_pixel_of_its_ink():
         outside = {(dx, dy) for dy in range(h) for dx in range(w)
                    if not any((dx + ex, dy + ey) in ink
                               for ex in (-1, 0, 1) for ey in (-1, 0, 1))}
-        dots = {(dx, dy) for dx, dy in outside
-                if floor.STIPPLE_LIT[dy % CELL] & (0x80 >> (dx % CELL))}
+        dots = {(dx, dy) for dx, dy in outside if _lit_dot(x + dx, y + dy)}
         for dx, dy in dots:
             assert s.point(x + dx, y + dy), f"{name}: a dot at ({dx}, {dy}) " \
                 f"outside the halo was cleared"
@@ -231,7 +233,7 @@ def test_a_half_visible_sprite_clears_nothing_in_its_invisible_half():
                if (dx, dy) not in ink
                and any((dx + ex, dy + ey) in ink
                        for ex in (-1, 0, 1) for ey in (-1, 0, 1))
-               and floor.STIPPLE_LIT[(y + dy) % CELL] & (0x80 >> ((x + dx) % CELL))]
+               and _lit_dot(x + dx, y + dy)]
     assert cleared, "no dot to clear in the lit half; the test proves nothing"
     assert not any(s.point(x + dx, y + dy) for dx, dy in cleared)
 
@@ -302,7 +304,7 @@ def test_an_explicit_empty_mask_draws_by_or_and_none_looks_the_sprites_own_up():
     assert bytes(b.pixels) == bytes(c.pixels)
     assert bytes(a.pixels) != bytes(b.pixels), "the mask did nothing"
     # By OR: every stipple dot in the cell survives under the unmasked one.
-    for dy, bits in enumerate(floor.STIPPLE_LIT):
+    for dy, bits in enumerate(floor.tile_at(L.LIT, 5, 5)):
         for dx in range(CELL):
             if bits & (0x80 >> dx):
                 assert a.point(5 * CELL + dx, 5 * CELL + dy)
@@ -625,20 +627,29 @@ def test_the_two_cleg_frames_differ_by_twenty_pixels_below_the_head():
     by eight corner pixels, one of them under a lit stipple dot, and the tester
     measured that a flip coincident with an eight-pixel jump of the whole
     sprite read as no animation at all. So: twenty or more, none of them in the
-    head, none of them on a stipple dot, and the ink counts deliberately
-    unequal so the flip pulses -- the previous test here pinned them equal, and
-    that pin is withdrawn with the ruling."""
+    head, and the ink counts deliberately unequal so the flip pulses -- the
+    previous test here pinned them equal, and that pin is withdrawn with the
+    ruling.
+
+    **The clause that none of them sat on a stipple dot went with the lattice**
+    (issue #71). There is no longer one dot pattern for a cell-aligned sprite
+    to be checked against but sixteen, and a differing pixel that is a dot on
+    one block is clear on another; and since issue #70 the fly clears its own
+    halo, so a dot next to its ink is gone in both frames whichever block it
+    stands on. What is pinned instead is the count that survives on the worst
+    block: at least sixteen of the twenty differing pixels are off the dots
+    on every one of the sixteen (measured: seventeen on the worst, block 0).
+    """
     a, b = SP.CLEG_A, SP.CLEG_B
     differing = [(r, c) for r in range(8) for c in range(8)
                  if (a[r] ^ b[r]) & (0x80 >> c)]
     assert len(differing) >= 20, f"the frames differ by {len(differing)} pixels"
     assert all(r >= 2 for r, _ in differing), "the head moves between frames"
-    # The lit stipple's dots, for a cell-aligned sprite: `floor.STIPPLE_LIT`.
-    from spikes import floor
-    dots = {(r, c) for r in range(8) for c in range(8)
-            if floor.STIPPLE_LIT[r] & (0x80 >> c)}
-    assert not dots & set(differing), \
-        f"a differing pixel sits on a stipple dot: {sorted(dots & set(differing))}"
+    for n, rows in enumerate(floor.FLOOR_LIT):
+        dots = {(r, c) for r in range(8) for c in range(8)
+                if rows[r] & (0x80 >> c)}
+        assert len(set(differing) - dots) >= 16, \
+            f"block {n} hides {len(dots & set(differing))} of the flip's pixels"
     ink = [sum(bin(row).count("1") for row in f) for f in (a, b)]
     assert ink[0] != ink[1], "no pulse: the frames weigh the same"
     assert abs(ink[0] - ink[1]) <= 6, \

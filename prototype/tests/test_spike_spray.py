@@ -602,11 +602,19 @@ def test_the_droplets_moved_out_of_the_code_without_moving_a_dot():
 
     assert _dots(STIPPLE) == [(1, 2), (1, 6), (3, 0), (3, 4),
                               (5, 2), (5, 6), (7, 0), (7, 4)]
-    assert len(_dots(STIPPLE)) == 2 * len(_dots(floor.STIPPLE_LIT))
-    columns = {x for _, x in _dots(STIPPLE)}
-    assert not columns & {x for _, x in _dots(floor.STIPPLE_LIT)}, \
-        "the droplets landed in the floor stipple's columns and stopped " \
-        "being distinguishable from it in mono"
+    # **The columns clause went with the lattice** (issue #71). The floor's
+    # dots were in columns 1 and 5 and the droplets kept out of them; the
+    # noise tile has dots in every column, so there is no column to keep out
+    # of. What keeps a sprayed cell distinguishable from lit floor now is the
+    # count: composited over any of the sixteen lit blocks the droplets add at
+    # least six new dots, so a sprayed lit cell has ten or more against four.
+    # Whether the spray should itself become a noise tile is a design question
+    # for the vault, not this test.
+    for n, rows in enumerate(floor.FLOOR_LIT):
+        assert len(_dots(STIPPLE)) == 2 * len(_dots(rows))
+        together = set(_dots(STIPPLE)) | set(_dots(rows))
+        assert len(together) >= 10, \
+            f"on block {n} the droplets mostly land on the floor's own dots"
 
 
 def test_the_droplets_are_drawn_from_the_generated_table():

@@ -26,9 +26,12 @@
 ; 10,177 drawn flip-frames showed the new frame and the user saw no
 ; animation. These differ by twenty. The ink counts are 26 and 22,
 ; deliberately unequal: a four-pixel pulse in brightness on the flip
-; is what a wingbeat is. None of the twenty differing pixels sits on
-; a lit stipple dot (columns 1 and 5, rows 1 and 5 of a cell-aligned
-; sprite), so the flip is not half-hidden by the floor.
+; is what a wingbeat is. When the floor was a lattice none of the
+; twenty differing pixels sat on a lit stipple dot (columns 1 and 5,
+; rows 1 and 5 of a cell-aligned sprite), so the flip was not
+; half-hidden by the floor; since issue #71 the floor is sixteen
+; blocks and the halo (issue #70) clears the dots beside the ink in
+; both frames, and the worst block hides three of the twenty.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start

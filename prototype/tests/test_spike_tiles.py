@@ -506,11 +506,11 @@ def test_a_doorway_is_stippled_like_the_floor_it_is():
     """`d` changes the picture and nothing else. It is walkable, it is
     remembered, and it takes the floor's stipple -- if it ever stops, the level
     has been changed by a drawing character."""
-    from spikes import floor
+    from spikes import floor, lighting
     run, screen = _lit_room()
     cx, cy = scene.INNER_DOOR
     drawn = _cell_bytes(screen, cx, cy)
-    for row, bits in enumerate(floor.STIPPLE_LIT):
+    for row, bits in enumerate(floor.tile_at(lighting.LIT, cx, cy)):
         assert drawn[row] & bits == bits, "the doorway lost its stipple"
 
 
@@ -583,24 +583,30 @@ def test_a_sign_is_painted_on_the_wall_and_does_not_punch_through_it():
         "the comparison is no longer measuring what it claims")
 
 
-def test_the_exit_sign_composites_over_the_floor_it_is_written_on():
-    """One rule, both cases: **paint hides texture and never shape.**
+def test_the_exit_sign_sits_on_black_where_it_is_written_on_floor():
+    """One rule, both grounds: **paint hides texture and never shape.**
 
     In room A as it stands the exit sign lands on floor rather than on wall --
     the door is in the west wall and the word is written beside it, into the
-    room. On floor there is no outline to protect, so what the rule protects is
-    the stipple: the sign used to blank the four dots in each of its cells, and
-    a lit cell with nothing in it is indistinguishable from an unlit one.
+    room. On floor there is no outline to protect, and since issue #71 there
+    is no stipple to protect either: **a painted floor cell draws no stipple**,
+    because the noise tile does not fall between the letters the way the
+    lattice happened to (`E:X:I:T` in the mock). So the cell is the glyph and
+    nothing else -- every pixel outside the letter's ink is clear -- where
+    until #71 this test asked for the four lattice dots to show through.
+
+    The fault issue #48 fixed is still fenced: it was `draw_glyph` clearing a
+    *wall* under a word, and the wall test above still pins that.
     """
-    from spikes import floor
     run, screen = _lit_room()
-    sign = run.place.sign_cells
-    assert sign, "room A has no exit sign, so this proved nothing"
-    for cx, cy in sign:
+    room = run.place.room
+    sign = [c for c in run.place.sign_cells if not room.is_solid(*c)]
+    assert sign, "room A's exit sign is not on floor, so this proved nothing"
+    for i, (cx, cy) in enumerate(sign):
+        glyph = font.GLYPHS[scene.EXIT_SIGN[i]]
         drawn = _cell_bytes(screen, cx, cy)
-        for row, bits in enumerate(floor.STIPPLE_LIT):
-            assert drawn[row] & bits == bits, \
-                f"the sign at {(cx, cy)} blanked the floor under it"
+        assert list(drawn) == list(glyph), \
+            f"the sign at {(cx, cy)} is not the bare glyph on black"
 
 
 def test_the_status_strip_still_writes_over_itself():
