@@ -1129,6 +1129,9 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
         paths.extend(spike_snap.save_scales(
             screen, os.path.join(out_dir, name), scales, flashing))
 
+    # The words and, since issue #76, the searchlight's beam across them in
+    # the floor's own noise -- the sheet is the screen as drawn, so the beam
+    # is in it by the same call and not added here.
     title = Screen()
     screens.draw_title(title)
     sheet("title", title)

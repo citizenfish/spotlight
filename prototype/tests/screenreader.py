@@ -13,10 +13,18 @@ would pass with the drawing code deleted.
 
 from spotlight.core.constants import CELL, SCREEN_W
 
-from spikes import font
+from spikes import floor, font
 
 #: Glyph bitmap -> the character that draws it. The font has no duplicates.
 _CHARS = {rows: ch for ch, rows in font.GLYPHS.items()}
+
+#: A lit floor block reads as a space. Since issue #76 the title's beam runs
+#: through the gaps between words in the floor's noise stipple, and the beam
+#: is ground, not a character: a reader that called it `?` would say the
+#: prose had changed when only the dark between the words had. No block is a
+#: glyph -- four dots against a letter's dozens -- so nothing the font draws
+#: is shadowed by this.
+_CHARS.update({rows: " " for rows in floor.FLOOR_LIT})
 
 
 def glyph_at(screen, cx: int, cy: int) -> tuple[int, ...]:

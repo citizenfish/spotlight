@@ -690,6 +690,30 @@ def test_the_title_is_photographed_in_both_flash_phases(tmp_path):
             != pygame.image.tostring(pygame.image.load(flashed), "RGB"))
 
 
+def test_the_title_sheet_shows_the_beam(tmp_path):
+    """Issue #76: the beam is on the sheet a reviewer looks at, in the colour
+    it is drawn in. One beam cell's first dot is found through `screens` and
+    `floor`, and the pixel at that spot in `title_x1.png` is non-bright yellow
+    -- the one colour nothing else on the title uses, so it can only be the
+    beam. Both flash phases carry it; the beam does not flash."""
+    from spikes import floor, screens
+    from spotlight.core.constants import YELLOW, rgb
+
+    words = Screen()
+    screens.draw_words(words)
+    cx, cy = min(screens.beam_cells(words))
+    block = floor.FLOOR_LIT[floor.tile_index(cx, cy)]
+    dy = next(i for i, bits in enumerate(block) if bits)
+    dx = next(i for i in range(CELL) if block[dy] & (0x80 >> i))
+    x, y = cx * CELL + dx, cy * CELL + dy
+
+    paths = gallery.write(str(tmp_path), scales=(1,))
+    for name in ("title_x1.png", "title-flashed_x1.png"):
+        image = pygame.image.load(next(p for p in paths if p.endswith(name)))
+        assert tuple(image.get_at((x, y))[:3]) == rgb(YELLOW, bright=False), \
+            name
+
+
 def test_a_played_frame_with_a_flash_in_it(tmp_path):
     """Issue #52. A flash is two halves of a hardware cycle, so a still can only
     ever show one of them -- the same reason the title's prompt is photographed

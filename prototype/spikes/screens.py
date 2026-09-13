@@ -35,14 +35,20 @@ all three prompts character for character, so a later tidy-up has to argue with
 a failing test rather than with nobody. The strongest temptation in a look round
 is to rewrite prose that is already working, and for most testers this screen is
 the only instructions they will ever read.
+
+Issue #76 laid the searchlight's beam across the title, on the cells the words
+leave empty and on no other -- see `draw_beam`. The same pin holds: every text
+cell is the same pixels and the same attribute byte with the beam as without.
 """
 
 from spotlight.core.constants import (
-    BLACK, COLS, CYAN, GREEN, RED, ROWS, WHITE, YELLOW,
+    BLACK, CELL, COLS, CYAN, GREEN, RED, ROWS, SCREEN_W, WHITE, YELLOW,
 )
 from spotlight.core.screen import Screen, attr_byte
 
 from . import font
+from .floor import stipple
+from .lighting import LIT
 from .logo_gen import BITMAPS as LOGO
 
 #: The title, spaced out. It used to be drawn in the 8x8 font, where the space
@@ -169,12 +175,116 @@ def draw_logo(screen: Screen, top: int = LOGO_TOP) -> None:
         screen.set_attr(cx, top + 1, attr)
 
 
+#: **The beam across the title** (issue #76). The searchlight's own disc --
+#: radius 3, the integer test `sources.Roaming.emit` uses -- walked down a
+#: diagonal from off the top right: at `step` the centre is
+#: `(BEAM_START_X - step, BEAM_START_Y + step // 2)`, one column left and half
+#: a row down per step, for `BEAM_STEPS` steps. Forty steps take it from
+#: (34, -4), wholly off the screen, to (-5, 15), wholly off it again, so the
+#: beam enters and leaves like a light passing rather than one switched on.
+BEAM_RADIUS = 3
+BEAM_START_X, BEAM_START_Y = 34, -4
+BEAM_STEPS = 40
+
+
+def _has_ink(screen: Screen, cx: int, cy: int) -> bool:
+    """Whether `draw_words` set any pixel in the cell. A space between two
+    words has none, so the beam runs through the spaces and round the words."""
+    for dy in range(CELL):
+        start = (cy * CELL + dy) * SCREEN_W + cx * CELL
+        if any(screen.pixels[start:start + CELL]):
+            return True
+    return False
+
+
+def beam_cells(screen: Screen) -> set[tuple[int, int]]:
+    """The cells the beam is drawn on, given the words already on `screen`.
+
+    The union of the disc at every step, clipped to the screen, minus every
+    cell that holds a pixel. Computed as a set before a dot is drawn, and it
+    has to be: the beam is itself pixels, and a routine that tested cells as
+    it went would find its own earlier dots and call them text.
+
+    The disc loop is `Roaming.emit`'s test written out rather than called.
+    Sharing it would mean handing the title a `LightField`, and the title has
+    no light in it; the same eleven-word test in two places is cheaper than a
+    field that exists to be thrown away.
+    """
+    r2 = BEAM_RADIUS * BEAM_RADIUS
+    cells = set()
+    for step in range(BEAM_STEPS):
+        x, y = BEAM_START_X - step, BEAM_START_Y + step // 2
+        for dy in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
+            for dx in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
+                if dx * dx + dy * dy > r2:
+                    continue
+                cx, cy = x + dx, y + dy
+                if 0 <= cx < COLS and 0 <= cy < ROWS \
+                        and not _has_ink(screen, cx, cy):
+                    cells.add((cx, cy))
+    return cells
+
+
+def draw_beam(screen: Screen) -> None:
+    """A searchlight passing across the title, in the floor's own noise.
+
+    Issue #76, ruling 10 of *Look and feel 2*. The retro-gamer's first review
+    called the title *a screen of text, not a title screen*, and the logo
+    (issue #56) answered half of that. This is the other half, and it is the
+    reference's device -- The Great Escape's title runs a diagonal in one ink
+    that never shares a cell with the words -- done with this game's own
+    object: the disc the searchlight in the far room throws, in the lit noise
+    tile the floor wears (issue #71), so it is a pool of light on gravel and
+    not a stripe.
+
+    **Non-bright yellow, on cells that hold no text, and never the other way
+    round.** The logo is bright yellow and the keys are bright yellow; the
+    beam is the same hue a step dimmer, which reads as light rather than as
+    more words. It is drawn only where `draw_words` set nothing, so no cell is
+    ever asked for two inks and the one-ink rule the whole screen is built on
+    is not bent -- a beam that crossed a word would either recolour the word or
+    vanish into it, and on this machine those are the only two choices.
+
+    **The words are not touched.** Same pixels, same attributes, same rows and
+    columns as before the beam: `test_screens` pins every text cell with and
+    without it. The pin in *Art Direction* holds.
+
+    **Nothing resident, nothing per frame.** The title never steps, so this is
+    a one-off draw from the floor table the play area already holds. On the
+    port the cell test is eight byte reads; done as written here, forty discs
+    of twenty-nine cells is about 1,200 tests and on the order of 200,000
+    T-states -- three frames, once, on a screen with no clock running. A
+    visited bit per cell (96 bytes) would cut that to the 188 cells the discs
+    cover, but it is not worth a byte on a screen that is drawn once.
+    """
+    attr = _attr(YELLOW)
+    for cx, cy in beam_cells(screen):
+        stipple(screen, cx, cy, LIT)
+        screen.set_attr(cx, cy, attr)
+
+
 def draw_title(screen: Screen) -> None:
     """The first thing a tester sees, and for many of them the only instructions.
 
-    Every row below the logo moved down one when the logo arrived (issue #56)
-    and nothing was re-wrapped, re-centred or reworded on the way: story on 5-9,
-    controls on 12-14, the bargain on 17-19, the prompt on 22.
+    The words, then the beam across them (issue #76). The order is the rule:
+    the beam is laid on whatever cells the words left empty, so the words go
+    down first and the beam finds its way round them. Drawn the other way the
+    words would land on stippled cells and the beam would have to be scrubbed
+    out from under them.
+    """
+    draw_words(screen)
+    draw_beam(screen)
+
+
+def draw_words(screen: Screen) -> None:
+    """The title without its beam: the logo, the prose and the prompt.
+
+    This is what `draw_title` was before issue #76, split out so a test can
+    hold the words alone against the words with the beam and show every text
+    cell identical. Every row below the logo moved down one when the logo
+    arrived (issue #56) and nothing was re-wrapped, re-centred or reworded on
+    the way: story on 5-9, controls on 12-14, the bargain on 17-19, the prompt
+    on 22.
     """
     screen.clear(_attr(WHITE))
     draw_logo(screen)

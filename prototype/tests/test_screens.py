@@ -36,15 +36,20 @@ def read_logo(screen) -> str:
     the same discipline as `screenreader`: a test on the table alone would pass
     with the drawing code deleted.
     """
+    from spikes.floor import FLOOR_LIT
     from spikes.logo_gen import BITMAPS
 
     letters = {rows_: name[len("LOGO_"):] for name, rows_ in BITMAPS.items()}
     word = ""
     for cx in range(COLS):
-        glyph = (glyph_at(screen, cx, screens.LOGO_TOP)
-                 + glyph_at(screen, cx, screens.LOGO_TOP + 1))
-        if any(glyph):
-            word += letters.get(glyph, "?")
+        halves = (glyph_at(screen, cx, screens.LOGO_TOP),
+                  glyph_at(screen, cx, screens.LOGO_TOP + 1))
+        # The beam (issue #76) runs through the logo's rows in the gaps
+        # between the letters, and a lit floor block is ground, not a letter.
+        # Either half may wear one; a half that is blank or a block is air.
+        if all(half in FLOOR_LIT or not any(half) for half in halves):
+            continue
+        word += letters.get(halves[0] + halves[1], "?")
     return word
 
 
@@ -256,6 +261,8 @@ def test_the_logo_stands_in_the_columns_the_title_string_gives_it(title):
         if char != " ":
             expected[screens.centre(screens.TITLE) + i] = LOGO_FACE[char]
 
+    from spikes.floor import FLOOR_LIT
+
     for cx in range(COLS):
         halves = (glyph_at(title, cx, top), glyph_at(title, cx, top + 1))
         if cx in expected:
@@ -263,8 +270,12 @@ def test_the_logo_stands_in_the_columns_the_title_string_gives_it(title):
         else:
             # The air between the letters, and it has to stay air: the letters
             # are 8 pixels wide edge to edge, so a logo shifted by one column
-            # would have them touching.
-            assert halves == ((0,) * 8, (0,) * 8), cx
+            # would have them touching. Since issue #76 the air may hold the
+            # beam's floor block instead of nothing -- and only that: a
+            # shifted letter would be text in the gap, and the beam is never
+            # laid on text, so the block here is proof the gap was empty.
+            for half in halves:
+                assert half == (0,) * 8 or half in FLOOR_LIT, cx
 
 
 def test_the_logo_colours_both_of_its_cell_rows(title):
@@ -370,6 +381,141 @@ def test_the_words_on_the_screen_are_the_words_in_the_constants(title):
     for line in screens.STORY + screens.WARNING:
         assert line in text
     assert screens.START_PROMPT in text
+
+
+# --- the beam across the title (issue #76) ----------------------------------
+
+@pytest.fixture
+def words():
+    """The title without its beam: what `draw_title` drew before issue #76."""
+    screen = Screen()
+    screens.draw_words(screen)
+    return screen
+
+
+def text_cells(screen) -> set[tuple[int, int]]:
+    """Every cell with a pixel in it -- the words, and nothing else."""
+    from spotlight.core.constants import ROWS
+    return {(cx, cy) for cy in range(ROWS) for cx in range(COLS)
+            if any(glyph_at(screen, cx, cy))}
+
+
+def test_the_beam_is_the_disc_walked_down_the_diagonal(words):
+    """The set the issue specifies, recomputed here from its own numbers.
+
+    Radius 3 by squared distance -- `Roaming.emit`'s test -- with the centre at
+    `(34 - step, -4 + step // 2)` for forty steps, clipped, minus every cell
+    the words set a pixel in. Written out in full rather than through
+    `screens`' constants so that a change to the walk has to change this test
+    too. The count is derived, not chosen: the words are pinned character for
+    character, so the cells they leave to the beam are pinned with them.
+    """
+    from spotlight.core.constants import ROWS
+
+    expected = set()
+    for step in range(40):
+        x, y = 34 - step, -4 + step // 2
+        for dy in range(-3, 4):
+            for dx in range(-3, 4):
+                if dx * dx + dy * dy <= 9 and 0 <= x + dx < COLS \
+                        and 0 <= y + dy < ROWS:
+                    expected.add((x + dx, y + dy))
+    expected -= text_cells(words)
+    assert screens.beam_cells(words) == expected
+    assert len(expected) == 113
+
+
+def test_the_beam_enters_off_the_top_right_and_leaves_off_the_left(words):
+    """A light passing, not one switched on: both ends of the walk are off
+    the screen, so the beam is cut by the screen's edge at the top right and
+    at the left. Measured: rows 0 to 16, so the bargain on 17-19 and the
+    prompt on 22 are never in its path -- a fact of the geometry, not a rule."""
+    beam = screens.beam_cells(words)
+    assert any(cy == 0 for _cx, cy in beam)
+    assert any(cx == COLS - 1 for cx, _cy in beam)
+    assert any(cx == 0 for cx, _cy in beam)
+    assert max(cy for _cx, cy in beam) == 16
+
+
+def test_no_beam_cell_holds_text(words):
+    """The one-ink rule, stated as sets: the beam and the words are disjoint,
+    so no cell is ever asked to be white, cyan or bright yellow and also
+    the beam's yellow."""
+    assert not screens.beam_cells(words) & text_cells(words)
+
+
+def test_the_words_are_not_touched_by_the_beam(words, title):
+    """**Every text cell: the same pixels and the same attribute byte with the
+    beam as without it.** This is the acceptance criterion the issue leads
+    with, and it is the pin that lets the beam be added at all: the words
+    were read cold by two people and found working, and the beam is not
+    allowed to have been near them."""
+    cells = text_cells(words)
+    assert len(cells) > 100, "the words are there to be pinned"
+    for cx, cy in cells:
+        assert glyph_at(title, cx, cy) == glyph_at(words, cx, cy), (cx, cy)
+        assert title.get_attr(cx, cy) == words.get_attr(cx, cy), (cx, cy)
+
+
+def test_the_beam_changes_nothing_but_its_own_cells(words, title):
+    """The stronger form: outside the beam set the two screens are identical,
+    pixels and attributes, text or not. A beam that stippled a spare cell or
+    recoloured one it did not dot would fail here and nowhere else."""
+    from spotlight.core.constants import ROWS
+
+    beam = screens.beam_cells(words)
+    for cy in range(ROWS):
+        for cx in range(COLS):
+            if (cx, cy) in beam:
+                continue
+            assert glyph_at(title, cx, cy) == glyph_at(words, cx, cy), (cx, cy)
+            assert title.get_attr(cx, cy) == words.get_attr(cx, cy), (cx, cy)
+
+
+def test_every_beam_cell_is_non_bright_yellow_on_black(words, title):
+    """The same hue as the logo and the keys, a step dimmer, so it reads as
+    light and not as more words. Not bright, not flashing."""
+    from spotlight.core.constants import BLACK, YELLOW
+    from spotlight.core.screen import unpack_attr
+
+    beam = screens.beam_cells(words)
+    assert beam
+    for cx, cy in beam:
+        assert unpack_attr(title.get_attr(cx, cy)) == \
+            (YELLOW, BLACK, False, False), (cx, cy)
+    logo = title.get_attr(screens.centre(screens.TITLE), screens.LOGO_TOP)
+    assert title.get_attr(*next(iter(beam))) != logo, \
+        "the beam is not the logo's bright yellow"
+
+
+def test_the_beam_wears_the_lit_floor_tile_for_its_position(words, title):
+    """The floor's own noise (issue #71), block by position: a beam cell at
+    (cx, cy) wears `FLOOR_LIT[(cy & 3) * 4 + (cx & 3)]`, so the beam is the
+    same gravel the play area's light falls on and not a private pattern.
+    Both spellings of the index are checked against each other on purpose."""
+    from spikes import floor
+
+    for cx, cy in screens.beam_cells(words):
+        glyph = glyph_at(title, cx, cy)
+        assert glyph == floor.FLOOR_LIT[floor.tile_index(cx, cy)], (cx, cy)
+        assert glyph == floor.FLOOR_LIT[(cy & 3) * 4 + (cx & 3)], (cx, cy)
+
+
+def test_the_beam_is_found_before_it_is_drawn(title):
+    """`beam_cells` is a set computed before a dot goes down, and drawing the
+    beam again on a title that has one draws nothing more. The hazard it
+    guards is specific: the beam is pixels, and a routine that tested cells as
+    it walked would find its own earlier dots and call them text -- forty
+    discs overlap heavily, so most of the beam would be holes. The set form
+    cannot do that, and this is the pin on it: a second `draw_beam` finds
+    every beam cell already dotted, lays the same block on it by OR and the
+    same attribute over it, and the screen does not change."""
+    again = Screen()
+    again.pixels[:] = title.pixels
+    again.attrs[:] = title.attrs
+    screens.draw_beam(again)
+    assert bytes(again.pixels) == bytes(title.pixels)
+    assert bytes(again.attrs) == bytes(title.attrs)
 
 
 # --- the ending screen is not touched ---------------------------------------
