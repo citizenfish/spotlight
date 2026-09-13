@@ -50,6 +50,15 @@ a change to where the light in this building is. **And the sheet is where art
 is named, not where it is judged** -- both faults that slice fixed passed on a
 black-paper sprite sheet and failed on a lit floor, because a floor stipple is
 itself a fill, so the room shots are what a reviewer looks at.
+
+**The people have a sheet of their own since issue #72.** Eight frames took
+the sprite sheet past what fits between its heading and its legend, and a
+walk cannot be judged from frames in a grid anyway: the people sheet puts each
+figure on a row, its frames labelled on the left and its walk on the right as
+a strip -- the cycle `N A N B` twice over, each stride drawn four pixels
+further along than the last, with four pixels of floor between the boxes so
+the strides can be told apart. The played rooms are photographed on each of
+the four strides, so a reviewer has the walk where a figure is actually seen.
 """
 
 import os
@@ -61,7 +70,7 @@ from spotlight.core.screen import Screen, attr_byte
 
 from . import bots, floor, lighting, moments, player as player_mod
 from . import screens, scene, sprites
-from . import session as session_mod, tiles
+from . import session as session_mod, tiles, walk
 from . import spike_snap
 from . import building
 from .building import EAST
@@ -97,11 +106,13 @@ def _attr(ink: int, bright: bool = False) -> int:
 #: the 8x16 ones fill both, and one for its name underneath.
 #:
 #: The blank row the blocks used to carry went when the sheet grew from eight
-#: entries to fourteen. Seventeen since the people gained their second frames
-#: (issue #60) and eighteen since the Cleg's third (issue #73), which is six
-#: rows of three and fills every row between the heading and the legend
-#: exactly; a nineteenth does not fit, and `test_spike_gallery` says so
-#: before it prints into the legend.
+#: entries to fourteen. Seventeen with the people's second frames (issue #60)
+#: filled every row between the heading and the legend exactly, and the third
+#: frames (issue #72) would have taken it to nineteen, which does not fit --
+#: so the people moved to a sheet of their own, `draw_people_sheet`, and this
+#: one holds the objects, the doors and the body: twelve entries with the
+#: Cleg's third frame (issue #73), four rows.
+#: `test_spike_gallery` says so before anything prints into the legend.
 _ACROSS = 3
 _BLOCK_W = 10
 _BLOCK_H = 3
@@ -185,11 +196,14 @@ def draw_sprite_sheet(screen: Screen) -> None:
     for three rounds while the played screen showed a person-shaped smudge, so
     a picture of this sheet does not settle whether a sprite reads. That is
     what `body_room` is for, and why the walk is photographed in a played
-    room on both frames rather than judged from the six frames here.
+    room on every stride rather than judged from the frames on a sheet.
 
-    **Both frames of every figure are on it** (issue #60), side by side, each
-    captioned with its letter, so a reviewer can see what a stride changes and
-    that the lamp and the mark are in both of the player's.
+    **The standing figures are not on it since issue #72**; they are on
+    `draw_people_sheet`, with their walk. Eight frames of people took this
+    grid past what fits between its heading and its legend, and a grid could
+    not show a walk anyway. The body stays here: it is a person, but it does
+    not walk, and it is the one sprite whose size has to be seen beside the
+    objects'.
 
     **Every sprite stands on lit stipple** (issue #70), a patch of floor a
     cell wider than its box on either side, so the mask can be seen doing its
@@ -207,18 +221,13 @@ def draw_sprite_sheet(screen: Screen) -> None:
     screens.write(screen, screens.centre(heading), 1, heading, YELLOW,
                   bright=True)
 
-    for n, (name, sprite) in enumerate(sprites.SPRITES.items()):
+    for n, (name, sprite) in enumerate(sheet_entries()):
         cx, cy = block_at(n)
         # Three cells in, so the 8-pixel sprite sits over the middle of its
         # caption rather than at one end of it. The 16-wide body starts there
         # too and takes the cell after it, which is still inside its block.
         px, py = (cx + 3) * CELL, sprite_top(cy, len(sprite))
-        # The ground first, then the sprite over it with its mask, in the
-        # order the game draws them.
-        for gx in _GROUND:
-            for gy in (cy, cy + 1):
-                stipple_cell(screen, cx + gx, gy)
-                screen.set_attr(cx + gx, gy, _attr(WHITE, bright=True))
+        ground(screen, cx + _GROUND.start, cx + _GROUND.stop - 1, cy)
         # clip_bottom is the play area's floor in the game and there is no play
         # area here, so it is opened up to the whole screen; without that the
         # bottom row of the grid would be cut off mid-sprite.
@@ -227,8 +236,156 @@ def draw_sprite_sheet(screen: Screen) -> None:
         screens.write(screen, cx, cy + 2, label(name),
                       YELLOW if people else CYAN, bright=True)
 
-    legend = (("YELLOW - PEOPLE 8X16, BODY 16X8", YELLOW),
+    legend = (("YELLOW - BODY 16X8, PEOPLE SHEET", YELLOW),
               ("CYAN - OBJECTS 8X8, DOORS 8X16", CYAN))
+    for i, (line, ink) in enumerate(legend):
+        screens.write(screen, screens.centre(line), ROWS - 3 + i, line, ink,
+                      bright=True)
+
+
+def sheet_entries() -> list:
+    """What the sprite sheet shows, in order: every drawable that is not a
+    standing figure's frame. The people are on their own sheet."""
+    return [(name, sprite) for name, sprite in sprites.SPRITES.items()
+            if name not in sprites.FRAMES]
+
+
+def ground(screen: Screen, first_cx: int, last_cx: int, cy: int) -> None:
+    """Two rows of lit floor from `first_cx` to `last_cx` inclusive, on which
+    a sprite is then drawn with its mask, in the order the game draws them."""
+    for gx in range(first_cx, last_cx + 1):
+        for gy in (cy, cy + 1):
+            stipple_cell(screen, gx, gy)
+            screen.set_attr(gx, gy, _attr(WHITE, bright=True))
+
+
+# --- the people sheet -------------------------------------------------------
+#
+# A row per standing figure (issue #72): the figure's name, its unique frames
+# each on their own patch of floor with a letter underneath, and for the two
+# that walk, the walk itself laid out as a strip.
+
+#: The first figure's block, and how many rows each takes: the name, two rows
+#: of sprite, a row of captions, and a gap.
+_PEOPLE_TOP = 3
+_PEOPLE_BLOCK_H = 5
+
+#: The columns a figure's unique frames stand in, each on a patch of floor a
+#: cell either side, with a cell of black between one patch and the next.
+#: The worker's two are a column further apart than a walker's three, because
+#: their captions are words rather than letters and CALL and WAVE printed as
+#: one word on the first sheet.
+_FRAME_CX = {"player": (2, 6, 10), "follower": (2, 6, 10), "worker": (2, 7)}
+
+#: Where the walk strip starts, in cells; how far apart its strides are, in
+#: pixels; and how many strides it shows.
+#:
+#: **Twelve pixels a stride: the eight of the box and the four the figure
+#: travelled.** The cadence is four pixels of travel, so consecutive frames of
+#: the walk are four pixels apart on screen and overlap by half a box; drawn
+#: that way a strip is a smear. Adding the box's own width between them keeps
+#: the four-pixel advance visible -- each stride sits one third of a box
+#: further right than a plain grid would put it -- and leaves four pixels of
+#: floor between boxes so the halo is seen against stipple, not against the
+#: next stride. Eight strides is the cycle twice.
+_STRIP_CX = 14
+_STRIP_PITCH = sprites.WIDTH + walk.STRIDE_PIXELS
+_STRIP_STRIDES = 2 * walk.STRIDES
+
+#: The caption under each unique frame: a letter for a walker's, and words for
+#: the waiting worker's two, which are not strides.
+_FRAME_CAPTIONS = {
+    "player": ("N", "A", "B"), "follower": ("N", "A", "B"),
+    "worker": ("CALL", "WAVE"),
+}
+
+#: The walk cycle each walker's strip is drawn from, by figure name. The
+#: waiting worker has none: it does not walk.
+_WALKS = {"player": sprites.PLAYER_FRAMES, "follower": sprites.FOLLOWER_FRAMES}
+
+
+def people_rows() -> list:
+    """The figures on the people sheet, top to bottom, with the top row of
+    each one's block. Walkers first, so the two strips sit together."""
+    order = ("player", "follower", "worker")
+    return [(name, _PEOPLE_TOP + i * _PEOPLE_BLOCK_H)
+            for i, name in enumerate(order)]
+
+
+def people_sheet_entries() -> list:
+    """Every sprite the people sheet draws, as `(caption, sprite, px, py)`.
+
+    The unique frames of each figure first, then its walk strip. The test
+    reads this back to check every entry is drawn where it says, on stipple,
+    inside its halo -- the sheet and the test share one layout so that they
+    cannot disagree about where a figure is.
+    """
+    entries = []
+    for name, top in people_rows():
+        py = (top + 1) * CELL
+        for cx, caption, sprite in zip(_FRAME_CX[name], _FRAME_CAPTIONS[name],
+                                       sprites.STANDING[name]):
+            entries.append((caption, sprite, cx * CELL, py))
+        cycle = _WALKS.get(name)
+        if cycle is None:
+            continue
+        for k in range(_STRIP_STRIDES):
+            entries.append((None, cycle[k % walk.STRIDES],
+                            _STRIP_CX * CELL + k * _STRIP_PITCH, py))
+    return entries
+
+
+def strip_cells(top: int) -> range:
+    """The columns of floor under a walk strip in the block starting at `top`:
+    a cell before the first stride to a cell after the last."""
+    last_px = _STRIP_CX * CELL + (_STRIP_STRIDES - 1) * _STRIP_PITCH \
+        + sprites.WIDTH - 1
+    return range(_STRIP_CX - 1, last_px // CELL + 2)
+
+
+def draw_people_sheet(screen: Screen) -> None:
+    """The three standing figures, every frame of each, and the walk.
+
+    **A row per figure.** The name on the left; the unique frames -- three for
+    a walker, two for the waiting worker -- each on its own patch of lit
+    stipple with a caption under it; and, for the player and the follower,
+    the walk as a strip: the cycle `N A N B` twice, each stride drawn four
+    pixels further along than the last with the box's width between them (see
+    `_STRIP_PITCH`), so what the eye is shown in play at twelve strides a
+    second can be read at leisure as a sequence.
+
+    **The worker's second frame is the wave, not a stride**, and the sheet
+    says so in its captions: CALL and WAVE rather than letters. The wave plays
+    for the frames the shout is painted, which a played room shows when it
+    happens to catch one; here both are simply shown.
+
+    Every figure stands on stipple with its halo, as on the sprite sheet and
+    for the same reason (issue #70). What this sheet is for is naming the
+    frames and showing the cycle; whether the figures *read* as people
+    walking is judged in the played rooms, on each of the four strides.
+    """
+    screen.clear(_attr(WHITE))
+    heading = "PEOPLE"
+    screens.write(screen, screens.centre(heading), 1, heading, YELLOW,
+                  bright=True)
+    for name, top in people_rows():
+        screens.write(screen, 1, top, name.upper(), YELLOW, bright=True)
+        for cx, caption in zip(_FRAME_CX[name], _FRAME_CAPTIONS[name]):
+            ground(screen, cx - 1, cx + 1, top + 1)
+            # A one-letter caption sits under the box; a word starts a cell
+            # to the left so it is centred on it near enough.
+            screens.write(screen, cx if len(caption) == 1 else cx - 1,
+                          top + 3, caption, CYAN, bright=True)
+        if name in _WALKS:
+            cells = strip_cells(top)
+            ground(screen, cells.start, cells.stop - 1, top + 1)
+            screens.write(screen, _STRIP_CX, top, "4 PX A STRIDE", CYAN,
+                          bright=True)
+    for _caption, sprite, px, py in people_sheet_entries():
+        sprites.draw(screen, sprite, px, py, clip_bottom=SCREEN_H)
+
+    legend = (("WALK N A N B, 4 PIXELS A STRIDE", CYAN),
+              ("THE WORKER WAVES ON THE SHOUT", CYAN))
     for i, (line, ink) in enumerate(legend):
         screens.write(screen, screens.centre(line), ROWS - 3 + i, line, ink,
                       bright=True)
@@ -535,7 +692,7 @@ def lit_room(index: int) -> tuple:
 
 
 def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
-                frame: int | None = None, torch: bool = True) -> Screen:
+                stride: int | None = None, torch: bool = True) -> Screen:
     """One room, drawn: fully revealed, or as it looks after `frames` of play.
 
     A fresh session each time. Sharing one would mean the second picture was of
@@ -543,14 +700,16 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     labelled "the far room" would quietly be a shot of the far room *after the
     near one had gone wrong*.
 
-    `frame` is which walk frame every person in the picture is drawn on --
-    `0` for A, `1` for B -- or `None` for whichever foot each of them actually
-    had forward. **The walk is judged in a played room, on both frames of the
-    same instant** (issue #60): the sheet shows the frames side by side with
-    their names underneath, which is where art is named and not where it is
-    judged, and a single played frame shows one stride of a walk with no way
-    to see the other. So the same kept frame is drawn twice, and the two
-    pictures differ only in the people's feet and hands.
+    `stride` is which step of the walk every walking figure in the picture is
+    drawn on -- 0 to 3 over the cycle `N A N B` -- or `None` for whichever
+    each of them was actually on. **The walk is judged in a played room, on
+    every stride of the same instant** (issues #60 and #72): the people sheet
+    shows the frames side by side with their names underneath, which is where
+    art is named and not where it is judged, and a single played frame shows
+    one stride of a walk with no way to see the others. So the same kept
+    frame is drawn four times, and the pictures differ only in the walkers'
+    arms and legs. The waiting worker is not a walker: it is drawn as the
+    game had it, calling or waving, on all four.
 
     `torch` is whether the listener holds the torch on. **Off is the frame the
     game is played in** (issue #62): the same bot, the same seed and the same
@@ -577,7 +736,7 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
         if run.here != index:
             enter(run, index)
             continue
-        draw_on_frame(run, screen, frame)
+        draw_on_stride(run, screen, stride)
         if standing_clear(run):
             kept = copy_of(screen)
     # **The last frame with the player wholly on screen, not simply the last
@@ -620,12 +779,12 @@ def flash_room(index: int = scene.NEAR) -> Screen:
     return screen
 
 
-def draw_on_frame(run, screen: Screen, frame: int | None) -> None:
-    """Draw the run's current frame with every person on walk frame `frame`.
+def draw_on_stride(run, screen: Screen, stride: int | None) -> None:
+    """Draw the run's current frame with every walker on step `stride`.
 
-    The frame bits are drawing state and nothing in the rules reads them --
-    that is the contract the walk was built under, and the tests hold it --
-    so setting them for one drawing and putting them back leaves the run
+    The stride counters are drawing state and nothing in the rules reads them
+    -- that is the contract the walk was built under, and the tests hold it
+    -- so setting them for one drawing and putting them back leaves the run
     exactly where it was. `None` draws the frame as the game would.
 
     **They are put back rather than left**, even though the run could not
@@ -633,18 +792,18 @@ def draw_on_frame(run, screen: Screen, frame: int | None) -> None:
     thing here that did, and the next reader would have to work out whether
     it mattered.
     """
-    if frame is None:
+    if stride is None:
         run.draw(screen)
         return
     people = [run.player] + list(run.rescue.workers)
-    was = [person.frame for person in people]
+    was = [person.walk.index for person in people]
     for person in people:
-        person.frame = frame
+        person.walk.index = stride
     try:
         run.draw(screen)
     finally:
-        for person, bit in zip(people, was):
-            person.frame = bit
+        for person, index in zip(people, was):
+            person.walk.index = index
 
 
 #: How far the player walks off the light they have just put down, so that the
@@ -989,6 +1148,10 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     draw_sprite_sheet(sheet_screen)
     sheet("sprites", sheet_screen)
 
+    people_screen = Screen()
+    draw_people_sheet(people_screen)
+    sheet("people", people_screen)
+
     tile_screen = Screen()
     draw_tile_sheet(tile_screen)
     sheet("tiles", tile_screen)
@@ -999,14 +1162,15 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
 
     for index, room in enumerate(scene.BUILDING.rooms):
         sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))
-        # **The same played instant twice, with everybody on frame A and then
-        # on frame B** (issue #60), so the walk can be judged where a figure
-        # is actually seen -- on the stipple, at the light the game gives it,
-        # beside whoever else is in the room -- and not on the sheet. One
-        # picture of a walk shows one stride; the pair is the walk.
-        for letter, frame in (("a", 0), ("b", 1)):
-            sheet(f"room-{slug(room.name)}-played-{letter}",
-                  room_screen(index, lit=False, frame=frame))
+        # **The same played instant four times, with every walker on each
+        # stride of the cycle in turn** (issues #60 and #72), so the walk can
+        # be judged where a figure is actually seen -- on the stipple, at the
+        # light the game gives it, beside whoever else is in the room -- and
+        # not on the sheet. One picture of a walk shows one stride; the four
+        # are the walk.
+        for stride in range(walk.STRIDES):
+            sheet(f"room-{slug(room.name)}-played-{stride}",
+                  room_screen(index, lit=False, stride=stride))
     # **The frame the game is played in** (issue #62): the near room at the
     # same played instant with the torch off, which is where the remembered
     # walls are seen and where they were never photographed before. Feet as

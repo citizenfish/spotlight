@@ -1,115 +1,124 @@
 ; player.txt
 ;
-; The player, seen from directly overhead, walking. Two frames.
+; The player, seen from the front, standing on the plan-view floor.
+; Three frames: a neutral stance and two strides.
 ;
-; REDRAWN 2026-09-11 (issue #60), on the user's ruling after playing
-; look-1: "the top down sprite on the player looks poor". The figure
-; before this one was a 2-row head over 8 rows of body -- the
-; proportions of a person seen from the FRONT, foreshortened, which is
-; a short person and not a person seen from above. Seen from directly
-; overhead somebody is mostly head and shoulders; the trunk and the
-; legs are UNDER them, and what shows below the shoulder line is the
-; hands beside the hips and the toes. So: a helmet that is a disc
-; four rows deep, shoulders straight under it at full width with no
-; neck and no pinch, and below that only hands and feet.
+; REDRAWN 2026-09-12 (issue #72), IN ELEVATION, on the user's own
+; reversal of the user's own 2026-09-07 request. The figure was asked
+; for from above, drawn to those words twice -- once as a front view
+; foreshortened, once as a disc of head and shoulders with feet
+; peeking out -- and both times the user played it and said it did
+; not read. The designer's note "Why the figures read as clunky" put
+; the cause in one word, projection: a plan-view person eight pixels
+; wide is a token, a disc on a wider disc, and a walk drawn on it
+; moves the hem and not the mass. Shown a front-view figure beside
+; the plan-view one in the same played frame, the user chose the
+; front view -- which is what Atic Atac, Sabre Wulf, Nightshade and
+; Gauntlet all did: elevation figures walking across a floor seen
+; from above, and nobody minded the mixed projection. The Cleg, the
+; walls, the floor and the lamps stay in plan. The people stand up.
 ;
-; AND IT WALKS. The redraw and the walk are one change and not two:
-; a still overhead figure eight pixels wide reads as a bust or a
-; keyhole -- the designer's mock said so before this was drawn -- and
-; feet appearing alternately from under a head-and-shoulders mass is
-; the one signal that says "you are above this", because nothing seen
-; from the front moves like that. Two frames, A and B, differing in
-; rows 9-12 only: one hand forward beside the hip and the other swung
-; back a row lower, and the feet swapping. Frame B is frame A in the
-; mirror, so the figure stays centred over its column and never leans.
+; ONE FACING, NO MIRROR. A front view is symmetric, so there is no
+; left or right to draw, and the light is still what says which way
+; you are looking. The no-facings argument of 2026-09-07 is untouched.
 ;
-;   The frame flips when the player CROSSES A CELL BOUNDARY, never
-;   on every moved pixel and never on the frame counter.
+; What he is, top to bottom: the lamp on his helmet (rows 0-1, four
+; pixels, centred, symmetric, exactly where it was); the helmet, a
+; visor and a chin; shoulders at the full width of the box -- the kit
+; -- which no other figure has; arms down the sides, hands at the
+; hips; a belt; legs; boots. The last row is clear.
 ;
-; He moves a pixel a frame, so a flip per pixel would be a 25Hz
-; strobe; a flip per cell is one every eight frames of walking, about
-; 6Hz, which is a walk. Standing still he holds whichever frame he
-; was on, which is how every 8-bit walker stops. There is no still
-; frame. The bit is `player.Player.frame`, and it is drawing state
-; that nothing in the rules reads -- the event log is byte-identical
-; with or without it.
+; THERE IS NO BAR UNDER HIS FEET. Since issue #49 he wore two marks,
+; the lamp and a solid bar in the bottom two rows, because a plan-view
+; figure had nothing else to tell him from a follower on lit floor.
+; In elevation the helmet and the full-width kit do that in the middle
+; columns where the eye is, and the legibility contract -- every frame
+; of him against every frame of the other two -- passes without the
+; bar and fails without the lamp. The bar's five-pixel clause is gone
+; with it, not kept and skipped; assertion 4's five-pixel rule still
+; governs marks meant as marks, which is now the lamp alone, exempt
+; as it always was.
 ;
-; What this costs, and the refusal it overrides. Animation of people
-; was refused on 2026-09-10 on a byte count: pre-shifted eight ways,
-; a second 8x16 frame is 512 bytes a figure, 1,024 for the two that
-; walk. The user looked at the result of that refusal and wanted the
-; walk anyway; the refusal is recorded as overruled, not as wrong,
-; and whether the port stores four rows or sixteen is the port's
-; decision.
+; THE WALK IS FOUR STEPS OVER THREE FRAMES: N A N B, advancing every
+; FOUR PIXELS OF TRAVEL along either axis -- never per frame, never per
+; cell. He moves a pixel a frame, so that is a new frame every four
+; frames of walking, about 12Hz, which is a walk; the cell cadence
+; before it was a 6Hz flip that read as a foot twitch under a sliding
+; blob. A figure that stops holds its stride. The counter is
+; `walk.Stride`, drawing state that nothing in the rules reads; the
+; event log is byte-identical with it and without it.
 ;
-; One thing the walk spends: a walk frame is asymmetric, and until
-; 2026-09-11 asymmetry was the BODY's only tell. That reservation was
-; lifted when the body was laid down across two cells (issue #59) --
-; its tell is now its aspect -- and this is the first thing to spend
-; it on. The LAMP stays symmetric, on purpose.
+; The strides move the arms and the legs and nothing above the
+; shoulders: A swings one arm forward and scissors the legs one way,
+; B is A in the mirror, so across a cycle the figure stays centred
+; over its column and never leans. The boots in A and B reach the
+; edges of the column (row 14, `##....##`); in N they are inboard.
 ;
-; He still wears TWO marks, unchanged from issue #49 and for the same
-; reasons, because there are two grounds to be seen against:
-;
-;   * The LAMP on his helmet -- four pixels, centred, symmetric. It
-;     is what tells him from a follower on a wall cell, in a doorway
-;     and on the sprite sheet, where there is no floor under his feet
-;     to draw a bar on.
-;   * The BAR under his feet -- the bottom two rows of the box, with
-;     one clear row above so it reads as ground rather than as feet.
-;     The lit floor stipple put a dot every four pixels when this was
-;     measured, so nothing narrower than five pixels of solid ink was a
-;     mark on that floor. Since issue #71 the floor is a noise tile
-;     with four dots a cell and no two adjacent: no row of it has a run
-;     of two, let alone five, so the clause still holds and the bar is
-;     still the only unbroken run of five on the ground.
-;
-; The feet are two pixels wide and not the mock's one, because a
-; single pixel on a floor of single dots IS a dot.
-;
-; 76 pixels of ink in either frame, against 42 for a waiting worker
-; and 36 for a follower.
+; 68 pixels of ink in N and 65 in each stride, against 50/47/47 for a
+; follower and 50/44 for a waiting worker. Fifteen of the sixteen
+; rows are used; the port's twelve-row saving does not apply to these
+; and is out of scope.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
-; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
-; with ';' rather than '#', which is what a row of eight set pixels
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py, which also
+; derives the one-pixel halo mask (issue #70). Comments start with
+; ';' rather than '#', which is what a row of eight set pixels
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
 
-name: PLAYER_A
+name: PLAYER_N
 size: 8x16
-........
 ..####..   the lamp, worn on the helmet
 ..####..
-.######.   helmet, a disc four rows deep
-.######.
-.######.
-.######.
-########   shoulders, full width - the kit
-########
-#.####..   a hand forward, beside the hip
-...##..#   the other hand, swung back
-....##..   a foot out from under
-..##....   the other, behind
-........   one clear row, so the mark is not feet
-########   the mark: the only figure with ground under him
-########
-
-name: PLAYER_B
-size: 8x16
+.######.   helmet
+.#.##.#.   visor
+..####..   chin
+########   shoulders, the kit - the full width, his alone
+##.##.##   arms
+##.##.##
+#.####.#
+#.####.#   hands at the hips
+..####..   belt
+..#..#..   legs together
+..#..#..
+..#..#..
+.##..##.   boots
 ........
+
+name: PLAYER_A
+size: 8x16
 ..####..   the lamp
 ..####..
 .######.   helmet
-.######.
-.######.
-.######.
+.#.##.#.   visor
+..####..   chin
 ########   shoulders
-########
-..####.#   frame A in the mirror: the other hand forward
-#..##...
-..##....   feet swapped
-....##..
+##.##.##   arms
+#..##..#   arms swing
+#.####.#
+..####.#   one hand forward, off the hip
+..####..   belt
+.#...#..   legs scissor
+.#....#.
+#.....#.
+##....##   boots, out to the edges
 ........
-########   the mark
-########
+
+name: PLAYER_B
+size: 8x16
+..####..   the lamp
+..####..
+.######.   helmet
+.#.##.#.   visor
+..####..   chin
+########   shoulders
+##.##.##   arms
+#..##..#   arms swing
+#.####.#
+#.####..   frame A in the mirror: the other hand forward
+..####..   belt
+..#...#.   legs scissor the other way
+.#....#.
+.#.....#
+##....##   boots
+........

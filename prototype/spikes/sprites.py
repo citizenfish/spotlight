@@ -1,11 +1,20 @@
 """Sprites: 8x16 people, 8x8 objects, and one 16x8 body.
 
-**Everything in the play area is drawn from above, people included.** Decided
-from play on 2026-09-07 -- the Cleg is an 8x8 bug seen from overhead and it
-reads; the player and the workers were front-facing standing figures in a world
-seen from the ceiling, and they were the only things in the room that were. See
-the vault's *People are drawn from above* for the argument and *Screen Layout*
-for the bytes.
+**The people stand up; everything else is drawn from above.** Ruled from play
+on 2026-09-12 (issue #72), and it is the user's own reversal of the user's own
+2026-09-07 request. The people were asked for from above, drawn to those words
+twice -- once as a front view foreshortened, once as a disc of head and
+shoulders with feet peeking out -- and both times the user played them and
+said they did not read. The cause is projection: a plan-view person eight
+pixels wide is a token, and a walk drawn on it moves the hem and not the mass.
+Shown a front-view figure beside the plan-view one in the same played frame,
+the user chose the front view, which is what every overhead Spectrum game
+with walking figures did -- Atic Atac, Sabre Wulf, Nightshade, Gauntlet drew
+elevation figures walking across a floor seen from above and nobody minded.
+The Cleg, the walls, the floor and the lamps stay in plan. See the vault's
+*Why the figures read as clunky* for the argument, *People are drawn from
+above* for what is struck and what stands, and `assets/sprites/player.txt`
+for the drawing's own reasons.
 
 **The bytes are not here.** Every figure is authored as a grid of `#` and `.`
 in `assets/sprites/` and generated into `bitmaps_gen.py` by `tools/bitmaps.py`
@@ -13,46 +22,37 @@ in `assets/sprites/` and generated into `bitmaps_gen.py` by `tools/bitmaps.py`
 a test comparing the two -- which could say they disagreed but never which was
 right. One source now, and the Z80 gets the same bytes from the same file.
 
-**What an overhead figure is, at eight pixels wide -- corrected 2026-09-11**
-(issue #60). The first rules drawn to -- head topmost, no neck, shoulders
-widest, arm strips outside the shoulder line, short legs and no feet -- were
-followed on 2026-09-10 and the user said the result did not read as overhead.
-They describe the parts and get the proportions of a *front* view,
-foreshortened, which is a short person. Seen from directly above, somebody is
-mostly head and shoulders: the trunk and the legs are under them, and what
-shows below the shoulder line is the hands beside the hips and the toes. So
-the rules anything drawn later is judged by are: the head is the dominant
-mass, a disc four rows deep; the shoulders sit straight under it, full width,
-no neck and no pinch; at most three or four rows below them, hands and feet
-only; no arm strips; **and it moves.** A still plan-view figure eight pixels
-wide reads as a bust or a pawn, and feet appearing alternately from under a
-head-and-shoulders mass is the one signal that says *you are above this*. The
-redraw made the walk read and the walk made the redraw read, which is why
-they were one ruling and not two.
+**The people walk on four strides over three frames, and the cadence is four
+pixels of travel.** Each walking figure has a neutral frame and two strides,
+`NAME_N`, `NAME_A` and `NAME_B`, drawn in the cycle `N A N B`, and carries a
+`walk.Stride` -- `Player.walk`, `Worker.walk` -- that advances every four
+pixels the figure travels along either axis and at no other time. The player
+moves a pixel a frame, so that is a new frame every four frames of walking,
+about 12Hz, which is a walk; the cell cadence before it (issue #60) was a 6Hz
+flip and the user played it and it read as a foot twitch under a sliding
+blob. A figure that stops holds its stride. There is no still frame and no
+idle counter. The stride is drawing state and nothing in the rules reads it:
+the event log is byte-identical with the walk and without it, and the tests
+pin that.
 
-**The people walk, on two frames, and the cadence is movement.** Each of the
-three standing figures is a pair, `NAME_A` and `NAME_B`, and the figure
-carries one frame bit -- `Player.frame`, `Worker.frame` -- that flips when the
-figure crosses a cell boundary and at no other time, exactly as a Cleg's wing
-does. The player moves a pixel a frame, so a flip per pixel would be a 25Hz
-strobe; a flip per cell is one every eight frames of walking, about 6Hz, which
-is a walk. A figure that stops holds whichever frame it was on. There is no
-still frame and no counter, and the waiting worker, which never steps, stands
-on A. The bit is drawing state and nothing in the rules reads it: the event log
-is byte-identical with the walk and without it, and the tests pin that.
+**The waiting worker does not walk; it waves on the shout.** `WORKER` is the
+figure calling, arms up; `WORKER_W` is the wave, arms out, and it is drawn
+for exactly the frames the worker's HELP is painted and no others. On the
+event, never on a counter: a still figure given a counter to look alive was
+refused twice (issues #60 and #72), and the shout already dirties the cells.
 
 That overrides the 2026-09-10 refusal of people animation, which was made on a
 byte count -- a second pre-shifted 8x16 frame is 512 bytes a figure -- and is
 recorded as overruled rather than wrong. The user looked at a figure that slid
 and asked for one that walked.
 
-**The figures do not turn.** One orientation, head toward the top of the screen.
-An 8x16 sprite has a long axis and so does an overhead person, so a figure that
-turned would need a 16x16 sprite -- a second sprite format rather than more data
--- and four facings for three figures is about 10K of a 48K machine. The cone is
-the facing indicator, and in a game about light that is the right one. The cost
-is real and stated in the decision: with the torch off, nothing says which way
-you are pointing.
+**The figures do not turn.** One facing and no mirror: a front view is
+symmetric, so there is no left or right to draw, and the light is still what
+says which way you are looking. The 2026-09-07 argument against facings is
+untouched by the change of projection -- four facings for three figures is
+about 10K of a 48K machine, and the cone is the facing indicator, which in a
+game about light is the right one. The cost is real and stated in the
+decision: with the torch off, nothing says which way you are pointing.
 
 **What the fade may remember.** The building is remembered; its inhabitants are
 not. Walls, keys, bodies and nests stay drawn in ground the player is only
@@ -119,63 +119,74 @@ from .layout import PLAY_ROWS
 
 PLAY_BOTTOM_PX = PLAY_ROWS * CELL
 
-# --- people, 8x16, two frames each ------------------------------------------
+# --- people, 8x16, in elevation ---------------------------------------------
 
-#: The player, frame A: helmet, lamp, shoulders, one hand forward and one foot
-#: out from under him. **The only figure that touches both edges of its column
-#: at the shoulders** -- the widest thing in the room is you.
+#: The player, neutral: lamp, helmet, visor, chin, shoulders at the full width
+#: of the box -- the kit -- arms down, hands at the hips, belt, legs together,
+#: boots. **The only figure with a full-width row**, and it is at the
+#: shoulders: the widest thing in the room is you.
 #:
-#: **He wears two marks and both are needed, because there are two grounds to
-#: be seen against** (issue #49), and neither moved in the redraw. The lamp on
-#: his helmet is what tells him from a follower on a wall cell, in a doorway
-#: and on the sprite sheet; the solid bar under his feet is what tells him from
-#: a follower on lit floor, where the stipple swallows anything narrower than
-#: five pixels of solid ink -- measured against the lattice, and still true of
-#: the noise tile (issue #71), which has no run of two. The reasoning, the
-#: measurement and the rejected alternatives are in `assets/sprites/player.txt`,
-#: beside the drawing, with the walk's own reasons.
+#: **One mark now, the lamp** (issue #72). Since issue #49 he wore two, the
+#: lamp and a solid bar under his feet, because a plan-view figure had nothing
+#: else to tell him from a follower on lit floor. In elevation the helmet and
+#: the kit do that in the middle columns where the eye is; the contract passes
+#: every frame of him against every frame of the other two without the bar
+#: and fails without the lamp, and the bar's five-pixel clause went with it.
+#: The reasoning and what it replaced are in `assets/sprites/player.txt`.
+PLAYER_N = BITMAPS["PLAYER_N"]
+
+#: The player, striding: one arm swung forward, the legs scissored, the boots
+#: out to the edges of the column. Nothing above the shoulders moves.
 PLAYER_A = BITMAPS["PLAYER_A"]
 
-#: The player, frame B: frame A in the mirror -- the other hand forward, the
-#: feet swapped -- so the figure stays centred over its column and never leans.
-#: Rows 9-12 are all that differ; the lamp and the mark are in both.
+#: The other stride: frame A in the mirror, so across a cycle the figure stays
+#: centred over its column and never leans.
 PLAYER_B = BITMAPS["PLAYER_B"]
 
-#: The player's two frames, indexed by `Player.frame`, so drawing him is a
-#: table lookup rather than a branch, exactly as a Cleg's wing is.
-PLAYER_FRAMES = (PLAYER_A, PLAYER_B)
+#: The player's walk cycle, indexed by `Player.stride`: four steps over three
+#: frames, so drawing him is a table lookup rather than a branch, exactly as a
+#: Cleg's wing is. Neutral between each stride is what makes the legs read as
+#: passing each other rather than flicking.
+PLAYER_FRAMES = (PLAYER_N, PLAYER_A, PLAYER_N, PLAYER_B)
 
-#: A trapped worker, waiting, frame A: two hands raised beside the crown,
-#: which is what arms up look like from directly above, and nothing at the
-#: hips. **The only figure that touches both edges at the top of its column**,
-#: which is the near-inverse of the player. It is the figure the redraw helps
-#: least, and it never steps in this build, so it stands on this frame -- and
-#: it must not be given a counter to look alive. See `assets/sprites/worker.txt`
-#: for the one-line lever if a cold read finds it wanting.
-WORKER_A = BITMAPS["WORKER_A"]
+#: A trapped worker, waiting and calling: the same person as the follower with
+#: the arms up -- two strips from the shoulders past the head to hands above
+#: it, which is what raised arms look like from the front and is the whole of
+#: the signal. **The only figure with ink on the top row that is not the
+#: player's lamp**, and the hands sit either side of the lamp's middle two
+#: columns, so the two are never the same shape where a glow finds them.
+WORKER = BITMAPS["WORKER"]
 
-#: The waiting worker's other foot. Authored so that the contract and the sheet
-#: cover every frame of every figure; exercised by the gallery and not by play.
-WORKER_B = BITMAPS["WORKER_B"]
+#: The wave: arms out from the shoulders, hands level with the head. Drawn for
+#: exactly the frames the worker's HELP is painted (issue #72) -- on the
+#: event, never on a counter -- and `WORKER` again when the word clears. See
+#: `assets/sprites/worker.txt` for why breathing was refused instead.
+WORKER_W = BITMAPS["WORKER_W"]
 
-WORKER_FRAMES = (WORKER_A, WORKER_B)
+#: Indexed by whether the worker is shouting this frame: `WORKER_FRAMES[False]`
+#: is calling, `WORKER_FRAMES[True]` is the wave.
+WORKER_FRAMES = (WORKER, WORKER_W)
 
-#: The same person, freed and walking behind you, frame A: arms down, so the
-#: hands are beside the hips. **Nothing in it reaches column 0 or 7**, in
-#: either frame, which is what has always told it from the player.
+#: The same person, freed and walking behind you, neutral: arms down, hands at
+#: the hips, no lamp and a round head on a neck where the player has a helmet
+#: on a chin. Shoulders six wide where his are eight.
 #:
 #: It exists because raised arms *mean* "I still need reaching", and leaving
 #: them up on somebody already following you is a lie the player would act on.
 #: It costs nothing to keep true: a worker is drawn from their state, so
 #: somebody released back to waiting goes back to arms up on the frame they are
-#: dropped -- and keeps their frame bit, which says which foot is forward and
+#: dropped -- and keeps their stride, which says which foot is forward and
 #: nothing about what they are.
+FOLLOWER_N = BITMAPS["FOLLOWER_N"]
+
+#: The follower striding: the same swing and scissor as the player's.
 FOLLOWER_A = BITMAPS["FOLLOWER_A"]
 
-#: The follower's other stride: frame A in the mirror.
+#: The other stride: frame A in the mirror.
 FOLLOWER_B = BITMAPS["FOLLOWER_B"]
 
-FOLLOWER_FRAMES = (FOLLOWER_A, FOLLOWER_B)
+#: The follower's walk cycle, indexed by `Worker.stride`.
+FOLLOWER_FRAMES = (FOLLOWER_N, FOLLOWER_A, FOLLOWER_N, FOLLOWER_B)
 
 #: Somebody who died. **16 wide and 8 tall, cell-aligned, lying across two
 #: cells of one row** -- the only drawable in the game that is wider than it is
@@ -263,49 +274,58 @@ BATTEN = BITMAPS["BATTEN"]
 
 KEY = BITMAPS["KEY"]
 
-#: Every drawable, for tests and the sprite sheet.
+#: The three figures on their feet, each with its unique frames, keyed by the
+#: figure's name: three for a walker, two for the waiting worker. **They are
+#: told apart inside one 8x16 box** -- by the lamp, the helmet, the kit and
+#: the arms, in the middle columns -- and the contract that says so runs over
+#: every frame of one against every frame of another (twenty-one pairs since
+#: issue #72), because a player mid-stride stands beside a follower on the
+#: other stride as often as not. A body is not in this table, and since issue
+#: #59 that is the point: it is told from all three by the box itself.
+STANDING = {
+    "player": (PLAYER_N, PLAYER_A, PLAYER_B),
+    "worker": (WORKER, WORKER_W),
+    "follower": (FOLLOWER_N, FOLLOWER_A, FOLLOWER_B),
+}
+
+#: Every frame of every standing figure by its sheet name -- `player_n`,
+#: `worker_w` -- in the order the people sheet shows them. The figure a frame
+#: belongs to is the name before the last underscore, or the whole name for
+#: `worker`, which has no letter because it is the figure at rest.
+FRAMES = {
+    "player_n": PLAYER_N, "player_a": PLAYER_A, "player_b": PLAYER_B,
+    "follower_n": FOLLOWER_N, "follower_a": FOLLOWER_A,
+    "follower_b": FOLLOWER_B,
+    "worker": WORKER, "worker_w": WORKER_W,
+}
+
+#: Every drawable, for tests: the eight people frames, then everything else.
 #:
-#: **The order is the order they are laid out on the sheet** (three across),
-#: and it is chosen so that every caption that fills a ten-column block sits
-#: in the right-hand column, which is the only one with a column to spare:
-#: DOOR LOCKED is eleven characters, and FOLLOWER A and FOLLOWER B are ten,
-#: which in a left or middle block would print hard against the next caption
-#: with no space between. So the follower's two frames stand one over the
-#: other in the right column and the other two figures' frames sit side by
-#: side. `test_spike_gallery` pins that no caption overruns its block or
-#: touches its neighbour, so a sprite inserted here without a thought about
-#: the layout fails the suite rather than quietly printing over one.
+#: **The order of the rest is the order they are laid out on the sprite
+#: sheet** (three across), and it is chosen so that the one caption that
+#: fills a ten-column block, DOOR LOCKED at eleven characters, sits in the
+#: right-hand column, which is the only one with a column to spare. The
+#: people are not on that sheet since issue #72 -- eight frames took it past
+#: what fits between its heading and its legend -- and have a sheet of their
+#: own with the walk laid out on it. `test_spike_gallery` pins that no
+#: caption overruns its block or touches its neighbour, so a sprite inserted
+#: here without a thought about the layout fails the suite rather than
+#: quietly printing over one.
 #:
 #: The Cleg's three frames fill one row in the order a wingbeat draws them,
-#: A M B (issue #73), so the beat can be read across the sheet; the two doors
-#: then stand one over the other in the right column, which is the only
-#: place DOOR LOCKED fits.
+#: A M B (issue #73), so the beat can be read across the sheet; the two
+#: doors stand in the right column, which is the only place DOOR LOCKED fits.
 SPRITES = {
-    "player_a": PLAYER_A, "player_b": PLAYER_B, "follower_a": FOLLOWER_A,
-    "worker_a": WORKER_A, "worker_b": WORKER_B, "follower_b": FOLLOWER_B,
-    "cleg_a": CLEG_A, "cleg_m": CLEG_M, "cleg_b": CLEG_B,
+    **FRAMES,
     "body": BODY, "nest": NEST, "key": KEY,
-    "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_open": DOOR_OPEN,
-    "housing": HOUSING, "batten": BATTEN, "door_locked": DOOR_LOCKED,
+    "cleg_a": CLEG_A, "cleg_m": CLEG_M, "cleg_b": CLEG_B,
+    "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_locked": DOOR_LOCKED,
+    "housing": HOUSING, "batten": BATTEN, "door_open": DOOR_OPEN,
 }
 
-#: The three figures on their feet, each with its two walk frames, keyed by
-#: the figure's name. **They are told apart inside one 8x16 box** -- by the
-#: rows their outlines touch its edges on, and by the player's two marks --
-#: and since issue #60 the contract that says so runs over every frame of one
-#: against every frame of another, because a player on frame A stands beside a
-#: follower on frame B as often as not. A body is not in this table, and since
-#: issue #59 that is the point: it is told from all three by the box itself.
-STANDING = {
-    "player": PLAYER_FRAMES,
-    "worker": WORKER_FRAMES,
-    "follower": FOLLOWER_FRAMES,
-}
-
-#: Every sprite-sheet entry that is a person, and so is drawn from above and
-#: captioned as one: the six standing frames, and the body lying down.
-PEOPLE = tuple(name for name in SPRITES
-               if name.rsplit("_", 1)[0] in STANDING) + ("body",)
+#: Every sprite-sheet entry that is a person, and so is captioned as one: the
+#: eight standing frames, and the body lying down.
+PEOPLE = tuple(FRAMES) + ("body",)
 
 #: The two that are doors, and so are 8x16 without being people.
 DOORS = ("door_open", "door_locked")

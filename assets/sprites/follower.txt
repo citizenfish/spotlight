@@ -1,72 +1,97 @@
 ; follower.txt
 ;
-; A worker you have freed, walking behind you, seen from directly
-; overhead. Two frames.
+; A worker you have freed, walking behind you, seen from the front.
+; Three frames: a neutral stance and two strides.
 ;
 ; Why a third people sprite exists at all: raised arms MEAN "I still
 ; need reaching", and leaving them up on somebody already walking
 ; behind you is a lie the player would act on. A worker is drawn from
 ; their state, so a follower dropped back to waiting goes back to
-; arms up on the frame they are dropped -- and keeps its frame bit,
-; because the bit says which foot is forward and not what they are.
+; arms up on the frame they are dropped -- and keeps their stride,
+; because the stride says which foot is forward and not what they are.
 ;
-; REDRAWN 2026-09-11 (issue #60): a disc, shoulders six wide, hands
-; beside the hips and feet under. NOTHING IN IT TOUCHES COLUMN 0 OR 7
-; IN EITHER FRAME, which is what has always told it from the player.
-; The frames differ in rows 8-11 by twelve pixels -- hands swinging,
-; feet swapping -- and it flips when the figure crosses a cell, which
-; a follower does every time the tail carries it over one. B is A in
-; the mirror.
+; REDRAWN 2026-09-12 (issue #72), IN ELEVATION, with the player and
+; for the same reason -- see player.txt for the ruling. The same
+; person as the waiting worker: the same head, the same neck and
+; shoulders, the same legs and boots. Arms down the sides, hands at
+; the hips, where a waiting worker's are up above the head.
 ;
-; 36 pixels -- the lightest figure in the game, down from 44. That is
-; a legibility cost and it is priced: a remembered wall cell is 8 to
-; 28 pixels today and 8 to 34 once the outline gains its courses, so
-; the follower still out-inks every wall cell it can stand beside. It
-; never stands ON one -- collision refuses any position overlapping a
-; solid cell -- and the head disc is the thing the eye finds. If a
-; session loses a follower against a wall, the head grows a row
-; before the walls lose their courses.
+; What tells it from the player, in the middle columns where the eye
+; is: no lamp -- the top two rows are clear -- a round head on a neck
+; instead of a helmet on a chin, and shoulders six wide where his are
+; eight. The arms down its sides reach columns 0 and 7 in every frame,
+; as the player's do; from 2026-09-11 to 2026-09-12 the plan-view
+; follower kept clear of the edge columns and that was its tell, and
+; in elevation it is not and is not asked to be. The contract compares
+; every frame of it against every frame of the player and the worker,
+; and a difference confined to the edge columns would fail it anyway.
+;
+; The walk is the player's: N A N B, a step every four pixels the
+; trail carries it, `walk.Stride`, stepped in `Rescue.follow` where
+; the trail places the figure. B is A in the mirror.
+;
+; 50 pixels in N, 47 in each stride.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
-; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
-; with ';' rather than '#', which is what a row of eight set pixels
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py, which also
+; derives the one-pixel halo mask (issue #70). Comments start with
+; ';' rather than '#', which is what a row of eight set pixels
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
+
+name: FOLLOWER_N
+size: 8x16
+........
+........
+..####..   head
+..#..#..   face
+..####..
+...##...   neck
+.######.   shoulders, six wide
+#.####.#   arms
+#.####.#
+#.####.#   hands at the hips
+..####..   belt
+..#..#..   legs together
+..#..#..
+..#..#..
+.##..##.   boots
+........
 
 name: FOLLOWER_A
 size: 8x16
 ........
 ........
-...##...   head, a disc
+..####..   head
+..#..#..   face
 ..####..
-..####..
-..####..
+...##...   neck
 .######.   shoulders
-.######.
-.#.##...   hands beside the hips, swinging
-...##.#.
-....##..   feet
-..##....
-........
-........
-........
+#.####.#   arms
+..####.#   one arm swings forward
+..####..
+..####..   belt
+.#...#..   legs scissor
+.#....#.
+#.....#.
+##....##   boots, out to the edges
 ........
 
 name: FOLLOWER_B
 size: 8x16
 ........
 ........
-...##...   head
+..####..   head
+..#..#..   face
 ..####..
-..####..
-..####..
+...##...   neck
 .######.   shoulders
-.######.
-...##.#.   frame A in the mirror
-.#.##...
-..##....   feet swapped
-....##..
-........
-........
-........
+#.####.#   arms
+#.####..   frame A in the mirror
+..####..
+..####..   belt
+..#...#.   legs scissor the other way
+.#....#.
+.#.....#
+##....##   boots
 ........

@@ -60,14 +60,18 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     for room in scene.BUILDING.rooms:
         stem = f"room-{gallery.slug(room.name)}"
         assert f"{stem}-lit_x1.png" in names
-        # The same played instant on walk frame A and on walk frame B (issue
-        # #60), because a still of a walk is one stride and the pair is the
-        # walk. There is no third, as-played picture: it would be one of the
-        # two with the people on mixed feet, and a reviewer given three
-        # near-identical frames would compare the wrong pair.
-        assert f"{stem}-played-a_x1.png" in names
-        assert f"{stem}-played-b_x1.png" in names
+        # The same played instant on each of the four strides (issue #72; a
+        # pair for the two frames before it, issue #60), because a still of a
+        # walk is one stride and the four are the walk. There is no fifth,
+        # as-played picture: it would be one of the four with the walkers on
+        # mixed strides, and a reviewer given five near-identical frames
+        # would compare the wrong pair.
+        for stride in range(4):
+            assert f"{stem}-played-{stride}_x1.png" in names
         assert f"{stem}-played_x1.png" not in names
+        assert f"{stem}-played-a_x1.png" not in names
+    # The people sheet (issue #72): every frame labelled, and the walk.
+    assert "people_x1.png" in names and "people_x3.png" in names
     # The one frame that is set up rather than played: a spotlight burning
     # where somebody put it down. No bot has ever swapped one.
     swapped = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-swapped"
@@ -95,8 +99,10 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # **During the opening flash, with the people in it** (issue #64).
     flash = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-flash"
     assert f"{flash}_x1.png" in names and f"{flash}_x3.png" in names
-    # Twenty-eight since the furniture sheet (issue #74).
-    assert len(paths) == len(names) == 28 + 6 * len(scene.BUILDING.rooms)
+    # Seven sheets (the people since issue #72, the furniture since #74) and
+    # eight set-up frames at two scales, and a lit shot plus four strides
+    # per room.
+    assert len(paths) == len(names) == 30 + 10 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -112,18 +118,33 @@ def test_every_sheet_is_written_at_both_scales(tmp_path):
 # --- the sprite sheet -------------------------------------------------------
 
 def test_the_sprite_sheet_names_every_sprite():
-    """Every entry in `sprites.SPRITES`, labelled, read back off the screen.
+    """Every entry in `sprites.SPRITES`, labelled, read back off the screen
+    -- the objects, the doors and the body on the sprite sheet, and every
+    standing frame on the people sheet, by its figure and its caption.
 
     Read back rather than compared against the constants, because a caption
     list that agreed with itself and drew nothing would pass -- and a sprite
     added to the game and left off the sheet is exactly the drift the sheet
-    exists to prevent.
+    exists to prevent. The two sheets between them cover the whole table,
+    and a sprite on neither fails here.
     """
     screen = Screen()
     gallery.draw_sprite_sheet(screen)
     text = " ".join(screenreader.rows(screen))
-    for name in sprites.SPRITES:
+    on_sheet = [name for name, _sprite in gallery.sheet_entries()]
+    for name in on_sheet:
         assert gallery.label(name) in text, f"{name} is not named on the sheet"
+    for name in sprites.FRAMES:
+        assert gallery.label(name) not in text, f"{name} is on the wrong sheet"
+    people = Screen()
+    gallery.draw_people_sheet(people)
+    rows = screenreader.rows(people)
+    for figure, top in gallery.people_rows():
+        assert figure.upper() in rows[top], f"{figure} is not named"
+        captions = rows[top + 3]
+        for caption in gallery._FRAME_CAPTIONS[figure]:
+            assert caption in captions, f"{figure}'s {caption} is not captioned"
+    assert set(on_sheet) | set(sprites.FRAMES) == set(sprites.SPRITES)
 
 
 def test_no_caption_on_the_sprite_sheet_runs_over_its_block():
@@ -143,7 +164,7 @@ def test_no_caption_on_the_sprite_sheet_runs_over_its_block():
     column before its neighbour; only the last block in a row may run to its
     edge, because nothing follows it.
     """
-    for n, name in enumerate(sprites.SPRITES):
+    for n, (name, _sprite) in enumerate(gallery.sheet_entries()):
         cx, _cy = gallery.block_at(n)
         width = gallery.block_width(n)
         last = n % gallery._ACROSS == gallery._ACROSS - 1
@@ -154,14 +175,32 @@ def test_no_caption_on_the_sprite_sheet_runs_over_its_block():
 
 
 def test_the_sprite_sheet_fits_between_its_heading_and_its_legend():
-    """Seventeen entries at three across is six rows, and the sheet has to
+    """Twelve entries at three across is four rows, and the sheet has to
     hold them without printing into the legend at the bottom. Six rows is
     every row there is: the people's second frames (issue #60) took the sheet
-    from fourteen entries to seventeen, and an eighteenth is the last that
-    fits."""
-    rows = -(-len(sprites.SPRITES) // gallery._ACROSS)
+    from fourteen entries to seventeen, which filled it, and their third
+    frames (issue #72) would have needed a seventh row, so the standing
+    figures moved to the people sheet and this one has room again -- enough
+    for the Cleg's third frame (issue #73) to make it twelve."""
+    entries = gallery.sheet_entries()
+    assert len(entries) == len(sprites.SPRITES) - len(sprites.FRAMES) == 12
+    rows = -(-len(entries) // gallery._ACROSS)
     last = gallery._TOP + rows * gallery._BLOCK_H
     assert last <= ROWS - 3, f"the sheet needs {last} rows and has {ROWS - 3}"
+
+
+def test_the_people_sheet_fits_and_its_strip_stays_on_screen():
+    """Three figures, five rows each, between a heading and a two-line legend;
+    and the walk strip's last stride ends inside the screen with a cell of
+    floor after it."""
+    last_row = gallery.people_rows()[-1][1] + gallery._PEOPLE_BLOCK_H
+    assert last_row <= ROWS - 3
+    for _name, top in gallery.people_rows():
+        cells = gallery.strip_cells(top)
+        assert cells.stop <= COLS, "the walk strip runs off the screen"
+        frames = max(max(cxs) for cxs in gallery._FRAME_CX.values())
+        assert cells.start > frames + 1, \
+            "the strip's floor touches the last frame's floor"
 
 
 def test_the_sprite_sheet_draws_every_sprite_on_stipple_with_its_halo():
@@ -170,32 +209,81 @@ def test_the_sprite_sheet_draws_every_sprite_on_stipple_with_its_halo():
     the box is set where the ink is, clear where the mask is and the ink is
     not, and the stipple's own dot where the mask does not reach. Beside the
     box the floor carries on unbroken, so the halo can be seen against it."""
-    from spikes import floor, lighting
     screen = Screen()
     gallery.draw_sprite_sheet(screen)
-    for n, sprite in enumerate(sprites.SPRITES.values()):
+    for n, (_name, sprite) in enumerate(gallery.sheet_entries()):
         cx, cy = gallery.block_at(n)
         px, py = (cx + 3) * CELL, gallery.sprite_top(cy, len(sprite))
-        mask = sprites.MASK_OF[sprite]
-        for dy, (row, halo) in enumerate(zip(sprite, mask)):
-            # A row is one byte, or two for the body, which is the only thing
-            # on the sheet that is sixteen pixels across.
-            for octet, (bits, clear) in enumerate(
-                    zip(sprites.row_bytes(row), sprites.row_bytes(halo))):
-                for dx in range(sprites.WIDTH):
-                    x = px + octet * sprites.WIDTH + dx
-                    dot = floor.dot_at(lighting.LIT, x, py + dy)
-                    want = (1 if bits & (0x80 >> dx) else
-                            0 if clear & (0x80 >> dx) else
-                            1 if dot else 0)
-                    assert screen.pixels[(py + dy) * SCREEN_W + x] == want, \
-                        f"sprite {n} differs at ({dx}, {dy})"
-        # The cell to the left of the box is plain lit floor, in the block
-        # its position on the sheet picks (issue #71).
-        for dy, bits in enumerate(floor.tile_at(lighting.LIT, cx + 2, cy)):
-            for dx in range(CELL):
-                at = (cy * CELL + dy) * SCREEN_W + (cx + 2) * CELL + dx
-                assert screen.pixels[at] == (1 if bits & (0x80 >> dx) else 0)
+        _assert_drawn_in_its_halo(screen, sprite, px, py, n)
+        _assert_plain_floor(screen, cx + 2, cy)
+
+
+def _assert_drawn_in_its_halo(screen, sprite, px, py, label) -> None:
+    """The sprite's ink is set, its halo is clear, and the stipple's own dots
+    are where neither reaches."""
+    from spikes import floor, lighting
+    mask = sprites.MASK_OF[sprite]
+    for dy, (row, halo) in enumerate(zip(sprite, mask)):
+        # A row is one byte, or two for the body, which is the only thing
+        # on the sheet that is sixteen pixels across.
+        for octet, (bits, clear) in enumerate(
+                zip(sprites.row_bytes(row), sprites.row_bytes(halo))):
+            for dx in range(sprites.WIDTH):
+                x = px + octet * sprites.WIDTH + dx
+                dot = floor.dot_at(lighting.LIT, x, py + dy)
+                want = (1 if bits & (0x80 >> dx) else
+                        0 if clear & (0x80 >> dx) else
+                        1 if dot else 0)
+                assert screen.pixels[(py + dy) * SCREEN_W + x] == want, \
+                    f"sprite {label} differs at ({dx}, {dy})"
+
+
+def _assert_plain_floor(screen, cx, cy) -> None:
+    """The cell is lit stipple and nothing else, in the block its position
+    picks (issue #71)."""
+    from spikes import floor, lighting
+    for dy, bits in enumerate(floor.tile_at(lighting.LIT, cx, cy)):
+        for dx in range(CELL):
+            at = (cy * CELL + dy) * SCREEN_W + cx * CELL + dx
+            assert screen.pixels[at] == (1 if bits & (0x80 >> dx) else 0)
+
+
+def test_the_people_sheet_draws_every_frame_on_stipple_with_its_halo():
+    """Every unique frame of every standing figure, where the layout says,
+    on lit stipple inside its halo, with plain floor to the left of it; and
+    the walk strip is the cycle `N A N B` twice, each stride twelve pixels
+    on from the last -- the box and the four pixels the figure travelled --
+    with plain floor before the first."""
+    screen = Screen()
+    gallery.draw_people_sheet(screen)
+    entries = gallery.people_sheet_entries()
+    drawn = {}
+    for caption, sprite, px, py in entries:
+        if caption is not None:
+            drawn[sprite] = (px, py)
+            _assert_drawn_in_its_halo(screen, sprite, px, py, caption)
+            _assert_plain_floor(screen, px // CELL - 1, py // CELL)
+    assert set(drawn) == set(sprites.FRAMES.values()), "a frame is missing"
+    for name, top in gallery.people_rows():
+        strip = [(sprite, px) for caption, sprite, px, py in entries
+                 if caption is None and py == (top + 1) * CELL]
+        if name == "worker":
+            assert not strip, "the waiting worker does not walk"
+            continue
+        cycle = {"player": sprites.PLAYER_FRAMES,
+                 "follower": sprites.FOLLOWER_FRAMES}[name]
+        assert [sprite for sprite, _px in strip] == list(cycle) * 2
+        xs = [px for _sprite, px in strip]
+        assert xs[0] == gallery._STRIP_CX * CELL
+        assert all(b - a == 12 for a, b in zip(xs, xs[1:])), xs
+        _assert_plain_floor(screen, gallery._STRIP_CX - 1, top + 1)
+        # The strides do not overlap: four pixels of floor between boxes.
+        assert all(b - a - sprites.WIDTH == 4 for a, b in zip(xs, xs[1:]))
+        # And every stride sits in its halo where it is drawn: the first
+        # cell-aligned, the second half a cell across, and so on.
+        for k, (sprite, px) in enumerate(strip):
+            _assert_drawn_in_its_halo(screen, sprite, px, (top + 1) * CELL,
+                                      f"{name} stride {k}")
 
 
 def test_every_sprite_on_the_sheet_stands_on_its_own_caption():
@@ -207,7 +295,7 @@ def test_every_sprite_on_the_sheet_stands_on_its_own_caption():
     above its caption settles it, and keeps the size difference visible: a
     person fills both rows of the block, an object fills the lower one.
     """
-    for n, (name, sprite) in enumerate(sprites.SPRITES.items()):
+    for n, (name, sprite) in enumerate(gallery.sheet_entries()):
         _cx, cy = gallery.block_at(n)
         bottom = gallery.sprite_top(cy, len(sprite)) + len(sprite)
         assert bottom == (cy + gallery._BLOCK_H - 1) * CELL, \
@@ -225,12 +313,13 @@ def test_the_sheet_shows_three_sizes_because_the_game_has_three():
     the person-shaped hole you walk out through, and it is the size it is for
     that reason.
 
-    The body lies along the bottom of its block, sixteen across and eight down,
-    beside three figures that stand up in theirs.
+    The body lies along the bottom of its block, sixteen across and eight down;
+    the three figures that stand up are on the people sheet, in the same
+    two-row box.
     """
     tall = {name for name in sprites.PEOPLE if name != "body"} \
         | set(sprites.DOORS)
-    assert len(tall) == 8, "six people frames and two doors"
+    assert len(tall) == 10, "eight people frames and two doors"
     for name, sprite in sprites.SPRITES.items():
         want = (8, 16) if name in tall else (16, 8) if name == "body" else (8, 8)
         assert (sprites.width_of(sprite), len(sprite)) == want, name
@@ -257,12 +346,16 @@ def test_the_body_is_photographed_beside_somebody_standing_up():
              if any(screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx]
                     for dy in range(CELL) for dx in range(CELL))}
     assert inked, "the picture is empty"
-    # The player is somewhere in it, with his bar under his feet: an unbroken
-    # run of eight pixels is the one mark nothing else in the room has.
-    bars = [(px, py) for py in range(PLAY_ROWS * CELL)
-            for px in range(0, SCREEN_W - 8, 8)
-            if all(screen.point(px + dx, py) for dx in range(8))]
-    assert bars, "the player is not in the picture"
+    # The player is somewhere in it, found by his lamp and helmet: the top
+    # five rows of his box are the same in every stride and nothing else in
+    # the room draws them (issue #72; before it he was found by the bar).
+    head = list(zip(sprites.PLAYER_N[:5], sprites.MASK_OF[sprites.PLAYER_N][:5]))
+    players = [(px, py) for py in range(PLAY_ROWS * CELL - 5)
+               for px in range(SCREEN_W - 8)
+               if all(screen.point(px + dx, py + dy) == bool(row & (0x80 >> dx))
+                      for dy, (row, halo) in enumerate(head)
+                      for dx in range(8) if halo & (0x80 >> dx))]
+    assert players, "the player is not in the picture"
     # ...and a body: a run of ink sixteen pixels wide on one row of cells,
     # which no standing figure can make.
     wide = [(px, py) for py in range(PLAY_ROWS * CELL)
@@ -398,7 +491,7 @@ def test_the_lit_shot_shows_the_whole_room_and_the_played_one_does_not():
     what does a player actually see of it. If they came out the same, one of
     them is broken."""
     lit = gallery.room_screen(scene.NEAR, lit=True)
-    played = gallery.room_screen(scene.NEAR, lit=False, frame=0)
+    played = gallery.room_screen(scene.NEAR, lit=False, stride=0)
     assert lit_cells(lit) > lit_cells(played) * 2
 
 
@@ -428,7 +521,7 @@ def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
     lit one; and that dim tile has its courses in it, which is the change.
     """
     off = gallery.room_screen(scene.NEAR, lit=False, torch=False)
-    on = gallery.room_screen(scene.NEAR, lit=False, frame=0)
+    on = gallery.room_screen(scene.NEAR, lit=False, stride=0)
     assert bytes(off.pixels) != bytes(on.pixels)
     assert lit_cells(off) < lit_cells(on)
 
@@ -484,7 +577,7 @@ def test_the_flash_frame_shows_the_people_and_the_flies(monkeypatch):
             f"the fly at {(cleg.cx, cleg.cy)} is not in the flash frame"
     # ...and the whole room is lit, which is what makes it the flash.
     assert lit_cells(screen) > lit_cells(
-        gallery.room_screen(scene.NEAR, lit=False, frame=0)) * 2
+        gallery.room_screen(scene.NEAR, lit=False, stride=0)) * 2
 
 
 def test_each_lit_room_is_the_room_it_is_named_after():

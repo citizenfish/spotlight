@@ -247,63 +247,106 @@ def test_the_assist_reaches_a_whole_cell_and_no_further():
     assert NUDGE == CELL
 
 
-# --- the walk: one bit, flipped on a cell crossing (issue #60) -------------
+# --- the walk: a stride every four pixels of travel (issue #72) ------------
 
-def test_the_walk_frame_flips_when_the_player_crosses_a_cell():
-    """One stride per cell, exactly as a Cleg's wingbeat is one per step."""
+def test_the_stride_advances_once_per_four_pixels_of_travel():
+    """Sixteen pixels east is four strides, each landing on the fourth pixel:
+    never per frame, never per cell."""
     p = Player(8 * CELL, 8 * CELL)
-    assert p.frame == 0
-    for _ in range(CELL - 1):
+    assert p.stride == 0
+    seen = []
+    for _ in range(16):
         p.move(1, 0, _open())
-    assert p.x == 8 * CELL + CELL - 1
-    assert p.frame == 0, "flipped before the boundary"
-    p.move(1, 0, _open())
+        seen.append(p.stride)
+    assert seen == [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 0], seen
+
+
+def test_the_cadence_is_travel_and_not_the_cell():
+    """**The thing that was wrong before.** The cell cadence (issue #60)
+    advanced once per eight pixels of walking, on the boundary, and the user
+    played it and it read as a foot twitch under a sliding blob. So: a
+    figure starting two pixels into a cell strides four pixels later, still
+    inside that cell, and crossing the boundary two pixels after that is not
+    itself a stride."""
+    p = Player(8 * CELL + 2, 8 * CELL)
+    for _ in range(4):
+        p.move(1, 0, _open())
+    assert p.x == 8 * CELL + 6 and p.x // CELL == 8
+    assert p.stride == 1, "no stride inside the cell: the cadence is the cell"
+    for _ in range(2):
+        p.move(1, 0, _open())
     assert p.x == 9 * CELL
-    assert p.frame == 1, "did not flip on crossing into the next column"
+    assert p.stride == 1, "the boundary was a stride, so the cadence is the cell"
 
 
-def test_the_walk_frame_holds_across_eight_pixels_inside_one_cell():
-    """**The thing that would be wrong if the flip were per pixel.**
-
-    The player moves one pixel a frame. A flip on every moved pixel is a 25Hz
-    alternation, which is a strobe and not a walk; a flip on a cell crossing
-    is one every eight frames of walking, about 6Hz, which is. So eight frames
-    of movement inside one cell -- back and forth, never leaving it -- show
-    one frame throughout.
-    """
-    p = Player(8 * CELL + 3, 8 * CELL + 3)
-    seen = set()
-    for dx in (1, 1, 1, -1, -1, -1, 1, -1):
-        p.move(dx, 0, _open())
-        seen.add(p.frame)
-    assert p.x // CELL == 8 and p.y // CELL == 8, "the walk left the cell"
-    assert seen == {0}, f"the frame moved inside one cell: {seen}"
-
-
-def test_a_crossing_in_either_axis_is_a_stride_and_a_diagonal_is_one():
-    """The flip is judged once, after both axes have resolved. Crossing a
-    column and a row in the same step is one stride, not two that cancel."""
+def test_either_axis_strides_and_a_diagonal_is_one_stride():
+    """Four pixels south is a stride as four east is. Four diagonal steps
+    move four pixels on both axes and that is **one** stride: the counter is
+    stepped once, after both axes have resolved."""
     p = Player(8 * CELL, 8 * CELL)
-    for _ in range(CELL):
+    for _ in range(4):
         p.move(0, 1, _open())
-    assert p.y == 9 * CELL and p.frame == 1, "a row crossing is a stride"
-    # Back to a corner, then one diagonal step over both boundaries at once.
-    p = Player(9 * CELL - 1, 9 * CELL - 1)
-    p.move(1, 1, _open())
-    assert (p.x // CELL, p.y // CELL) == (9, 9)
-    assert p.frame == 1, "crossing both boundaries at once is one stride"
-
-
-def test_standing_still_holds_whichever_frame_the_player_was_on():
-    """No still frame and no counter. A figure that stops mid-stride stays on
-    that stride, which is how every 8-bit walker stops and it reads fine."""
+    assert p.y == 8 * CELL + 4 and p.stride == 1, "a walk south is not a walk"
     p = Player(8 * CELL, 8 * CELL)
-    for _ in range(CELL):
+    for _ in range(4):
+        p.move(1, 1, _open())
+    assert (p.x, p.y) == (8 * CELL + 4, 8 * CELL + 4)
+    assert p.stride == 1, "a diagonal strode twice, once per axis"
+
+
+def test_the_cycle_is_n_a_n_b():
+    """Four steps over three frames, neutral between each stride, and the
+    drawing is a table lookup on the counter."""
+    from spikes import sprites
+    assert sprites.PLAYER_FRAMES == (sprites.PLAYER_N, sprites.PLAYER_A,
+                                     sprites.PLAYER_N, sprites.PLAYER_B)
+    p = Player(8 * CELL, 8 * CELL)
+    shown = [sprites.PLAYER_FRAMES[p.stride]]
+    for _ in range(16):
         p.move(1, 0, _open())
-    assert p.frame == 1
+        if sprites.PLAYER_FRAMES[p.stride] is not shown[-1]:
+            shown.append(sprites.PLAYER_FRAMES[p.stride])
+    assert shown == [sprites.PLAYER_N, sprites.PLAYER_A, sprites.PLAYER_N,
+                     sprites.PLAYER_B, sprites.PLAYER_N]
+
+
+def test_standing_still_holds_whichever_stride_the_player_was_on():
+    """No still frame and no idle counter. A figure that stops mid-stride
+    stays on that stride, which is how every 8-bit walker stops."""
+    p = Player(8 * CELL, 8 * CELL)
+    for _ in range(4):
+        p.move(1, 0, _open())
+    assert p.stride == 1
     for _ in range(100):
         p.move(0, 0, _open())
-    assert p.frame == 1
+    assert p.stride == 1
+
+
+def test_a_shuffle_shorter_than_a_stride_never_advances():
+    """Three pixels east and three back, over and over, is not walking: the
+    figure never gets four pixels from where it last strode."""
+    p = Player(8 * CELL + 3, 8 * CELL + 3)
+    for _ in range(10):
+        for dx in (1, 1, 1, -1, -1, -1):
+            p.move(dx, 0, _open())
+            assert p.stride == 0, "a shuffle on the spot walked"
+
+
+def test_a_nudge_is_one_stride_and_not_two():
+    """The corner assist can carry the player seven pixels sideways in one
+    frame. That is one stride: the counter asks *four or more*, not *how many
+    fours*. An accumulator that counted every moved pixel was tried first
+    and strode twice here, which showed as the cycle skipping a frame
+    exactly where the figure was already jumping."""
+    def solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return cy == 9 and cx != 5
+
+    p = Player(5 * CELL + 7, 7 * CELL)          # a seven-pixel nudge away
+    assert p.move(0, 1, solid)
+    assert p.x == 5 * CELL and p.y == 7 * CELL + 1, "the assist did not fire"
+    assert p.stride == 1, "a nudge of seven pixels is one stride"
 
 
 def test_a_blocked_walk_does_not_stride():
@@ -312,7 +355,7 @@ def test_a_blocked_walk_does_not_stride():
     p = Player(*scene.PLAYER_START)
     for _ in range(400):
         p.move(-1, 0, scene.ROOM_NEAR.is_solid)          # jam against the west wall
-    frame = p.frame
+    stride = p.stride
     for _ in range(50):
         assert p.move(-1, 0, scene.ROOM_NEAR.is_solid) is False
-    assert p.frame == frame
+    assert p.stride == stride

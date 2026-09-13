@@ -1,81 +1,87 @@
 ; worker.txt
 ;
-; A trapped worker, waiting, seen from directly overhead. Two frames.
+; A trapped worker, waiting, seen from the front. Two frames: calling,
+; and the wave.
 ;
-; REDRAWN 2026-09-11 (issue #60): the same person as the follower --
-; the same disc, the same shoulders -- with the arms raised, which
-; from above is TWO HANDS BESIDE THE CROWN and nothing at the hips.
-; The figure before this one had arm strips running from the raised
-; hands down to the shoulders, which is what raised arms look like
-; from the front; from above an arm seen end-on is a hand and nothing
-; else. The hands are the only thing in the figure that reach the
-; column's edges, at rows 1-2, which is the tell the edge-row table
-; has always given a waiting worker. The body sits a row lower than
-; the follower's so that the head rows differ in the middle columns,
-; which is what assertion 2 of the legibility contract asks.
+; REDRAWN 2026-09-12 (issue #72), IN ELEVATION, with the player and
+; the follower and for the same reason -- see player.txt for the
+; ruling. The same person as the follower -- the same head, neck,
+; shoulders, legs and boots -- with the ARMS UP: two arm strips rising
+; from the shoulders past the head to hands above it, which is what
+; raised arms look like from the front and is the whole of the signal.
+; It is the only figure with ink on the top row that is not the
+; player's lamp, and where the lamp is four centred pixels the hands
+; are two pairs either side of the lamp's middle two columns, so the
+; two are never the same shape at the top where a glow finds them.
 ;
-; IT IS THE FIGURE THE REDRAW HELPS LEAST, and that is said here
-; rather than found later. A waiting worker does not step in this
-; build -- workers do not wander -- so its frame never flips and it
-; stands on A. The designer's mock read a still plan-view worker as
-; "something with ears"; this drawing moves the hands up and out
-; rather than beside the head, and whether that is enough is the
-; sprite checkpoint's to say.
+; The hands were moved in from the edge columns before this was built:
+; the designer's mock put them at columns 0 and 7, and the contract
+; check found that put the whole difference from the follower in the
+; edge columns, which is the fault assertion 2 exists to refuse.
+;
+; THE WAVE PLAYS ON THE SHOUT. A waiting worker does not walk, so it
+; has no stride; what it has is the call it already raises every few
+; seconds. While its HELP is painted on the screen it is drawn on
+; WORKER_W -- arms out from the shoulders, hands level with the head --
+; and goes back to WORKER when the word clears. On the event, never on
+; a counter and never on a random number: the cells are already dirty
+; for the word, so the wave costs no redraw the shout was not paying
+; for. This is the one-line lever the plan-view drawing named and did
+; not pull; the user's ruling pulled it (row 6 of "Look and feel 2").
 ;
 ;   Do NOT give it a counter to make it look alive. It is waiting.
 ;
-; Cadence is movement for every figure in the game, and a counter
-; here would be the first exception. The lever, if a cold read finds
-; the still figure wanting, is a WAVE ON THE SHOUT: flip the frame on
-; the event the worker already raises every few seconds, which costs
-; a redraw the HELP word already dirties the cells for. Not taken,
-; because the user ruled cadence tied to movement for all three; the
-; B frame exists so that it is a one-line change and so that the
-; contract and the sprite sheet cover every frame of every figure.
+; Breathing was refused with the fly's own lesson: the tester measured
+; a frame change of eight corner pixels and found it read as no
+; animation at all, and a breath at 8x16 is two pixels of shoulder for
+; a redraw of a figure that has not moved.
 ;
-; 42 pixels. The frames differ in the feet alone, eight pixels, rows
-; 11-12; B is A in the mirror.
+; A dropped follower goes back to WORKER on the frame it is dropped,
+; because the drawing is chosen from the state and not remembered.
+;
+; 50 pixels calling, 44 waving. The wave keeps rows 4 onward.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
-; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
-; with ';' rather than '#', which is what a row of eight set pixels
+; and spectrum/src/bitmaps.asm by tools/bitmaps.py, which also
+; derives the one-pixel halo mask (issue #70). Comments start with
+; ';' rather than '#', which is what a row of eight set pixels
 ; starts with -- the first version of this format used '#' and
 ; silently ate the player's shoulders.
 
-name: WORKER_A
+name: WORKER
 size: 8x16
-........
-##....##   hands, raised beside the crown
-##....##
-...##...   head, a row lower than the follower's
-..####..
-..####..
-..####..
+.##..##.   hands above the head, calling
+.##..##.
+.#.##.#.   arms up, the head between them
+.#.##.#.
 .######.   shoulders
-.######.
-...##...   hips - the arms are up, so no hands here
-...##...
-....##..   feet
-..##....
-........
+...##...   neck
+..####..   trunk
+..####..
+..####..
+..####..
+..#..#..   legs
+..#..#..
+..#..#..
+.##..##.   boots
 ........
 ........
 
-name: WORKER_B
+name: WORKER_W
 size: 8x16
 ........
-##....##   hands, raised
-##....##
-...##...   head
-..####..
-..####..
-..####..
-.######.   shoulders
-.######.
-...##...   hips
-...##...
-..##....   feet swapped
-....##..
 ........
+#..##..#   the wave: hands out, level with the head
+##.##.##   arms out from the shoulders
+.######.   shoulders
+...##...   neck
+..####..   trunk
+..####..
+..####..
+..####..
+..#..#..   legs
+..#..#..
+..#..#..
+.##..##.   boots
 ........
 ........

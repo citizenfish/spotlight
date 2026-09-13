@@ -13,6 +13,7 @@ from spotlight.core.constants import CELL
 
 from .layout import PLAY_ROWS
 from .sources import DOWN, LEFT, RIGHT, UP
+from .walk import Stride
 
 #: Pixels per frame. At 50Hz, 1 is a slow walk and 2 is brisk.
 SPEED = 1
@@ -46,33 +47,31 @@ STEP = {UP: (0, -1), DOWN: (0, 1), LEFT: (-1, 0), RIGHT: (1, 0)}
 
 
 class Player:
-    """Position in pixels, facing in cells, and which foot is forward."""
+    """Position in pixels, facing in cells, and where he is in his stride."""
 
-    __slots__ = ("x", "y", "facing", "frame")
+    __slots__ = ("x", "y", "facing", "walk")
 
     def __init__(self, x: int, y: int, facing: int = RIGHT) -> None:
         self.x, self.y = x, y
         self.facing = facing
-        #: **Which walk frame he is drawn in** (issue #60): one bit, flipped
-        #: in `move` when the figure crosses a cell boundary -- when `x // CELL`
-        #: or `y // CELL` changes -- and at no other time. The Cleg's default
-        #: rule, `clegs.Cleg.wing`, for the same reason: the cadence is
-        #: movement. (The Cleg gained two bounded exceptions in issue #61;
-        #: the people have none.)
-        #:
-        #: **Not on every moved pixel.** He moves a pixel a frame, so a flip
-        #: per pixel would be a 25Hz strobe; a flip per cell is one every eight
-        #: frames of walking, about 6Hz, which is a walk. Standing still he
-        #: holds whichever frame he was on -- there is no still frame and no
-        #: counter -- which is how every 8-bit walker stops and it reads fine.
+        #: **Where he is in the walk cycle** (issue #72): a `walk.Stride`,
+        #: stepped in `move` after both axes have resolved, advancing every
+        #: four pixels of travel along either axis and at no other time. The
+        #: cadence is movement, as a Cleg's wing is on a step; it was one bit
+        #: flipped on a cell crossing (issue #60), which the user played and
+        #: found too slow to read as a walk -- see `walk` for the argument.
         #:
         #: **Drawing state, and nothing in the rules reads it.** The event log
         #: is byte-identical with it and without it, and a test pins that by
-        #: flipping it by hand every frame and comparing the logs. It adds no
-        #: dirty cell either: a figure that crossed a cell is being erased and
-        #: redrawn on that frame anyway, so the second frame costs the bytes it
-        #: is stored in and nothing per frame.
-        self.frame = 0
+        #: setting it by hand every frame and comparing the logs. It adds no
+        #: dirty cell either: it only changes on a frame he moved, and on such
+        #: a frame he is being erased and redrawn anyway.
+        self.walk = Stride(x, y)
+
+    @property
+    def stride(self) -> int:
+        """0-3: the index into `sprites.PLAYER_FRAMES`, the cycle `N A N B`."""
+        return self.walk.index
 
     # --- where the player is, in cells --------------------------------------
 
@@ -146,20 +145,15 @@ class Player:
         elif dy:
             self.facing = DOWN if dy > 0 else UP
 
-        # The cell before the move, so the flip is judged once, after both
-        # axes have resolved: a diagonal step that crosses a column and a row
-        # at once is one stride, not two, and a nudge that carries the figure
-        # over a boundary counts the same as walking over it -- the figure
-        # crossed a cell and is redrawn in a new one either way.
-        before = (self.x // CELL, self.y // CELL)
         moved = False
         if dx:
             moved |= self._step(dx * SPEED, 0, is_solid)
         if dy:
             moved |= self._step(0, dy * SPEED, is_solid)
-        if (self.x // CELL, self.y // CELL) != before:
-            # He stepped a cell, so the walk takes a stride. See `frame`.
-            self.frame ^= 1
+        # The stride is judged once, after both axes have resolved, so a
+        # diagonal step is one stride and not two, and a nudge that carries
+        # the figure sideways counts as the travel it is. See `walk`.
+        self.walk.moved_to(self.x, self.y)
         return moved
 
     def _step(self, dx: int, dy: int, is_solid) -> bool:

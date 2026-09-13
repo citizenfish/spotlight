@@ -793,19 +793,19 @@ FLOOR_LIT_15 = (
 FOLLOWER_A = (
     0x00,  # ........
     0x00,  # ........
-    0x18,  # ...##...   head, a disc
+    0x3C,  # ..####..   head
+    0x24,  # ..#..#..   face
     0x3C,  # ..####..
-    0x3C,  # ..####..
-    0x3C,  # ..####..
+    0x18,  # ...##...   neck
     0x7E,  # .######.   shoulders
-    0x7E,  # .######.
-    0x58,  # .#.##...   hands beside the hips, swinging
-    0x1A,  # ...##.#.
-    0x0C,  # ....##..   feet
-    0x30,  # ..##....
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
+    0xBD,  # #.####.#   arms
+    0x3D,  # ..####.#   one arm swings forward
+    0x3C,  # ..####..
+    0x3C,  # ..####..   belt
+    0x44,  # .#...#..   legs scissor
+    0x42,  # .#....#.
+    0x82,  # #.....#.
+    0xC3,  # ##....##   boots, out to the edges
     0x00,  # ........
 )
 
@@ -813,39 +813,39 @@ FOLLOWER_A = (
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
 FOLLOWER_A_MASK = (
     0x00,  # ........
-    0x3C,  # ..####..
     0x7E,  # .######.
     0x7E,  # .######.
     0x7E,  # .######.
-    0xFF,  # ########
+    0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
     0x7F,  # .#######
-    0x7E,  # .######.
-    0x78,  # .####...
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
+    0xFE,  # #######.
+    0xFF,  # ########
+    0xEF,  # ###.####
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
 )
 
 FOLLOWER_B = (
     0x00,  # ........
     0x00,  # ........
-    0x18,  # ...##...   head
+    0x3C,  # ..####..   head
+    0x24,  # ..#..#..   face
     0x3C,  # ..####..
-    0x3C,  # ..####..
-    0x3C,  # ..####..
+    0x18,  # ...##...   neck
     0x7E,  # .######.   shoulders
-    0x7E,  # .######.
-    0x1A,  # ...##.#.   frame A in the mirror
-    0x58,  # .#.##...
-    0x30,  # ..##....   feet swapped
-    0x0C,  # ....##..
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
+    0xBD,  # #.####.#   arms
+    0xBC,  # #.####..   frame A in the mirror
+    0x3C,  # ..####..
+    0x3C,  # ..####..   belt
+    0x22,  # ..#...#.   legs scissor the other way
+    0x42,  # .#....#.
+    0x41,  # .#.....#
+    0xC3,  # ##....##   boots
     0x00,  # ........
 )
 
@@ -853,21 +853,61 @@ FOLLOWER_B = (
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
 FOLLOWER_B_MASK = (
     0x00,  # ........
-    0x3C,  # ..####..
     0x7E,  # .######.
     0x7E,  # .######.
     0x7E,  # .######.
-    0xFF,  # ########
+    0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
     0xFE,  # #######.
+    0x7F,  # .#######
+    0xFF,  # ########
+    0xF7,  # ####.###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+)
+
+FOLLOWER_N = (
+    0x00,  # ........
+    0x00,  # ........
+    0x3C,  # ..####..   head
+    0x24,  # ..#..#..   face
+    0x3C,  # ..####..
+    0x18,  # ...##...   neck
+    0x7E,  # .######.   shoulders, six wide
+    0xBD,  # #.####.#   arms
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#   hands at the hips
+    0x3C,  # ..####..   belt
+    0x24,  # ..#..#..   legs together
+    0x24,  # ..#..#..
+    0x24,  # ..#..#..
+    0x66,  # .##..##.   boots
+    0x00,  # ........
+)
+
+#: FOLLOWER_N's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+FOLLOWER_N_MASK = (
+    0x00,  # ........
     0x7E,  # .######.
-    0x1E,  # ...####.
-    0x00,  # ........
-    0x00,  # ........
-    0x00,  # ........
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
 )
 
 GRATING = (
@@ -1024,29 +1064,28 @@ PIPE_V = (
 )
 
 PLAYER_A = (
-    0x00,  # ........
-    0x3C,  # ..####..   the lamp, worn on the helmet
+    0x3C,  # ..####..   the lamp
     0x3C,  # ..####..
-    0x7E,  # .######.   helmet, a disc four rows deep
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0xFF,  # ########   shoulders, full width - the kit
-    0xFF,  # ########
-    0xBC,  # #.####..   a hand forward, beside the hip
-    0x19,  # ...##..#   the other hand, swung back
-    0x0C,  # ....##..   a foot out from under
-    0x30,  # ..##....   the other, behind
-    0x00,  # ........   one clear row, so the mark is not feet
-    0xFF,  # ########   the mark: the only figure with ground under him
-    0xFF,  # ########
+    0x7E,  # .######.   helmet
+    0x5A,  # .#.##.#.   visor
+    0x3C,  # ..####..   chin
+    0xFF,  # ########   shoulders
+    0xDB,  # ##.##.##   arms
+    0x99,  # #..##..#   arms swing
+    0xBD,  # #.####.#
+    0x3D,  # ..####.#   one hand forward, off the hip
+    0x3C,  # ..####..   belt
+    0x44,  # .#...#..   legs scissor
+    0x42,  # .#....#.
+    0x82,  # #.....#.
+    0xC3,  # ##....##   boots, out to the edges
+    0x00,  # ........
 )
 
 #: PLAYER_A's mask: the ink dilated one pixel, clipped to its box.
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
 PLAYER_A_MASK = (
     0x7E,  # .######.
-    0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
@@ -1056,36 +1095,76 @@ PLAYER_A_MASK = (
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
-    0x7F,  # .#######
-    0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
-    0xFF,  # ########
+    0xEF,  # ###.####
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
 )
 
 PLAYER_B = (
-    0x00,  # ........
     0x3C,  # ..####..   the lamp
     0x3C,  # ..####..
     0x7E,  # .######.   helmet
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0x7E,  # .######.
+    0x5A,  # .#.##.#.   visor
+    0x3C,  # ..####..   chin
     0xFF,  # ########   shoulders
-    0xFF,  # ########
-    0x3D,  # ..####.#   frame A in the mirror: the other hand forward
-    0x98,  # #..##...
-    0x30,  # ..##....   feet swapped
-    0x0C,  # ....##..
+    0xDB,  # ##.##.##   arms
+    0x99,  # #..##..#   arms swing
+    0xBD,  # #.####.#
+    0xBC,  # #.####..   frame A in the mirror: the other hand forward
+    0x3C,  # ..####..   belt
+    0x22,  # ..#...#.   legs scissor the other way
+    0x42,  # .#....#.
+    0x41,  # .#.....#
+    0xC3,  # ##....##   boots
     0x00,  # ........
-    0xFF,  # ########   the mark
-    0xFF,  # ########
 )
 
 #: PLAYER_B's mask: the ink dilated one pixel, clipped to its box.
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
 PLAYER_B_MASK = (
     0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xF7,  # ####.###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+    0xE7,  # ###..###
+)
+
+PLAYER_N = (
+    0x3C,  # ..####..   the lamp, worn on the helmet
+    0x3C,  # ..####..
+    0x7E,  # .######.   helmet
+    0x5A,  # .#.##.#.   visor
+    0x3C,  # ..####..   chin
+    0xFF,  # ########   shoulders, the kit - the full width, his alone
+    0xDB,  # ##.##.##   arms
+    0xDB,  # ##.##.##
+    0xBD,  # #.####.#
+    0xBD,  # #.####.#   hands at the hips
+    0x3C,  # ..####..   belt
+    0x24,  # ..#..#..   legs together
+    0x24,  # ..#..#..
+    0x24,  # ..#..#..
+    0x66,  # .##..##.   boots
+    0x00,  # ........
+)
+
+#: PLAYER_N's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+PLAYER_N_MASK = (
     0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
@@ -1096,7 +1175,8 @@ PLAYER_B_MASK = (
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
-    0xFE,  # #######.
+    0xFF,  # ########
+    0x7E,  # .######.
     0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
@@ -1466,83 +1546,83 @@ WALL_LIT_15 = (
     0x10,  # ...#....
 )
 
-WORKER_A = (
-    0x00,  # ........
-    0xC3,  # ##....##   hands, raised beside the crown
-    0xC3,  # ##....##
-    0x18,  # ...##...   head, a row lower than the follower's
-    0x3C,  # ..####..
-    0x3C,  # ..####..
-    0x3C,  # ..####..
+WORKER = (
+    0x66,  # .##..##.   hands above the head, calling
+    0x66,  # .##..##.
+    0x5A,  # .#.##.#.   arms up, the head between them
+    0x5A,  # .#.##.#.
     0x7E,  # .######.   shoulders
-    0x7E,  # .######.
-    0x18,  # ...##...   hips - the arms are up, so no hands here
-    0x18,  # ...##...
-    0x0C,  # ....##..   feet
-    0x30,  # ..##....
-    0x00,  # ........
+    0x18,  # ...##...   neck
+    0x3C,  # ..####..   trunk
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x24,  # ..#..#..   legs
+    0x24,  # ..#..#..
+    0x24,  # ..#..#..
+    0x66,  # .##..##.   boots
     0x00,  # ........
     0x00,  # ........
 )
 
-#: WORKER_A's mask: the ink dilated one pixel, clipped to its box.
+#: WORKER's mask: the ink dilated one pixel, clipped to its box.
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
-WORKER_A_MASK = (
-    0xE7,  # ###..###
-    0xE7,  # ###..###
+WORKER_MASK = (
     0xFF,  # ########
     0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
     0x7E,  # .######.
     0x7E,  # .######.
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
-    0xFF,  # ########
-    0x3E,  # ..#####.
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0x78,  # .####...
-    0x00,  # ........
     0x00,  # ........
 )
 
-WORKER_B = (
+WORKER_W = (
     0x00,  # ........
-    0xC3,  # ##....##   hands, raised
-    0xC3,  # ##....##
-    0x18,  # ...##...   head
-    0x3C,  # ..####..
-    0x3C,  # ..####..
-    0x3C,  # ..####..
+    0x00,  # ........
+    0x99,  # #..##..#   the wave: hands out, level with the head
+    0xDB,  # ##.##.##   arms out from the shoulders
     0x7E,  # .######.   shoulders
-    0x7E,  # .######.
-    0x18,  # ...##...   hips
-    0x18,  # ...##...
-    0x30,  # ..##....   feet swapped
-    0x0C,  # ....##..
-    0x00,  # ........
+    0x18,  # ...##...   neck
+    0x3C,  # ..####..   trunk
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x3C,  # ..####..
+    0x24,  # ..#..#..   legs
+    0x24,  # ..#..#..
+    0x24,  # ..#..#..
+    0x66,  # .##..##.   boots
     0x00,  # ........
     0x00,  # ........
 )
 
-#: WORKER_B's mask: the ink dilated one pixel, clipped to its box.
+#: WORKER_W's mask: the ink dilated one pixel, clipped to its box.
 #: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
-WORKER_B_MASK = (
-    0xE7,  # ###..###
-    0xE7,  # ###..###
-    0xFF,  # ########
-    0xFF,  # ########
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0xFF,  # ########
-    0xFF,  # ########
-    0xFF,  # ########
-    0xFF,  # ########
-    0x7C,  # .#####..
-    0x7E,  # .######.
-    0x7E,  # .######.
-    0x1E,  # ...####.
+WORKER_W_MASK = (
     0x00,  # ........
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
     0x00,  # ........
 )
 
@@ -1610,6 +1690,7 @@ BITMAPS = {
     "FLOOR_LIT_15": FLOOR_LIT_15,
     "FOLLOWER_A": FOLLOWER_A,
     "FOLLOWER_B": FOLLOWER_B,
+    "FOLLOWER_N": FOLLOWER_N,
     "GRATING": GRATING,
     "HOUSING": HOUSING,
     "KEY": KEY,
@@ -1620,6 +1701,7 @@ BITMAPS = {
     "PIPE_V": PIPE_V,
     "PLAYER_A": PLAYER_A,
     "PLAYER_B": PLAYER_B,
+    "PLAYER_N": PLAYER_N,
     "SPRAY": SPRAY,
     "WALL_DIM_00": WALL_DIM_00,
     "WALL_DIM_01": WALL_DIM_01,
@@ -1653,8 +1735,8 @@ BITMAPS = {
     "WALL_LIT_13": WALL_LIT_13,
     "WALL_LIT_14": WALL_LIT_14,
     "WALL_LIT_15": WALL_LIT_15,
-    "WORKER_A": WORKER_A,
-    "WORKER_B": WORKER_B,
+    "WORKER": WORKER,
+    "WORKER_W": WORKER_W,
 }
 
 #: Every sprite's mask, keyed by the sprite's name (issue #70).
@@ -1669,6 +1751,7 @@ MASKS = {
     "DOOR_OPEN": DOOR_OPEN_MASK,
     "FOLLOWER_A": FOLLOWER_A_MASK,
     "FOLLOWER_B": FOLLOWER_B_MASK,
+    "FOLLOWER_N": FOLLOWER_N_MASK,
     "HOUSING": HOUSING_MASK,
     "KEY": KEY_MASK,
     "LAMP_OFF": LAMP_OFF_MASK,
@@ -1676,6 +1759,7 @@ MASKS = {
     "NEST": NEST_MASK,
     "PLAYER_A": PLAYER_A_MASK,
     "PLAYER_B": PLAYER_B_MASK,
-    "WORKER_A": WORKER_A_MASK,
-    "WORKER_B": WORKER_B_MASK,
+    "PLAYER_N": PLAYER_N_MASK,
+    "WORKER": WORKER_MASK,
+    "WORKER_W": WORKER_W_MASK,
 }

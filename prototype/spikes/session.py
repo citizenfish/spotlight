@@ -1737,8 +1737,8 @@ class Session:
             #
             # The people are passed in because the word may not land on one:
             # a sign forces its cell's ink, so a shout on the player's feet
-            # paints the mark that means *this is you* in the colour that means
-            # *a voice*. Only gathered when somebody is actually calling.
+            # paints the figure that means *this is you* in the colour that
+            # means *a voice*. Only gathered when somebody is actually calling.
             people = self._people_cells(place) if calling else frozenset()
             runs = [w.call_cells(people) for w in calling]
             cells = [c for run in runs for c in run]
@@ -2008,21 +2008,31 @@ class Session:
         # they are dropped, because the sprite is chosen from the state rather
         # than remembered.
         #
-        # **And every person walks, on two frames, picked by the figure's own
-        # frame bit** (issue #60) -- exactly as a Cleg's wing is, and never by
-        # `self.frame`, which would be a 25Hz strobe. The bit flips when the
-        # figure crosses a cell and at no other time, so a waiting worker,
-        # who never moves, stands on frame A, and a follower strides when the
-        # trail carries them over a boundary. Choosing the frame here is a
-        # table lookup on a bit that was already decided; it adds no dirty
-        # cell, because a figure that crossed a cell is redrawn on that frame
-        # regardless.
+        # **And every walking figure walks on four strides, picked by the
+        # figure's own stride counter** (issue #72) -- exactly as a Cleg's
+        # wing is, and never by `self.frame`, which would be a 25Hz strobe.
+        # The counter advances every four pixels of travel and at no other
+        # time, so a follower strides as the trail carries them. Choosing the
+        # frame here is a table lookup on a counter that was already decided;
+        # it adds no dirty cell, because a figure that moved is redrawn on
+        # that frame regardless.
+        #
+        # **A waiting worker does not walk; it waves on the shout.** Drawn on
+        # `WORKER` while silent and on `WORKER_W` for exactly the frames its
+        # HELP is painted -- `self.shouting` is the list `_light` built this
+        # frame and the word below is painted from the same answer, so the
+        # wave and the word can never disagree about a frame. No counter and
+        # no random number: a waiting worker that is not shouting is still.
+        # The `calls_on` switch silences the wave with the word, because a
+        # switch labelled "workers call for help" that left one kind of
+        # calling running would be a liar.
         for worker in self.rescue.alive_waiting(self.here):
-            sprites.draw(screen, sprites.WORKER_FRAMES[worker.frame],
+            sprites.draw(screen,
+                         sprites.WORKER_FRAMES[worker in self.shouting],
                          worker.x, worker.y, visible=field.reveals_at)
         for worker in self.rescue.tail:
             if worker.room == self.here:
-                sprites.draw(screen, sprites.FOLLOWER_FRAMES[worker.frame],
+                sprites.draw(screen, sprites.FOLLOWER_FRAMES[worker.stride],
                              worker.x, worker.y, visible=field.reveals_at)
         # The frame is the fly's own wing phase, advanced when it steps a
         # cell, and -- since issue #61 -- on the clock while it is attached
@@ -2036,7 +2046,7 @@ class Session:
             sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
                          cleg.cx * CELL, cleg.cy * CELL,
                          visible=field.reveals_at)
-        sprites.draw(screen, sprites.PLAYER_FRAMES[self.player.frame],
+        sprites.draw(screen, sprites.PLAYER_FRAMES[self.player.stride],
                      self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and

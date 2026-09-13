@@ -86,6 +86,7 @@ on them this frame, and the opening flash does not show them.
 from spotlight.core.constants import CELL, COLS
 
 from .layout import PLAY_ROWS
+from .walk import Stride
 
 #: A person is 8x16: one cell wide, two tall.
 WIDTH, HEIGHT = 8, 16
@@ -281,7 +282,7 @@ class Worker:
     """One trapped worker: where they are, how long they have, and what next."""
 
     __slots__ = ("x", "y", "room", "start", "state", "blood", "start_blood",
-                 "reference", "phase", "recorded", "doused", "hatched", "frame",
+                 "reference", "phase", "recorded", "doused", "hatched", "walk",
                  "_tick", "_since_death")
 
     def __init__(self, x: int, y: int, phase: int = 0,
@@ -326,25 +327,32 @@ class Worker:
         #: held up by the valve keeps its clock and spends its thirty seconds
         #: regardless -- see `owed`.
         self.hatched = 0
-        #: **Which walk frame they are drawn in** (issue #60): one bit,
-        #: flipped in `Rescue.follow` when the trail carries a follower across
-        #: a cell boundary, and at no other time -- the rule `Player.frame`
-        #: and `clegs.Cleg.wing` follow, for the reasons written there.
+        #: **Where they are in the walk cycle** (issue #72): a `walk.Stride`,
+        #: stepped in `Rescue.follow` where the trail places a follower and
+        #: nowhere else, advancing every four pixels the trail carries them
+        #: -- the rule `Player.walk` follows, for the reasons written there.
         #:
-        #: **A waiting worker never moves, so this never flips and they stand
-        #: on frame A.** They are waiting. Do not give them a counter to look
-        #: alive: cadence is movement for every figure in the game, and this
-        #: would be the first exception. The lever if the still figure is found
-        #: wanting is a wave on the shout, in `assets/sprites/worker.txt`.
+        #: **A waiting worker never moves, so this never advances.** They are
+        #: waiting. Do not give them a counter to look alive: cadence is
+        #: movement for every walking figure, and this would be the first
+        #: exception. What a waiting worker has instead is the wave on the
+        #: shout, which is a drawing chosen from `Session.shouting` and is
+        #: not state on the worker at all -- see `session.Session.draw`.
         #:
-        #: The bit says which foot is forward and nothing about what they are,
-        #: so it is kept through a change of state: a follower dropped back to
-        #: waiting is drawn with arms up on the frame they are dropped, on
-        #: whichever foot they were on. Drawing state; nothing in the rules
-        #: reads it, and the event log is the same with it and without it.
-        self.frame = 0
+        #: The stride says which foot is forward and nothing about what they
+        #: are, so it is kept through a change of state: a follower dropped
+        #: back to waiting is drawn with arms up on the frame they are
+        #: dropped, and strides on from where they were if freed again.
+        #: Drawing state; nothing in the rules reads it, and the event log is
+        #: the same with it and without it.
+        self.walk = Stride(x, y)
         self._tick = 0
         self._since_death = 0
+
+    @property
+    def stride(self) -> int:
+        """0-3: the index into `sprites.FOLLOWER_FRAMES`, the cycle `N A N B`."""
+        return self.walk.index
 
     # --- state ------------------------------------------------------------
 
@@ -836,17 +844,16 @@ class Rescue:
             at = TAIL_SPACING * (i + 1)
             if at < len(self._trail):
                 # The walk's stride, judged where the trail places them and
-                # nowhere else: the frame flips when the step the trail hands
-                # over is in a different cell from the one they were in. A
+                # nowhere else: the counter advances when the step the trail
+                # hands over is four pixels from where it last advanced. A
                 # follower moves a pixel a frame when the tail moves, so that
-                # is a flip every eight frames of walking, as the player's is.
-                # The doorway is no special case -- a step from the last column
-                # of one room to the first of the next is a change of cell,
-                # which is what it is. The trail itself is untouched.
-                before = (worker.x // CELL, worker.y // CELL)
+                # is a stride every four frames of walking, as the player's
+                # is. The doorway is no special case: x wraps from one edge of
+                # the screen to the other, which the counter reads as one
+                # stride and never more, because it asks *four or more* and
+                # not *how many fours*. The trail itself is untouched.
                 worker.room, worker.x, worker.y = self._trail[at]
-                if (worker.x // CELL, worker.y // CELL) != before:
-                    worker.frame ^= 1
+                worker.walk.moved_to(worker.x, worker.y)
 
     def at_exit(self, room: int, cells) -> bool:
         """Is the player touching the way out?
