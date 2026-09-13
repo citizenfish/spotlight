@@ -102,11 +102,18 @@ pyproject and the package is not installed — `prototype/pytest.ini` sets
 
 ## Current state
 
-A playable prototype with a face and a voice, tagged `look-2` (2026-09-12).
+A playable prototype with a face and a voice, tagged `look-3` (2026-09-13).
 Two rooms, seven people to walk out, a swarm, and the light bargain the design
 rests on. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
 music, and the mains surge.
+
+The second look-and-feel round, with The Great Escape as the reference, gave it
+a noise floor in place of the dot lattice, people drawn in elevation on the
+plan floor with a four-stride walk, a halo mask on every sprite, a three-frame
+wingbeat, seven furniture tiles (drawn, not yet placed), a rule under the play
+area, a border colour flag, and a beam across the title. All seven slices left
+the event log byte-identical. See *Look and feel 2* in the vault.
 
 The round after it, from the user's own play, added walking overhead figures,
 flies that beat their wings, coursed walls, the flash showing everyone, a
