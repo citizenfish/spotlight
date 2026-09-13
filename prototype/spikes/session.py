@@ -2024,11 +2024,12 @@ class Session:
             if worker.room == self.here:
                 sprites.draw(screen, sprites.FOLLOWER_FRAMES[worker.frame],
                              worker.x, worker.y, visible=field.reveals_at)
-        # The frame is the fly's own wing bit, flipped when it steps a cell,
-        # and -- since issue #61 -- on the clock while it is attached to
-        # somebody, and in place when an idle fly's drift comes up (0, 0).
-        # The flip is done in `Swarm.tick` on the game step; drawing only
-        # reads the bit, so a paused game is a still picture. See
+        # The frame is the fly's own wing phase, advanced when it steps a
+        # cell, and -- since issue #61 -- on the clock while it is attached
+        # to somebody, and in place when an idle fly's drift comes up (0, 0).
+        # Two bits over the cycle A M B M since issue #73, on the same
+        # events. The advance is done in `Swarm.tick` on the game step;
+        # drawing only reads the phase, so a paused game is a still picture. See
         # `clegs.Cleg.wing` for the cost argument and its two exceptions;
         # since issue #60 the people follow the movement rule.
         for cleg in place.swarm.clegs:

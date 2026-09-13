@@ -609,17 +609,51 @@ def test_no_sprite_is_a_solid_block():
         assert not all(b == 0xFF for b in octets(sprite) if b), name
 
 
-def test_the_cleg_has_a_head_a_body_and_wings_in_both_frames():
+def test_the_cleg_has_a_head_a_body_and_wings_in_all_three_frames():
     """A fly seen from above: a head on the axis, wings off it. Wings out is
-    the full width in one row; wings back reaches both edges lower down, at
-    the tips. Either way it reads as an insect and not as debris."""
+    the full width in one row; half swept and swept back reach both edges
+    lower down, at the tips. Any way it reads as an insect and not as
+    debris."""
     for frame in SP.CLEG_FRAMES:
         assert frame[0] == 0x00, "the fly is inside its box"
         assert frame[1] == 0x18, "the head is on the axis"
         assert any(row & 0x80 and row & 0x01 for row in frame), \
             "the wings never reach both edges"
     assert 0xFF in SP.CLEG_A, "wings out is the whole width"
+    assert 0xFF not in SP.CLEG_M, "wings half swept is not the whole width"
     assert 0xFF not in SP.CLEG_B, "wings back is not the whole width"
+
+
+def test_the_middle_frame_sits_between_the_other_two_and_the_table_is_a_m_b_m():
+    """**The third frame** (issue #73). CLEG_M is the wings half swept: ten
+    pixels from A and eighteen from B, head and axis untouched, and -- the
+    check the first two frames passed -- none of the differing pixels on a
+    lit stipple dot, so no part of the beat is hidden by the floor. It is
+    drawn twice a cycle, on the way out and on the way back, so the table
+    is A M B M, its length is the fly's cycle, and no two consecutive
+    entries are the same picture: there is no beat on which a fly is
+    redrawn as itself.
+    """
+    from spikes import clegs
+    a, m, b = SP.CLEG_A, SP.CLEG_M, SP.CLEG_B
+    assert SP.CLEG_FRAMES == (a, m, b, m)
+    assert len(SP.CLEG_FRAMES) == clegs.WING_CYCLE
+    around = SP.CLEG_FRAMES[1:] + SP.CLEG_FRAMES[:1]
+    assert all(x != y for x, y in zip(SP.CLEG_FRAMES, around))
+
+    def differing(p, q):
+        return {(r, c) for r in range(8) for c in range(8)
+                if (p[r] ^ q[r]) & (0x80 >> c)}
+
+    from_a, from_b = differing(a, m), differing(b, m)
+    assert len(from_a) == 10, f"M differs from A by {len(from_a)}"
+    assert len(from_b) == 18, f"M differs from B by {len(from_b)}"
+    assert m[0] == 0x00 and m[1] == 0x18, "the head moved"
+    assert all(r >= 2 for r, _ in from_a | from_b)
+    # The clause that no differing pixel sat on a stipple dot went with the
+    # lattice (issue #71): the floor is now sixteen noise blocks and the halo
+    # (issue #70) is what keeps a flip visible against them.
+    assert sum(bin(row).count("1") for row in m) == 20
 
 
 def test_the_two_cleg_frames_differ_by_twenty_pixels_below_the_head():
@@ -656,12 +690,12 @@ def test_the_two_cleg_frames_differ_by_twenty_pixels_below_the_head():
         f"a pulse of {abs(ink[0] - ink[1])} would read as the fly changing size"
 
 
-def test_neither_cleg_frame_is_the_nests_silhouette():
-    """A nest is a squat solid mass; a Cleg is a thin cross or a dart. Both
-    frames have to keep clear of it, since either may be the one on screen
-    next to a nest."""
+def test_no_cleg_frame_is_the_nests_silhouette():
+    """A nest is a squat solid mass; a Cleg is a thin cross or a dart. All
+    three frames have to keep clear of it, since any may be the one on
+    screen next to a nest."""
     nest = SP.NEST
-    for name, frame in (("A", SP.CLEG_A), ("B", SP.CLEG_B)):
+    for name, frame in (("A", SP.CLEG_A), ("M", SP.CLEG_M), ("B", SP.CLEG_B)):
         differing = sum(1 for ra, rb in zip(frame, nest) if ra != rb)
         assert differing >= 6, f"CLEG_{name} is {differing} rows off the nest"
         ink = sum(bin(row).count("1") for row in frame)

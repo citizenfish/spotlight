@@ -1137,6 +1137,11 @@ def test_a_cleg_that_steps_alternates_its_frame():
     assert steps >= 4, "the fly never set off, so this asks nothing"
     assert all(a != b for a, b in zip(frames, frames[1:])), \
         f"the wingbeat did not alternate with the steps: {frames}"
+    # And since issue #73 it goes round the cycle, one frame a step, rather
+    # than to and fro: a step is the event it always was, and the phase it
+    # leaves is one on from the phase it found.
+    assert all(b == (a + 1) % C.WING_CYCLE for a, b in zip(frames, frames[1:])), \
+        f"the wingbeat did not advance one frame a step: {frames}"
 
 
 def test_a_cleg_sitting_on_somebody_is_still():
@@ -1157,14 +1162,17 @@ def test_a_cleg_sitting_on_somebody_is_still():
     assert cleg.state == C.ATTACHED
     landed = cleg.wing
     seen = set()
-    for step in range(2, 2 + 2 * C.ATTACHED_FLAP_FRAMES):
+    for step in range(2, 2 + C.WING_CYCLE * C.ATTACHED_FLAP_FRAMES):
         victim.cx = 12 + step
         swarm.tick([], (30, 20), OPEN, 64, prey=[victim], frame=step)
         assert cleg.cx == victim.cx, "the fly did not ride its host"
         seen.add(cleg.wing)
-    assert seen == {0, 1}, "a fly on somebody is holding its frame"
+    # Four periods since issue #73, one for each phase of the cycle A M B M;
+    # it was two, and {0, 1}, while a flap was a flip.
+    assert seen == set(range(C.WING_CYCLE)), \
+        "a fly on somebody is holding its frame"
     assert cleg.wing == landed, \
-        "two full periods should bring it back to the frame it landed in"
+        "a cycle of periods should bring it back to the frame it landed in"
 
 
 def _attach_to_player(cleg, frame=0):
@@ -1303,15 +1311,101 @@ def test_the_twitch_rate_is_one_heading_in_four_and_is_not_tuned():
     assert cleg.heading == (1, 0), "and a non-null nibble is a heading"
 
 
-def test_the_wingbeat_is_one_bit_and_indexes_the_frame_table():
-    """One bit per fly, and the drawing is a table lookup rather than a branch.
+def test_the_wingbeat_is_two_bits_and_indexes_the_frame_table():
+    """Two bits per fly since issue #73 -- one until then -- and the drawing
+    is a table lookup rather than a branch.
 
     Stated as a test because it is the thing that makes the animation free on
-    the Z80: an eight-bit `wing` would be a byte per fly and a comparison per
-    draw, and neither is needed.
+    the Z80: `wing` never leaves 0-3, so `sprites.CLEG_FRAMES[wing]` needs no
+    check, and a byte that counted on past the table would be a comparison
+    per draw that is not needed.
     """
     cleg = C.Cleg(10, 10, seed=0xBEEF)
     swarm = C.Swarm([cleg])
     for _ in range(120):
         swarm.tick(_lures((30, 10)), (30, 10), OPEN, 64)
-        assert cleg.wing in (0, 1)
+        assert cleg.wing in range(C.WING_CYCLE)
+    assert C.WING_CYCLE == 4, "the cycle is A M B M, which is four"
+
+
+# --- the third frame: a cycle where there was a flip (issue #73) -----------
+
+def test_a_beat_advances_the_phase_by_one_and_wraps_after_four():
+    """The arithmetic of the cycle on its own: 0 1 2 3 0, which
+    `sprites.CLEG_FRAMES` reads as A M B M A."""
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    assert cleg.wing == 0, "a fly is born wings out"
+    seen = []
+    for _ in range(2 * C.WING_CYCLE):
+        cleg._beat()
+        seen.append(cleg.wing)
+    assert seen == [1, 2, 3, 0, 1, 2, 3, 0]
+
+
+def test_each_of_the_three_events_advances_the_phase_by_exactly_one():
+    """The same three events as the flip -- a step, the idle twitch, the
+    attached clock -- each move the phase one place round the cycle, so a
+    fly that would have flipped is redrawn on the same frame, with the next
+    frame of three instead of the other of two. A refused step is not an
+    event and never was: the phase holds."""
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    was = cleg.wing
+    assert cleg._try(1, 0, OPEN), "the step was refused, so this asks nothing"
+    assert cleg.wing == (was + 1) % C.WING_CYCLE, "a step is one beat"
+    was = cleg.wing
+    assert cleg._try(0, 0, OPEN)
+    assert cleg.wing == (was + 1) % C.WING_CYCLE, "a twitch is one beat"
+    was = cleg.wing
+    cleg.flap(C.ATTACHED_FLAP_FRAMES - cleg.phase)      # the frame it fires on
+    assert cleg.wing == (was + 1) % C.WING_CYCLE, "the clock is one beat"
+    was = cleg.wing
+    assert not cleg._try(1, 0, lambda cx, cy: True)
+    assert cleg.wing == was, "a refused step beat the wings"
+
+
+def test_the_phase_advances_on_exactly_the_events_the_flip_did_and_no_others():
+    """**The acceptance criterion, pinned by structure** (issue #73).
+
+    The wing bit flipped in two places: `_try`, on a step, which is also the
+    idle twitch's step into its own cell, and `flap`, on the attached clock.
+    The third frame had to change which picture those events draw and not
+    which events there are, or a fly would be redrawn on a frame it was not
+    before and the repaint figures would move. So `_beat` is the only thing
+    that writes `wing` after the constructor, and `_try` and `flap` are the
+    only things that call it. A fourth caller, or a second writer, fails
+    here by name.
+    """
+    import ast
+    import inspect
+
+    writers, callers = [], []
+    for node in ast.walk(ast.parse(inspect.getsource(C))):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, (ast.Assign, ast.AugAssign)):
+                targets = (inner.targets if isinstance(inner, ast.Assign)
+                           else [inner.target])
+                if any(isinstance(t, ast.Attribute) and t.attr == "wing"
+                       for t in targets):
+                    writers.append(node.name)
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "_beat"):
+                callers.append(node.name)
+    assert writers == ["__init__", "_beat"], writers
+    assert sorted(callers) == ["_try", "flap"], callers
+
+
+def test_the_beat_draws_no_random_number_and_leaves_the_phase_offset_alone():
+    """Drawing state. Beating a fly round the cycle any number of times
+    leaves its xorshift stream where it was, so the headings it rolls
+    afterwards -- and every event log in the project -- are what they were;
+    and its attached-flap offset, read off that seed, does not move with the
+    frame it happens to be drawn in."""
+    cleg = C.Cleg(10, 10, seed=0xBEEF)
+    seed, offset = cleg._seed, cleg.phase
+    for _ in range(4 * C.WING_CYCLE + 1):
+        cleg._beat()
+    assert cleg._seed == seed, "a beat consumed a random number"
+    assert cleg.phase == offset

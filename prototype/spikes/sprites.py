@@ -228,9 +228,18 @@ CLEG_A = BITMAPS["CLEG_A"]
 #: no animation at all). Four fewer pixels of ink, deliberately: the pulse.
 CLEG_B = BITMAPS["CLEG_B"]
 
-#: The two Cleg frames, indexed by the fly's own wing bit, so that drawing a
-#: swarm is a table lookup rather than a branch per fly.
-CLEG_FRAMES = (CLEG_A, CLEG_B)
+#: The same Cleg, wings half swept: the frame between the other two (issue
+#: #73). Drawn twice a beat, on the way out and on the way back, so that the
+#: wingbeat passes through a middle position instead of snapping between two
+#: pictures. Ten pixels from A, eighteen from B, none of them on a lit
+#: stipple dot; see `assets/sprites/cleg.txt`.
+CLEG_M = BITMAPS["CLEG_M"]
+
+#: The wingbeat as a cycle, indexed by the fly's own two-bit phase
+#: (`clegs.Cleg.wing`), so that drawing a swarm is a table lookup rather than
+#: a branch per fly. Four entries for three frames: M is in it twice, and
+#: `clegs.WING_CYCLE` says four so the phase cannot run off the table.
+CLEG_FRAMES = (CLEG_A, CLEG_M, CLEG_B, CLEG_M)
 
 #: A nest: a squat, dense mass with a broken top edge and an off-centre lip.
 #: Redrawn for issue #49 -- it was a rim with a bar in it, which at 1:1 is a
@@ -266,13 +275,18 @@ KEY = BITMAPS["KEY"]
 #: side. `test_spike_gallery` pins that no caption overruns its block or
 #: touches its neighbour, so a sprite inserted here without a thought about
 #: the layout fails the suite rather than quietly printing over one.
+#:
+#: The Cleg's three frames fill one row in the order a wingbeat draws them,
+#: A M B (issue #73), so the beat can be read across the sheet; the two doors
+#: then stand one over the other in the right column, which is the only
+#: place DOOR LOCKED fits.
 SPRITES = {
     "player_a": PLAYER_A, "player_b": PLAYER_B, "follower_a": FOLLOWER_A,
     "worker_a": WORKER_A, "worker_b": WORKER_B, "follower_b": FOLLOWER_B,
-    "body": BODY, "cleg_a": CLEG_A, "cleg_b": CLEG_B,
-    "nest": NEST, "key": KEY, "door_open": DOOR_OPEN,
-    "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_locked": DOOR_LOCKED,
-    "housing": HOUSING, "batten": BATTEN,
+    "cleg_a": CLEG_A, "cleg_m": CLEG_M, "cleg_b": CLEG_B,
+    "body": BODY, "nest": NEST, "key": KEY,
+    "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_open": DOOR_OPEN,
+    "housing": HOUSING, "batten": BATTEN, "door_locked": DOOR_LOCKED,
 }
 
 #: The three figures on their feet, each with its two walk frames, keyed by

@@ -103,6 +103,26 @@ CLEG_B_MASK:
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
 
+CLEG_M:
+        DEFB $00                   ; ........
+        DEFB $18                   ; ...##...   head, unchanged
+        DEFB $66                   ; .##..##.   wings half swept, clear of the body
+        DEFB $3C                   ; ..####..   the roots, as in B
+        DEFB $18                   ; ...##...   body
+        DEFB $18                   ; ...##...
+        DEFB $99                   ; #..##..#   wingtips, level with the abdomen
+        DEFB $42                   ; .#....#.   legs, as in A
+
+CLEG_M_MASK:
+        DEFB $3C                   ; ..####..
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+
 CRATE:
         DEFB $FF                   ; ########   a crate from above: a box with its lid nailed across the diagonals
         DEFB $81                   ; #......#

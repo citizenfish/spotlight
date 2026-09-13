@@ -125,6 +125,30 @@ CLEG_B_MASK = (
     0xFF,  # ########
 )
 
+CLEG_M = (
+    0x00,  # ........
+    0x18,  # ...##...   head, unchanged
+    0x66,  # .##..##.   wings half swept, clear of the body
+    0x3C,  # ..####..   the roots, as in B
+    0x18,  # ...##...   body
+    0x18,  # ...##...
+    0x99,  # #..##..#   wingtips, level with the abdomen
+    0x42,  # .#....#.   legs, as in A
+)
+
+#: CLEG_M's mask: the ink dilated one pixel, clipped to its box.
+#: Derived by tools/bitmaps.py; a set bit is a pixel to clear.
+CLEG_M_MASK = (
+    0x3C,  # ..####..
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+    0x7E,  # .######.
+    0xFF,  # ########
+    0xFF,  # ########
+    0xFF,  # ########
+)
+
 CRATE = (
     0xFF,  # ########   a crate from above: a box with its lid nailed across the diagonals
     0x81,  # #......#
@@ -1530,6 +1554,7 @@ BITMAPS = {
     "CABINET": CABINET,
     "CLEG_A": CLEG_A,
     "CLEG_B": CLEG_B,
+    "CLEG_M": CLEG_M,
     "CRATE": CRATE,
     "DESK_L": DESK_L,
     "DESK_R": DESK_R,
@@ -1639,6 +1664,7 @@ MASKS = {
     "BODY": BODY_MASK,
     "CLEG_A": CLEG_A_MASK,
     "CLEG_B": CLEG_B_MASK,
+    "CLEG_M": CLEG_M_MASK,
     "DOOR_LOCKED": DOOR_LOCKED_MASK,
     "DOOR_OPEN": DOOR_OPEN_MASK,
     "FOLLOWER_A": FOLLOWER_A_MASK,

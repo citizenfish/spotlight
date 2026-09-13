@@ -2,13 +2,16 @@
 ;
 ; A Cleg: a fat-bodied fly, seen from above like everything else.
 ;
-; TWO FRAMES, wings out against wings back. Head and axis the same
-; in both; the twenty pixels that differ are all in rows 2-7.
+; THREE FRAMES, wings out, half swept, and back, drawn as the cycle
+; A M B M (issue #73). Head and axis the same in all three; every
+; pixel that differs is in rows 2-7.
 ;
-;   The frame flips when the Cleg STEPS A CELL (issue #49). Since
-;   issue #61 it also flips ON THE CLOCK for a fly attached to
+;   The frame advances when the Cleg STEPS A CELL (issue #49). Since
+;   issue #61 it also advances ON THE CLOCK for a fly attached to
 ;   somebody, every clegs.ATTACHED_FLAP_FRAMES game steps, and in
-;   place for an idle fly whose drift heading came up (0, 0).
+;   place for an idle fly whose drift heading came up (0, 0). The
+;   third frame changed none of that: it is drawn on the same
+;   events, so a fly is redrawn exactly when it was before.
 ;
 ; Alternating every fly on the frame counter is a strobe, and it
 ; dirties every fly's cell whether or not the fly moved -- about
@@ -16,7 +19,7 @@
 ; still, against 32,832 for all entities. So the cadence is movement
 ; by default, and the two exceptions are bounded: the attached flies
 ; are the few the player is looking at, and the twitch happens at
-; the rate the drift already rolls it. One bit per fly, in
+; the rate the drift already rolls it. Two bits per fly, in
 ; `clegs.Cleg.wing`; the whole argument is on that attribute.
 ;
 ; REDRAWN 2026-09-11 (issue #61). The first pair differed by eight
@@ -32,6 +35,18 @@
 ; half-hidden by the floor; since issue #71 the floor is sixteen
 ; blocks and the halo (issue #70) clears the dots beside the ink in
 ; both frames, and the worst block hides three of the twenty.
+;
+; A THIRD, 2026-09-12 (issue #73, from the vault's "Why the figures
+; read as clunky"). With two frames the wingbeat was a flip between
+; two pictures; CLEG_M is the wings half swept, between them, and
+; the frames are drawn as the cycle A M B M, so the beat passes
+; through a middle position on the way out and on the way back
+; instead of snapping. Twenty pixels of ink, differing from A by ten
+; and from B by eighteen, and again none of the differing pixels
+; sits on a lit stipple dot. Eight bytes, cell-aligned, no
+; pre-shift, and nothing about when a fly is redrawn changed: a fly
+; that would have flipped now advances one frame, so the repaint
+; figures are the same to the cell.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py. Comments start
@@ -60,3 +75,14 @@ size: 8x8
 #..##..#
 #......#   wingtips, past the abdomen
 ..#..#..   legs, tucked
+
+name: CLEG_M
+size: 8x8
+........
+...##...   head, unchanged
+.##..##.   wings half swept, clear of the body
+..####..   the roots, as in B
+...##...   body
+...##...
+#..##..#   wingtips, level with the abdomen
+.#....#.   legs, as in A

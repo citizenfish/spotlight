@@ -98,9 +98,10 @@ def _attr(ink: int, bright: bool = False) -> int:
 #:
 #: The blank row the blocks used to carry went when the sheet grew from eight
 #: entries to fourteen. Seventeen since the people gained their second frames
-#: (issue #60), which is six rows of three and fills every row between the
-#: heading and the legend exactly; an eighteenth entry fits, a nineteenth does
-#: not, and `test_spike_gallery` says so before it prints into the legend.
+#: (issue #60) and eighteen since the Cleg's third (issue #73), which is six
+#: rows of three and fills every row between the heading and the legend
+#: exactly; a nineteenth does not fit, and `test_spike_gallery` says so
+#: before it prints into the legend.
 _ACROSS = 3
 _BLOCK_W = 10
 _BLOCK_H = 3

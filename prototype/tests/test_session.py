@@ -1327,10 +1327,11 @@ def test_dying_in_the_doorway_does_not_walk_you_out_of_the_building():
 def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
     """The swarm's animation is per fly and comes from the fly, not the frame.
 
-    `clegs.Cleg.wing` holds one bit, flipped when the fly steps a cell, and
-    `draw` indexes `sprites.CLEG_FRAMES` with it. This is the join between the
-    two: a fly in frame B has to be drawn in frame B, on a frame the frame
-    counter says nothing about.
+    `clegs.Cleg.wing` holds a two-bit phase (issue #73; one bit before it),
+    advanced when the fly steps a cell, and `draw` indexes
+    `sprites.CLEG_FRAMES` with it. This is the join between the two: a fly in
+    frame B has to be drawn in frame B, on a frame the frame counter says
+    nothing about.
     """
     from spikes import sprites
 
@@ -1340,7 +1341,7 @@ def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
     cleg.cx, cleg.cy = 20, 5
     run.place.opening.hold(True)
     run.step()
-    for wing in (0, 1):
+    for wing in range(clegs_mod.WING_CYCLE):
         cleg.wing = wing
         cleg.cx, cleg.cy = 20, 5
         screen = Screen()
@@ -1352,9 +1353,11 @@ def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
                     continue
                 assert screen.point(20 * CELL + dx, 5 * CELL + dy), \
                     f"wing {wing} is not drawn in frame {wing}"
-        # And the two frames really are different pictures on the screen.
-        other = sprites.CLEG_FRAMES[1 - wing]
-        assert want != other
+        # And the next frame in the cycle is a different picture, so every
+        # beat the fly makes is visible: four phases, three pictures, M drawn
+        # twice and never twice running (issue #73).
+        following = sprites.CLEG_FRAMES[(wing + 1) % clegs_mod.WING_CYCLE]
+        assert want != following
 
 
 def test_a_cleg_on_the_player_flaps_on_the_sessions_clock():
@@ -1382,6 +1385,37 @@ def test_a_cleg_on_the_player_flaps_on_the_sessions_clock():
     assert len(flips) == 3, f"three periods, three flips, got {flips}"
     assert all(b - a == clegs.ATTACHED_FLAP_FRAMES
                for a, b in zip(flips, flips[1:])), flips
+
+
+def test_the_wingbeat_is_drawing_state_the_rest_of_the_game_cannot_see():
+    """**The acceptance criterion in one run** (issue #73): the wing phase
+    consumes no random number and no rule reads it, so a session played with
+    the beat switched off -- `_beat` a no-op, every fly held wings out --
+    produces the same event log, the same seeds, states and positions, frame
+    for frame, as one played with it on. The thirty-five-run check on the
+    issue is this at full length from outside; this is the same claim kept
+    inside the suite, where it fails with a frame number.
+    """
+    def play(frames, beat):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(clegs_mod.Cleg, "_beat", beat)
+            run = Session(seed=48879)
+            for _ in range(frames):
+                run.step()
+            log = [(e.frame, e.kind, e.who, e.count, e.room) for e in run.log]
+            # The victim by where it is, not by which object it is: the two
+            # runs build two buildings, so the workers are equal, not same.
+            flies = [(c.cx, c.cy, c.state, c._seed, c.heading,
+                      None if c.victim is None else (c.victim.x, c.victim.y))
+                     for c in run.place.swarm.clegs]
+            beaten = any(c.wing for c in run.place.swarm.clegs)
+            return (log, flies, run.frame), beaten
+
+    with_beat, beaten = play(1500, clegs_mod.Cleg._beat)
+    without, held = play(1500, lambda self: None)
+    assert beaten and not held, "the fixture did not beat, so this asks nothing"
+    assert with_beat[0], "nothing happened in 1,500 frames, so this asks nothing"
+    assert with_beat == without
 
 
 # --- the body is laid down, and nothing that reads it moved (issue #59) -----

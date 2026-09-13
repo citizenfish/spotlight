@@ -145,6 +145,13 @@ DRAIN_EVERY = 12
 #: attached fly per flip, about 140 T-states a frame each at six.
 ATTACHED_FLAP_FRAMES = 6
 
+#: Frames in the wingbeat cycle, A M B M (issue #73). `Cleg.wing` counts
+#: 0 to 3 and `sprites.CLEG_FRAMES` is indexed by it, so the two have to
+#: agree and `test_spike_sprites` pins that they do. A power of two so that
+#: advancing is an increment and a mask on the port -- still one byte per
+#: fly, of which two bits are used.
+WING_CYCLE = 4
+
 #: How long a sated Cleg blunders about before it is hungry again, and how
 #: fast it moves while doing it.
 #:
@@ -326,11 +333,17 @@ class Cleg:
         #: Which way it is wandering, and how much longer for.
         self.heading = (0, 0)
         self._run = 0
-        #: **Which wing frame this fly is drawn in**: one bit, flipped in
+        #: **Which wing frame this fly is drawn in**: two bits since issue
+        #: #73, a phase 0-3 over the cycle A M B M that `sprites.CLEG_FRAMES`
+        #: is indexed by, advanced in `_beat`. From issue #49 to #73 it was
+        #: one bit, flipped, and **the third frame changed nothing below
+        #: about when it moves**: a flip became an advance, on the same
+        #: events, so a fly is redrawn exactly when it was. It moves in
         #: `_try` when the fly steps a cell (issue #49), and since issue #61
-        #: also in `flap`, on the clock, while the fly is attached to somebody.
-        #: It was the only animation state anything in the play area carried
-        #: until issue #60 gave the people the same bit under the same rule.
+        #: also in `flap`, on the clock, while the fly is attached to
+        #: somebody. It was the only animation state anything in the play
+        #: area carried until issue #60 gave the people a bit under the same
+        #: rule.
         #:
         #: **The cadence is movement by default, and this is a port decision
         #: wearing an art decision's clothes.** Alternating every fly on
@@ -471,15 +484,40 @@ class Cleg:
         on the game step, and never from the audio interrupt or the shell's
         loop, so a paused game is a still picture. `frame` is the session's
         frame counter; the bit flips when the counter, offset by this fly's
-        `phase`, comes round to a multiple of `ATTACHED_FLAP_FRAMES`.
+        `phase`, comes round to a multiple of `ATTACHED_FLAP_FRAMES`. Since
+        issue #73 that is an advance through the four-frame cycle rather
+        than a flip, on the same frames.
 
         This is the whole of exception 1 to the cadence rule on `wing`, and
-        it is a comparison and a toggle so that its cost on the port is a
-        handful of T-states on the frames it does nothing, which is five in
-        six.
+        it is a comparison and an increment so that its cost on the port is
+        a handful of T-states on the frames it does nothing, which is five
+        in six.
         """
         if (frame + self.phase) % ATTACHED_FLAP_FRAMES == 0:
-            self.wing ^= 1
+            self._beat()
+
+    def _beat(self) -> None:
+        """Advance the wingbeat one frame (issue #73).
+
+        **The one place the wing state moves**, so that the events it moves
+        on -- a step, the attached clock, the idle twitch -- are exactly the
+        three the flip had, and a fourth cannot arrive without being named
+        here. It is drawing state and nothing else: no random number is
+        drawn, no rule reads it, and the event log does not know it exists.
+        The check on issue #73 is the event log byte-identical on thirty-five
+        runs, drawing on and off, and this method is where that would fail
+        if it ever did more than count. One thing it does change: a full
+        beat, wings out to wings out, is now four of these events where it
+        was two, so at the same `ATTACHED_FLAP_FRAMES` an attached fly's
+        out-to-out period doubles. The frame still changes every period;
+        the period is the user's constant and is not touched here.
+
+        The alternative not taken was to keep the bit and add a direction,
+        A-M-B then B-M-A: the same picture with a second byte of state and
+        a branch. A four-entry table with M in it twice draws it with an
+        increment and a mask.
+        """
+        self.wing = (self.wing + 1) & (WING_CYCLE - 1)
 
     def _try(self, dx: int, dy: int, is_solid, avoid=None) -> bool:
         """One step, if the room will have it.
@@ -505,9 +543,9 @@ class Cleg:
         self.cx, self.cy = nx, ny
         # It stepped, so it is being erased and redrawn anyway: the wingbeat
         # rides on the move and costs nothing. See `wing`. **A (0, 0) step
-        # lands here too**, and the flip it causes is the idle twitch of
+        # lands here too**, and the beat it causes is the idle twitch of
         # issue #61 -- deliberate, see `_drift`, and not free.
-        self.wing ^= 1
+        self._beat()
         return True
 
     def _toward(self, tx: int, ty: int, is_solid, avoid=None) -> None:
