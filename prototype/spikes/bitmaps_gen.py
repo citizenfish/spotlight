@@ -66,6 +66,17 @@ BODY_MASK = (
     (0x00, 0xF7),  # ........####.###
 )
 
+CABINET = (
+    0xFF,  # ########   a filing cabinet from above: three drawer fronts
+    0x81,  # #......#
+    0xBD,  # #.####.#
+    0x81,  # #......#
+    0xBD,  # #.####.#
+    0x81,  # #......#
+    0xBD,  # #.####.#
+    0xFF,  # ########
+)
+
 CLEG_A = (
     0x00,  # ........
     0x18,  # ...##...   head
@@ -112,6 +123,39 @@ CLEG_B_MASK = (
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
+)
+
+CRATE = (
+    0xFF,  # ########   a crate from above: a box with its lid nailed across the diagonals
+    0x81,  # #......#
+    0xA5,  # #.#..#.#
+    0x99,  # #..##..#
+    0x99,  # #..##..#
+    0xA5,  # #.#..#.#
+    0x81,  # #......#
+    0xFF,  # ########
+)
+
+DESK_L = (
+    0xFF,  # ########   the left half of a desk: the top, with a blotter on it
+    0x81,  # #......#
+    0xBD,  # #.####.#
+    0xA5,  # #.#..#.#
+    0xBD,  # #.####.#
+    0x81,  # #......#
+    0xFF,  # ########
+    0x00,  # ........
+)
+
+DESK_R = (
+    0xFF,  # ########   the right half of a desk: bare top
+    0x81,  # #......#
+    0x81,  # #......#
+    0x81,  # #......#
+    0x81,  # #......#
+    0x81,  # #......#
+    0xFF,  # ########
+    0x00,  # ........
 )
 
 DOORWAY_00 = (
@@ -802,6 +846,17 @@ FOLLOWER_B_MASK = (
     0x00,  # ........
 )
 
+GRATING = (
+    0x00,  # ........   a grating, floor: a grille of dots, denser than the stipple
+    0x54,  # .#.#.#..
+    0x00,  # ........
+    0x54,  # .#.#.#..
+    0x00,  # ........
+    0x54,  # .#.#.#..
+    0x00,  # ........
+    0x00,  # ........
+)
+
 HOUSING = (
     0x3C,  # ..####..   a ring with a lens: the searchlight, bolted down
     0x42,  # .#....#.
@@ -920,6 +975,28 @@ NEST_MASK = (
     0xFF,  # ########
     0xFF,  # ########
     0xFF,  # ########
+)
+
+PIPE_H = (
+    0x00,  # ........   a pipe run, east-west: two flanged joints and the barrel
+    0xDB,  # ##.##.##
+    0xFF,  # ########
+    0x81,  # #......#
+    0x81,  # #......#
+    0xFF,  # ########
+    0xDB,  # ##.##.##
+    0x00,  # ........
+)
+
+PIPE_V = (
+    0x3C,  # ..####..   a riser, north-south: the same pipe standing up
+    0x42,  # .#....#.
+    0x42,  # .#....#.
+    0x42,  # .#....#.
+    0xC3,  # ##....##   a flange
+    0x42,  # .#....#.
+    0x42,  # .#....#.
+    0xC3,  # ##....##
 )
 
 PLAYER_A = (
@@ -1450,8 +1527,12 @@ WORKER_B_MASK = (
 BITMAPS = {
     "BATTEN": BATTEN,
     "BODY": BODY,
+    "CABINET": CABINET,
     "CLEG_A": CLEG_A,
     "CLEG_B": CLEG_B,
+    "CRATE": CRATE,
+    "DESK_L": DESK_L,
+    "DESK_R": DESK_R,
     "DOORWAY_00": DOORWAY_00,
     "DOORWAY_01": DOORWAY_01,
     "DOORWAY_02": DOORWAY_02,
@@ -1504,11 +1585,14 @@ BITMAPS = {
     "FLOOR_LIT_15": FLOOR_LIT_15,
     "FOLLOWER_A": FOLLOWER_A,
     "FOLLOWER_B": FOLLOWER_B,
+    "GRATING": GRATING,
     "HOUSING": HOUSING,
     "KEY": KEY,
     "LAMP_OFF": LAMP_OFF,
     "LAMP_ON": LAMP_ON,
     "NEST": NEST,
+    "PIPE_H": PIPE_H,
+    "PIPE_V": PIPE_V,
     "PLAYER_A": PLAYER_A,
     "PLAYER_B": PLAYER_B,
     "SPRAY": SPRAY,

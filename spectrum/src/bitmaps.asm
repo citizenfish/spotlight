@@ -53,6 +53,16 @@ BODY_MASK:
         DEFB $07,$FF               ; .....###########
         DEFB $00,$F7               ; ........####.###
 
+CABINET:
+        DEFB $FF                   ; ########   a filing cabinet from above: three drawer fronts
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#
+        DEFB $FF                   ; ########
+
 CLEG_A:
         DEFB $00                   ; ........
         DEFB $18                   ; ...##...   head
@@ -92,6 +102,36 @@ CLEG_B_MASK:
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
+
+CRATE:
+        DEFB $FF                   ; ########   a crate from above: a box with its lid nailed across the diagonals
+        DEFB $81                   ; #......#
+        DEFB $A5                   ; #.#..#.#
+        DEFB $99                   ; #..##..#
+        DEFB $99                   ; #..##..#
+        DEFB $A5                   ; #.#..#.#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+
+DESK_L:
+        DEFB $FF                   ; ########   the left half of a desk: the top, with a blotter on it
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#
+        DEFB $A5                   ; #.#..#.#
+        DEFB $BD                   ; #.####.#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+
+DESK_R:
+        DEFB $FF                   ; ########   the right half of a desk: bare top
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
 
 DOORWAY_00:
         DEFB $00                   ; ........   mask  0, -
@@ -717,6 +757,16 @@ FOLLOWER_B_MASK:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
+GRATING:
+        DEFB $00                   ; ........   a grating, floor: a grille of dots, denser than the stipple
+        DEFB $54                   ; .#.#.#..
+        DEFB $00                   ; ........
+        DEFB $54                   ; .#.#.#..
+        DEFB $00                   ; ........
+        DEFB $54                   ; .#.#.#..
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+
 HOUSING:
         DEFB $3C                   ; ..####..   a ring with a lens: the searchlight, bolted down
         DEFB $42                   ; .#....#.
@@ -816,6 +866,26 @@ NEST_MASK:
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
+
+PIPE_H:
+        DEFB $00                   ; ........   a pipe run, east-west: two flanged joints and the barrel
+        DEFB $DB                   ; ##.##.##
+        DEFB $FF                   ; ########
+        DEFB $81                   ; #......#
+        DEFB $81                   ; #......#
+        DEFB $FF                   ; ########
+        DEFB $DB                   ; ##.##.##
+        DEFB $00                   ; ........
+
+PIPE_V:
+        DEFB $3C                   ; ..####..   a riser, north-south: the same pipe standing up
+        DEFB $42                   ; .#....#.
+        DEFB $42                   ; .#....#.
+        DEFB $42                   ; .#....#.
+        DEFB $C3                   ; ##....##   a flange
+        DEFB $42                   ; .#....#.
+        DEFB $42                   ; .#....#.
+        DEFB $C3                   ; ##....##
 
 PLAYER_A:
         DEFB $00                   ; ........

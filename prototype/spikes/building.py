@@ -177,10 +177,47 @@ WALL, FLOOR, DOOR, KEY = "#", ".", "D", "K"
 #: it is 8x16, it can be locked and it carries a key's hue; a `d` is a hole.
 DOORWAY = "d"
 
+#: **Furniture** (issue #74, from *A place, not a diagram*): things that are
+#: simply there. Seven characters, and every one of them passes the question
+#: above -- a crate is what the cell is made of, not what has been put in it,
+#: which is what lets it be a map character at all where a light or a key
+#: could not be.
+#:
+#: Six are **solid**, and the game knows nothing else about them: a pipe run,
+#: a riser, a crate, the two halves of a desk and a cabinet are `#` in every
+#: mechanical respect -- collision, the swarm's steering, the fade, the
+#: neighbours' 4-neighbour masks -- and differ from `#` only in the tile they
+#: draw, which is their own instead of the masked masonry (`tiles.FURNITURE`).
+#: The seventh, the grating, is **floor** in every mechanical respect --
+#: walkable, remembered, stippled-class -- and draws its own tile instead of
+#: the stipple. That is the whole of the format: a solid piece is a wall
+#: wearing a different tile, a floor piece is floor wearing a different one.
+#:
+#: **Placing them is the level author's**, and the rule for this building is
+#: that a solid piece may only replace a cell the map already calls solid and
+#: a grating a cell it calls floor, so that reachability, the swarm's paths
+#: and the event log do not move for the sake of a picture. A crate where
+#: there was floor is a level change with the difficulty targets re-taken,
+#: not an art change. `tests/test_spike_furniture.py` holds each room's
+#: solidity bitmap against a stored copy so it cannot be moved by accident.
+#:
+#: The glyphs were chosen to look like the thing on a plan written in text:
+#: `=` and `|` are the pipe lying down and standing up, `x` is the lid of a
+#: crate, `[` and `]` are the two halves of the desk, `c` is a cabinet, `%` is
+#: a grille. The count is the rule and the glyphs are not.
+PIPE_H, PIPE_V, CRATE, DESK_L, DESK_R, CABINET = "=", "|", "x", "[", "]", "c"
+GRATING = "%"
+
+#: The solid kinds, in the order the tiles are shown on the gallery sheet.
+SOLID_FURNITURE = (PIPE_H, PIPE_V, CRATE, DESK_L, DESK_R, CABINET)
+
+#: Every furniture character, solid and floor.
+FURNITURE = SOLID_FURNITURE + (GRATING,)
+
 #: Every cell kind a room may be written with. A room's palette has to name all
 #: of them, because a glyph with no ink is a cell that would be drawn in
 #: whatever the last one wore.
-CELL_KINDS = (WALL, FLOOR, DOOR, KEY, DOORWAY)
+CELL_KINDS = (WALL, FLOOR, DOOR, KEY, DOORWAY) + FURNITURE
 
 #: The hues that mean a **thing** rather than a **place**, so they are the same
 #: in every room of the building (issue #47, *Art Direction* section 2).
@@ -203,11 +240,17 @@ CELL_KINDS = (WALL, FLOOR, DOOR, KEY, DOORWAY)
 #: takes it because of what is drawn there rather than because of what it is --
 #: you can walk through it, and *Art Direction*'s per-room colour table says
 #: WHITE in both rooms.
+#: Solid furniture is WHITE for the wall's reason and no other: it is a wall.
+#: A crate the colour of the floor would be a wall you could not tell from
+#: the ground, and the one thing WHITE means in this game is *do not walk
+#: here*. The grating is not in this table because it is floor, and takes
+#: the floor's hue in `palette`.
 CONSTANT_INK = {
     WALL: WHITE,
     DOOR: MAGENTA,
     KEY: MAGENTA,
     DOORWAY: WHITE,
+    **{kind: WHITE for kind in SOLID_FURNITURE},
 }
 
 
@@ -226,11 +269,16 @@ def palette(floor: int) -> dict:
     said, wrongly, that being lit made a cell a different kind of place. It is
     the same place lit.
 
+    **A grating wears the floor's hue** for the same reason a room light zone
+    does: it is floor, and being a grille does not make it a different kind
+    of place. It is an entry here rather than in `CONSTANT_INK` because it
+    follows the room, as the floor does, and not the building.
+
     Cheap on the Z80 as well as here: four bytes per room in ROM, and an
     attribute byte costs exactly the same whatever colour it holds, so the
     per-frame cost of a palette is nothing at all.
     """
-    return dict(CONSTANT_INK, **{FLOOR: floor})
+    return dict(CONSTANT_INK, **{FLOOR: floor, GRATING: floor})
 
 
 #: What a room gets when it authors no palette of its own: the all-white
@@ -240,7 +288,11 @@ def palette(floor: int) -> dict:
 #: ask a question about walls.
 DEFAULT_INK = palette(WHITE)
 
-SOLID = frozenset({WALL})
+#: What nothing can stand on. **A wall, and the six solid kinds of furniture,
+#: and there is no second list**: `is_solid` reads this, `is_wall` reads this,
+#: the doorway check in `validate` reads this, and the surge's plan reads
+#: this, so a crate is a wall to every one of them or to none.
+SOLID = frozenset({WALL, *SOLID_FURNITURE})
 
 #: The way out of the building. It is drawn as a door because a room with a
 #: door you cannot leave by is a strange room.
@@ -462,6 +514,20 @@ class Room:
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return False
         return self.rows[cy][cx] == DOORWAY
+
+    def furniture_at(self, cx: int, cy: int) -> str | None:
+        """The furniture character at this cell, or None. Drawing only.
+
+        Whether the cell is solid is `is_solid`'s to say and this never
+        contradicts it: a solid kind is in `SOLID` and the grating is not.
+        This answers the one question the drawing has left once solidity is
+        known -- *which tile* -- and off the room there is no tile, so None.
+        On the Z80 it is the map byte the wall pass has already read.
+        """
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return None
+        kind = self.rows[cy][cx]
+        return kind if kind in FURNITURE else None
 
     def across(self, cx: int, cy: int) -> "tuple[Room, int, int] | None":
         """What is at (cx, cy) when it is past one of this room's walls.

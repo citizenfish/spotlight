@@ -61,8 +61,10 @@ byte as the old two stipples were.
 from spotlight.core.constants import CELL, COLS
 
 from .bitmaps_gen import BITMAPS
+from .building import GRATING
 from .layout import PLAY_ROWS
 from .lighting import DIM, LIT
+from .tiles import FURNITURE, FURNITURE_DIM, blit
 
 #: Cells per side of the repeat. The tile is `TILE` x `TILE` cells and a cell's
 #: block is chosen by its coordinates modulo this, which is `& 3` because it
@@ -85,6 +87,13 @@ FLOOR_LIT = _table("FLOOR_LIT")
 FLOOR_DIM = _table("FLOOR_DIM")
 
 TABLES = {LIT: FLOOR_LIT, DIM: FLOOR_DIM}
+
+#: What a grating cell draws instead of the stipple, by level (issue #74).
+#: A grating is floor -- walkable, remembered, the floor's hue -- wearing a
+#: grille instead of the noise, so it is drawn here and by the same two
+#: levels, and its dim tile is the lit one thinned by `tiles.dim_of` as every
+#: piece of furniture's is.
+GRATINGS = {LIT: FURNITURE[GRATING], DIM: FURNITURE_DIM[GRATING]}
 
 
 def tile_index(cx: int, cy: int) -> int:
@@ -140,17 +149,28 @@ def stipple(screen, cx: int, cy: int, level: int) -> None:
                 screen.pixels[base + dx] = 1
 
 
-def draw(screen, field, is_solid, painted=()) -> None:
+def draw(screen, field, is_solid, painted=(), gratings=()) -> None:
     """Stipple every lit, non-solid, unpainted cell according to its level.
 
     `painted` is the same set `tiles.draw` takes -- the cells a sign or a
     shout is written on -- and those cells draw nothing here: the glyph goes
     down later on black. Solid cells draw nothing because a wall is already
     drawn and dotting it would only muddle the shape.
+
+    `gratings` is the room's grating cells (issue #74). A grating draws its
+    tile **instead of** the stipple at the same two levels -- it is a floor
+    cell wearing a grille -- and under paint it draws nothing, as the
+    stipple does not: paint hides texture. A set rather than a predicate for
+    the same reason `painted` is one: the cells are fixed by the map and are
+    collected once when the room is entered, and on the port they are the
+    map byte this pass has already read to know the cell was floor.
     """
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
             level = field.level_at(cx, cy)
             if level not in TABLES or is_solid(cx, cy) or (cx, cy) in painted:
                 continue
-            stipple(screen, cx, cy, level)
+            if (cx, cy) in gratings:
+                blit(screen, cx, cy, GRATINGS[level])
+            else:
+                stipple(screen, cx, cy, level)

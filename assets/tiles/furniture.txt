@@ -1,0 +1,122 @@
+; furniture.txt
+;
+; Things that are simply there (issue #74, from *A place, not a diagram* in
+; the vault). Seven tiles, one legend character each, drawn where a room's map
+; places them. Until these existed the building was a diagram: rule 5 of *Art
+; Direction* -- anything drawn is a claim that it matters -- had been read as
+; *nothing is drawn that is not a mechanic*, which is why a building where
+; seven people are bleeding to death had no desk in it. Rule 5 now has a
+; clause: a fixture of the place claims only that the place has one.
+;
+; **Six of them are walls and one is floor, and that is all the game knows.**
+; A solid piece is a wall cell wearing a different tile: it collides like a
+; wall, its neighbours' 4-neighbour masks see a wall, the swarm steers round
+; it and the fade remembers it, and only the drawing differs -- it draws this
+; tile INSTEAD of the masked masonry, never on top of it. The grating is a
+; floor cell wearing a different stipple: walkable, remembered, and drawn
+; instead of the noise tile. Nothing about what a cell does is in this file.
+;
+; **Only the lit tiles are here. The dim ones are made by rule** and never
+; drawn: row y of the lit tile ANDed with $AA when y is even and $55 when odd
+; -- every other pixel, the phase alternating by row -- so a remembered crate
+; is the crate's ghost, the Knight Lore coarser dither, and the port stores 56
+; bytes for the lot and not 112. See `spikes/tiles.py`, `dim_of`.
+;
+; **The rule does not thin the grating**, found when the tiles were built and
+; left as drawn: its dots are on rows 1, 3 and 5 at the odd pixels, which is
+; exactly the half of the checker the rule keeps on odd rows, so a remembered
+; grating is the seen grating -- nine dots on ground whose neighbours remember
+; one. Moving the dots to even rows would lose all nine instead; any grille
+; on a single row parity survives the rule whole or not at all. Whether the
+; grating or the rule gives is a design call, and
+; tests/test_spike_furniture.py pins what is true until it is made.
+;
+; **None of these is round.** The lamp family is octagons -- LAMP_OFF, LAMP_ON
+; and the housing -- and a spotlight lying on the floor is the one object a
+; player has to pick out of a room at a glance. A drum was drawn for the mock
+; and thrown away for that reason, and tests/test_spike_furniture.py pins
+; that no tile here has the lamp's outline rows.
+;
+; The desk is two cells wide -- DESK_L and DESK_R are its halves and are
+; authored side by side -- and it is the only piece wider than one cell.
+; Placing any of them is the level author's job, and for this building the
+; rule is that a solid piece may only replace a cell the map already calls
+; solid, so the event log does not move; the solidity pin in the tests is
+; what holds the author to it.
+
+name: PIPE_H
+size: 8x8
+........   a pipe run, east-west: two flanged joints and the barrel
+##.##.##
+########
+#......#
+#......#
+########
+##.##.##
+........
+
+name: PIPE_V
+size: 8x8
+..####..   a riser, north-south: the same pipe standing up
+.#....#.
+.#....#.
+.#....#.
+##....##   a flange
+.#....#.
+.#....#.
+##....##
+
+name: CRATE
+size: 8x8
+########   a crate from above: a box with its lid nailed across the diagonals
+#......#
+#.#..#.#
+#..##..#
+#..##..#
+#.#..#.#
+#......#
+########
+
+name: GRATING
+size: 8x8
+........   a grating, floor: a grille of dots, denser than the stipple
+.#.#.#..
+........
+.#.#.#..
+........
+.#.#.#..
+........
+........
+
+name: DESK_L
+size: 8x8
+########   the left half of a desk: the top, with a blotter on it
+#......#
+#.####.#
+#.#..#.#
+#.####.#
+#......#
+########
+........
+
+name: DESK_R
+size: 8x8
+########   the right half of a desk: bare top
+#......#
+#......#
+#......#
+#......#
+#......#
+########
+........
+
+name: CABINET
+size: 8x8
+########   a filing cabinet from above: three drawer fronts
+#......#
+#.####.#
+#......#
+#.####.#
+#......#
+#.####.#
+########

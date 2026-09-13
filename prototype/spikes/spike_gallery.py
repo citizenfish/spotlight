@@ -63,6 +63,7 @@ from . import bots, floor, lighting, moments, player as player_mod
 from . import screens, scene, sprites
 from . import session as session_mod, tiles
 from . import spike_snap
+from . import building
 from .building import EAST
 
 #: How many frames into a run the "as played" shot of a room is taken.
@@ -364,6 +365,119 @@ def draw_floor_tile(screen: Screen, left: int, top: int, level: int) -> None:
         for cx in range(left, left + floor.TILE):
             floor.stipple(screen, cx, cy, level)
             screen.set_attr(cx, cy, _attr(WHITE, bright=level == lighting.LIT))
+
+
+# --- the furniture sheet ----------------------------------------------------
+
+#: Each kind of furniture as the sheet lists it: the legend character and a
+#: caption. In the game's font, because the legend characters themselves are
+#: not in it -- the font is capitals, digits and a handful of punctuation --
+#: so the sheet names the thing and the map character is in `building`.
+FURNITURE_CAPTIONS = (
+    (building.PIPE_H, "PIPE RUN"),
+    (building.PIPE_V, "RISER"),
+    (building.CRATE, "CRATE"),
+    (building.DESK_L, "DESK, LEFT HALF"),
+    (building.DESK_R, "DESK, RIGHT HALF"),
+    (building.CABINET, "CABINET"),
+    (building.GRATING, "GRATING - FLOOR"),
+)
+
+#: The list's rows: one per kind, from here down, the lit tile in `_LIT_COL`,
+#: the dim tile in `_DIM_COL` and the caption after them.
+_FURNITURE_TOP = 3
+_LIT_COL, _DIM_COL, _CAPTION_COL = 1, 3, 5
+
+#: A plan with every kind in it, so the seams can be seen: the pipe run
+#: joining the outer wall and meeting the riser, the riser joining the walls
+#: top and bottom, a crate on its own, a desk in each of two rows, three
+#: cabinets stacked, and two gratings on the floor. Every piece here is on a
+#: cell the plan calls solid or, for the gratings, floor -- the same rule the
+#: rooms are held to -- and the wall cells beside the furniture are drawn by
+#: the game's own mask arithmetic, so they show whether a wall ends against a
+#: pipe the way it ends against masonry, which is the thing a reviewer has to
+#: be able to see.
+FURNITURE_PLAN = (
+    "################################",
+    "#......|......[]......c........#",
+    "#======|..x...........c..%.%...#",
+    "#......|......[]......c........#",
+    "################################",
+)
+
+_FURNITURE_PLAN_LIT_TOP = ROWS - 2 * len(FURNITURE_PLAN) - 1
+_FURNITURE_PLAN_DIM_TOP = ROWS - len(FURNITURE_PLAN)
+
+
+def furniture_plan_is_wall(cx: int, cy: int) -> bool:
+    """`FURNITURE_PLAN`'s solidity: `building.SOLID`, off the plan wall."""
+    if not (0 <= cy < len(FURNITURE_PLAN) and 0 <= cx < len(FURNITURE_PLAN[0])):
+        return True
+    return FURNITURE_PLAN[cy][cx] in building.SOLID
+
+
+def draw_furniture_plan(screen: Screen, top: int, level: int) -> None:
+    """One copy of the furniture plan at `level`, LIT or DIM.
+
+    Walls by `tiles.mask_at` over the plan's solidity, so a wall next to a
+    pipe is drawn as the game would draw it; furniture by the map character,
+    lit or dim, with no mask; the floor stippled so the grating sits in the
+    ground it belongs to; the attributes white for solid and cyan for floor,
+    as a room's palette would have them, so the grating can be seen taking
+    the floor's hue.
+    """
+    lit = level == lighting.LIT
+    wall_table = tiles.WALL_LIT if lit else tiles.WALL_DIM
+    furniture = tiles.FURNITURE if lit else tiles.FURNITURE_DIM
+    for cy, row in enumerate(FURNITURE_PLAN):
+        for cx, char in enumerate(row):
+            solid = char in building.SOLID
+            if char == building.WALL:
+                rows = wall_table[tiles.mask_at(furniture_plan_is_wall, cx, cy)]
+                tiles.blit(screen, cx, top + cy, rows)
+            elif char in building.FURNITURE:
+                tiles.blit(screen, cx, top + cy, furniture[char])
+            else:
+                floor.stipple(screen, cx, top + cy, level)
+            screen.set_attr(cx, top + cy,
+                            _attr(WHITE if solid else CYAN, bright=lit))
+
+
+def draw_furniture_sheet(screen: Screen) -> None:
+    """Every kind of furniture, lit and remembered, and a plan built of them.
+
+    Issue #74. Two things a reviewer has to be able to see:
+
+    * **each tile on its own at both levels**, so the dim rule -- every other
+      pixel, the phase alternating by row -- can be judged as a ghost of the
+      lit tile and not as a second drawing; and
+    * **the furniture joined up with walls**, because a solid piece is a wall
+      to its neighbours' masks and the picture has to show a wall ending
+      against a pipe the way it ends against masonry.
+
+    The dim tiles are read from `tiles.FURNITURE_DIM` and not recomputed
+    here, so the sheet shows what the game draws and can disagree with the
+    rule's test if the two ever part.
+    """
+    screen.clear(_attr(WHITE))
+    heading = "FURNITURE SHEET"
+    screens.write(screen, screens.centre(heading), 1, heading, YELLOW,
+                  bright=True)
+    screens.write(screen, _LIT_COL, _FURNITURE_TOP - 1, "L", CYAN, bright=True)
+    screens.write(screen, _DIM_COL, _FURNITURE_TOP - 1, "D", CYAN, bright=True)
+    for n, (kind, caption) in enumerate(FURNITURE_CAPTIONS):
+        cy = _FURNITURE_TOP + n
+        tiles.blit(screen, _LIT_COL, cy, tiles.FURNITURE[kind])
+        screen.set_attr(_LIT_COL, cy, _attr(WHITE, bright=True))
+        tiles.blit(screen, _DIM_COL, cy, tiles.FURNITURE_DIM[kind])
+        screen.set_attr(_DIM_COL, cy, _attr(WHITE))
+        screens.write(screen, _CAPTION_COL, cy, caption, YELLOW)
+
+    label = "JOINED UP: LIT, DIM"
+    screens.write(screen, 0, _FURNITURE_PLAN_LIT_TOP - 1, label, CYAN,
+                  bright=True)
+    draw_furniture_plan(screen, _FURNITURE_PLAN_LIT_TOP, lighting.LIT)
+    draw_furniture_plan(screen, _FURNITURE_PLAN_DIM_TOP, lighting.DIM)
 
 
 # --- the rooms --------------------------------------------------------------
@@ -877,6 +991,10 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     tile_screen = Screen()
     draw_tile_sheet(tile_screen)
     sheet("tiles", tile_screen)
+
+    furniture_screen = Screen()
+    draw_furniture_sheet(furniture_screen)
+    sheet("furniture", furniture_screen)
 
     for index, room in enumerate(scene.BUILDING.rooms):
         sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))

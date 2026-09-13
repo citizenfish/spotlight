@@ -71,8 +71,12 @@ def test_the_two_rooms_differ_in_floor_hue_and_in_nothing_else():
     """
     a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
     differ = {k for k in set(a) | set(b) if a[k] != b[k]}
-    assert differ == {scene.FLOOR}
+    # The grating moves with the floor because it *is* floor (issue #74): a
+    # grille in the ground wears the ground's hue, so the floor's colour is
+    # still the one thing that differs and it is carried by two characters.
+    assert differ == {scene.FLOOR, B.GRATING}
     assert a[scene.FLOOR] == YELLOW and b[scene.FLOOR] == CYAN
+    assert a[B.GRATING] == a[scene.FLOOR] and b[B.GRATING] == b[scene.FLOOR]
 
 
 def test_a_room_light_has_no_hue_of_its_own(room):
@@ -113,7 +117,8 @@ def test_cyan_is_the_sprays_alone_except_where_it_is_room_bs_floor():
     everywhere else in the building."""
     a, b = _room(scene.NEAR_NAME).ink, _room(scene.FAR_NAME).ink
     assert CYAN not in a.values()
-    assert [k for k, v in b.items() if v == CYAN] == [scene.FLOOR]
+    # The floor, and the grating that is floor (issue #74).
+    assert {k for k, v in b.items() if v == CYAN} == {scene.FLOOR, B.GRATING}
 
 
 def test_no_room_uses_blue():
@@ -934,7 +939,11 @@ def test_every_character_in_the_legend_says_what_a_cell_is_made_of():
     go: it said what was *shining on* a cell, so it could -- and did -- want
     the same cell as something else.
     """
-    assert set(B.CELL_KINDS) == {B.WALL, B.FLOOR, B.DOOR, B.KEY, B.DOORWAY}
+    assert set(B.CELL_KINDS) == {B.WALL, B.FLOOR, B.DOOR, B.KEY, B.DOORWAY,
+                                 *B.FURNITURE}
+    # Seven more since issue #74, all of them substances: a crate is what a
+    # cell is made of. See `tests/test_spike_furniture.py`.
+    assert len(B.FURNITURE) == 7
     assert not hasattr(B, "ROOM_LIGHT")
     assert not hasattr(scene, "ROOM_LIGHT")
 

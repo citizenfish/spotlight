@@ -70,6 +70,7 @@ of them is not a trade anybody should make.
 from spotlight.core.constants import CELL, COLS, SCREEN_W
 
 from .bitmaps_gen import BITMAPS
+from .building import FURNITURE as FURNITURE_KINDS
 from .layout import PLAY_ROWS
 from .lighting import DARK, DIM
 
@@ -100,6 +101,73 @@ WALL_DIM = _table("WALL_DIM")
 #: the opening. One table, drawn at either light level, because a doorway's
 #: returns *are* its shape -- there is no texture to take away.
 DOORWAY = _table("DOORWAY")
+
+
+# --- furniture (issue #74) ---------------------------------------------------
+#
+# Things that are simply there. A solid piece is a wall cell wearing its own
+# tile and a grating is a floor cell wearing its own, and this is the whole of
+# what the drawing knows about them: **the tile is looked up by the map
+# character, and the mask is not computed at all.** A crate is a crate
+# whichever walls it touches, which is what makes it a crate and not more
+# masonry, and it is also why a furniture cell costs the port less than a wall
+# cell -- no four bit tests, one table entry.
+#
+# **It never draws the masonry underneath.** The obvious alternative -- draw
+# the wall tile and OR the crate over it -- was not tried, because it cannot
+# work: the wall tile's outline is the crate's outline and its courses would
+# run through the lid. A furniture cell draws instead of, not on top of.
+
+#: The bit each row of a dim tile keeps: every other pixel, and the phase
+#: alternates by row so the ghost is a checker and not a set of stripes.
+#: Even rows keep the even pixels (bit 7 is pixel 0), odd rows the odd ones.
+DIM_EVEN, DIM_ODD = 0xAA, 0x55
+
+
+def dim_of(rows) -> tuple:
+    """The remembered variant of a lit tile: the rule, and the whole of it.
+
+    Row `y` ANDed with `DIM_EVEN` when `y` is even and `DIM_ODD` when odd, so
+    a remembered crate is the crate's ghost -- the Knight Lore coarser dither
+    -- and nobody draws a second set of tiles that could drift from the
+    first. The wall's dim set is authored, because *its* rule (outline plus
+    dotted courses) is not a function of the lit tile; furniture has no such
+    rule, only less of itself.
+
+    **Generated at load and not by the converter**, on purpose: the port
+    stores the 56 lit bytes and applies the rule as it draws -- an `and`
+    per row, 56 T-states a cell with the eight rows unrolled and the masks
+    immediate, about 130 with a register mask flipped each row -- rather
+    than holding a second 56-byte table. Either is affordable, and only a
+    dim furniture cell whose level just changed pays it. The prototype does
+    at load what the port does per cell so that the generated files hold
+    what the port's ROM holds. If the port ends up storing the dim table
+    instead, this is where to say so.
+
+    **One tile the rule does not thin**: the grating as authored is three
+    rows of dots on the odd pixels of odd rows, the half the rule keeps, so
+    its ghost is itself. Found building this and left as drawn -- see the
+    asset's header and `tests/test_spike_furniture.py`, which pins it until
+    the designer says whether the tile or the rule gives.
+    """
+    return tuple(bits & (DIM_ODD if y & 1 else DIM_EVEN)
+                 for y, bits in enumerate(rows))
+
+
+#: Which tile each furniture character wears, lit. Keyed by the legend
+#: character because that is what the map holds and what the drawing reads;
+#: the tile's name is the asset's business. `GRATING` is in here too, so the
+#: floor pass can look it up the same way, but `draw` below never draws it:
+#: a grating is floor and floor is `floor.draw`'s.
+FURNITURE = {
+    kind: BITMAPS[name]
+    for kind, name in zip(FURNITURE_KINDS, ("PIPE_H", "PIPE_V", "CRATE",
+                                            "DESK_L", "DESK_R", "CABINET",
+                                            "GRATING"))
+}
+
+#: The same, remembered: `dim_of` each lit tile, once, at load.
+FURNITURE_DIM = {kind: dim_of(rows) for kind, rows in FURNITURE.items()}
 
 
 def mask_at(is_wall, cx: int, cy: int) -> int:
@@ -160,6 +228,14 @@ def draw(screen, room, field, painted=()) -> None:
     A dark cell draws nothing. It would be invisible anyway -- DARK is black ink
     on black paper -- so this is the same picture for less work, and it is the
     picture the port draws too.
+
+    **A solid furniture cell draws its own tile instead of the wall's** (issue
+    #74), at the same two levels by the same rule -- lit tile at LIT, dim
+    tile at DIM or under paint -- and computes no mask. Its *neighbours'*
+    masks see it as wall, because `is_wall` does; that is what makes a pipe
+    run along a partition read as one thing and the partition's end cap
+    still cap it. The grating is not drawn here: it is floor, and floor is
+    `floor.draw`'s to stipple.
     """
     is_wall = room.is_wall
     for cy in range(PLAY_ROWS):
@@ -170,13 +246,18 @@ def draw(screen, room, field, painted=()) -> None:
             level = field.level_at(cx, cy)
             if level == DARK:
                 continue
-            mask = mask_at(is_wall, cx, cy)
-            if not wall:
-                rows = DOORWAY[mask]
-            elif level == DIM or (cx, cy) in painted:
-                rows = WALL_DIM[mask]
+            dim = level == DIM or (cx, cy) in painted
+            kind = room.furniture_at(cx, cy) if wall else None
+            if kind is not None:
+                rows = (FURNITURE_DIM if dim else FURNITURE)[kind]
             else:
-                rows = WALL_LIT[mask]
+                mask = mask_at(is_wall, cx, cy)
+                if not wall:
+                    rows = DOORWAY[mask]
+                elif dim:
+                    rows = WALL_DIM[mask]
+                else:
+                    rows = WALL_LIT[mask]
             blit(screen, cx, cy, rows)
 
 

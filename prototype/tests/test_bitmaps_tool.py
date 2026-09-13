@@ -364,6 +364,19 @@ def test_every_bitmap_the_game_draws_came_out_of_the_pipeline():
     assert len(floor_blocks) == 32
     assert all((b.width, b.height) == (8, 8) for b in floor_blocks)
     assert spray.STIPPLE == bitmaps_gen.BITMAPS["SPRAY"]
+    # Seven furniture tiles since issue #74, all 8x8, lit only: the dim
+    # variants are made by rule at load and the converter emits none.
+    furniture_names = {"PIPE_H", "PIPE_V", "CRATE", "DESK_L", "DESK_R",
+                       "CABINET", "GRATING"}
+    furniture_blocks = [b for b in bitmaps.read_tree(["assets/tiles"],
+                                                     str(ROOT))
+                        if b.name in furniture_names]
+    assert len(furniture_blocks) == 7
+    assert all((b.width, b.height) == (8, 8) for b in furniture_blocks)
+    assert not any(b.masked for b in furniture_blocks), \
+        "tiles composite by OR and get no mask"
+    for rows in tiles.FURNITURE.values():
+        assert rows in [b.rows for b in furniture_blocks]
 
 
 # --- the rule, and its one exception, both checked -------------------------

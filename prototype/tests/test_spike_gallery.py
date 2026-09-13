@@ -54,7 +54,8 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     who has to ask for a second command will review whatever they were sent."""
     paths = gallery.write(str(tmp_path))
     names = {p.rsplit("/", 1)[-1] for p in paths}
-    for sheet in ("title", "title-flashed", "ending", "sprites", "tiles"):
+    for sheet in ("title", "title-flashed", "ending", "sprites", "tiles",
+                  "furniture"):
         assert f"{sheet}_x1.png" in names and f"{sheet}_x3.png" in names
     for room in scene.BUILDING.rooms:
         stem = f"room-{gallery.slug(room.name)}"
@@ -94,7 +95,8 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # **During the opening flash, with the people in it** (issue #64).
     flash = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-flash"
     assert f"{flash}_x1.png" in names and f"{flash}_x3.png" in names
-    assert len(paths) == len(names) == 26 + 6 * len(scene.BUILDING.rooms)
+    # Twenty-eight since the furniture sheet (issue #74).
+    assert len(paths) == len(names) == 28 + 6 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):

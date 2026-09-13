@@ -50,7 +50,7 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import attr_byte
 
-from .building import DOOR, KEY, WALL
+from .building import DOOR, KEY, SOLID
 from .layout import PLAY_BOTTOM, PLAY_ROWS, PLAY_TOP
 from .sources import xorshift16
 
@@ -352,8 +352,11 @@ def draw(screen, rooms, marks=()) -> int:
                 # `d` is a hole in a wall, and a hole in the white line is
                 # exactly how a plan says there is a way through. The gaps are
                 # the doors you can walk, and the magenta blocks are the way
-                # out of the building.
-                if char == WALL:
+                # out of the building. Solid furniture is a wall on the plan
+                # as it is everywhere else (issue #74): the plan says where
+                # you cannot walk, and a crate is somewhere you cannot walk.
+                # A grating is floor and draws nothing, like the floor.
+                if char in SOLID:
                     kind = P_WALL
                 elif char == DOOR:
                     kind = P_DOOR

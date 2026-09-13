@@ -268,6 +268,10 @@ class Place:
                 vary=room.searchlight.vary, seed=beam_seed)
         self.swarm = clegs_mod.Swarm(clegs)
         self.sign_cells = room.exit_sign_cells(scene.EXIT_SIGN)
+        #: Where the room's gratings are (issue #74): floor cells that draw a
+        #: grille instead of the stipple. Fixed by the map, so read once here
+        #: rather than asked per floor cell per frame.
+        self.grating_cells = frozenset(room.cells_of(building_mod.GRATING))
         self.fixtures = [(sprites.SPRITES[name], x, y)
                          for name, x, y in scene.ENTITIES
                          if name not in scene.MOVERS]
@@ -1936,7 +1940,8 @@ class Session:
         # `painted` set as the walls: a sign or a shout on the floor sits on
         # black rather than on the stipple (issue #71), because the noise tile
         # does not fall between the letters the way the lattice happened to.
-        floor.draw(screen, field, is_solid, painted)
+        # A grating cell draws its grille instead of the stipple (issue #74).
+        floor.draw(screen, field, is_solid, painted, place.grating_cells)
 
         # Sprites set and clear pixels only -- each clears its one-pixel halo
         # and sets its ink (issue #70). Their colour comes from whichever
