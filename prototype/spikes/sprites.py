@@ -1,20 +1,20 @@
 """Sprites: 8x16 people, 8x8 objects, and one 16x8 body.
 
-**The people stand up; everything else is drawn from above.** Ruled from play
-on 2026-09-12 (issue #72), and it is the user's own reversal of the user's own
-2026-09-07 request. The people were asked for from above, drawn to those words
-twice -- once as a front view foreshortened, once as a disc of head and
-shoulders with feet peeking out -- and both times the user played them and
-said they did not read. The cause is projection: a plan-view person eight
-pixels wide is a token, and a walk drawn on it moves the hem and not the mass.
-Shown a front-view figure beside the plan-view one in the same played frame,
-the user chose the front view, which is what every overhead Spectrum game
-with walking figures did -- Atic Atac, Sabre Wulf, Nightshade, Gauntlet drew
-elevation figures walking across a floor seen from above and nobody minded.
-The Cleg, the walls, the floor and the lamps stay in plan. See the vault's
-*Why the figures read as clunky* for the argument, *People are drawn from
-above* for what is struck and what stands, and `assets/sprites/player.txt`
-for the drawing's own reasons.
+**Everything is drawn from above, the people included.** Ruled from play on
+2026-09-13 (issue #78), overriding the day before. The people were asked for
+from above on 2026-09-07 and drawn to those words twice; on 2026-09-12 the
+user, shown a front-view figure beside the plan-view one in a played frame,
+chose elevation (issue #72), the convention of Atic Atac, Sabre Wulf and
+Gauntlet; and having played that build the user ruled the other way -- *"the
+player and workers must be rendered as if overhead view ... it overrides all
+previous decisions"*. The user has now seen both projections in play, not in
+a mock, and the 2026-09-07 decision stands in full -- clarified the same day:
+*directly* above, *"you should not see torso, only legs and arms moving"*. A
+person from directly above is one compact mass of head and shoulders in the
+middle of the box, and the arms and the legs come out from under it and are
+what moves; nothing stacks below the head. See the vault's *2026-09-13 People
+are drawn from above, and the rule goes* for the ruling and the grids, and
+`assets/sprites/player.txt` for the drawing's own reasons.
 
 **The bytes are not here.** Every figure is authored as a grid of `#` and `.`
 in `assets/sprites/` and generated into `bitmaps_gen.py` by `tools/bitmaps.py`
@@ -46,13 +46,13 @@ byte count -- a second pre-shifted 8x16 frame is 512 bytes a figure -- and is
 recorded as overruled rather than wrong. The user looked at a figure that slid
 and asked for one that walked.
 
-**The figures do not turn.** One facing and no mirror: a front view is
-symmetric, so there is no left or right to draw, and the light is still what
-says which way you are looking. The 2026-09-07 argument against facings is
-untouched by the change of projection -- four facings for three figures is
-about 10K of a 48K machine, and the cone is the facing indicator, which in a
-game about light is the right one. The cost is real and stated in the
-decision: with the torch off, nothing says which way you are pointing.
+**The figures do not turn.** One orientation, head to the top of the
+screen, and no mirror; the light is what says which way you are looking. The
+2026-09-07 argument against facings survived both changes of projection --
+four facings for three figures is about 10K of a 48K machine, and the cone is
+the facing indicator, which in a game about light is the right one. The cost
+is real and stated in the decision: with the torch off, nothing says which
+way you are pointing.
 
 **What the fade may remember.** The building is remembered; its inhabitants are
 not. Walls, keys, bodies and nests stay drawn in ground the player is only
@@ -119,24 +119,27 @@ from .layout import PLAY_ROWS
 
 PLAY_BOTTOM_PX = PLAY_ROWS * CELL
 
-# --- people, 8x16, in elevation ---------------------------------------------
+# --- people, 8x16, from directly above --------------------------------------
 
-#: The player, neutral: lamp, helmet, visor, chin, shoulders at the full width
-#: of the box -- the kit -- arms down, hands at the hips, belt, legs together,
-#: boots. **The only figure with a full-width row**, and it is at the
-#: shoulders: the widest thing in the room is you.
+#: The player, neutral: the lamp at the front of his helmet, the helmet a
+#: disc, the shoulders either side of it at the full width of the box -- the
+#: kit -- his hands at the sides and his toes together behind. Rows 5 to 7
+#: are the mass and never move. **The only figure with a full-width row**, and
+#: it is at the shoulders: the widest thing in the room is you.
 #:
-#: **One mark now, the lamp** (issue #72). Since issue #49 he wore two, the
-#: lamp and a solid bar under his feet, because a plan-view figure had nothing
-#: else to tell him from a follower on lit floor. In elevation the helmet and
-#: the kit do that in the middle columns where the eye is; the contract passes
-#: every frame of him against every frame of the other two without the bar
-#: and fails without the lamp, and the bar's five-pixel clause went with it.
-#: The reasoning and what it replaced are in `assets/sprites/player.txt`.
+#: **One mark, the lamp, and no bar** (issue #72, kept by #78). From issue #49
+#: to #72 he wore a solid bar under his feet as well, because the first
+#: plan-view figure had nothing else to tell him from a follower on lit floor.
+#: The helmet disc six wide and the kit eight wide do that now, in the middle
+#: columns where the eye is; the contract passes every frame of him against
+#: every frame of the other two without the bar and without the lamp, and the
+#: bar's five-pixel clause went with it. The reasoning and what it replaced
+#: are in `assets/sprites/player.txt`.
 PLAYER_N = BITMAPS["PLAYER_N"]
 
-#: The player, striding: one arm swung forward, the legs scissored, the boots
-#: out to the edges of the column. Nothing above the shoulders moves.
+#: The player, striding: one arm swung forward up the screen beside the
+#: helmet, the other back beside the toes, one leg out behind. The head and
+#: the shoulders do not move.
 PLAYER_A = BITMAPS["PLAYER_A"]
 
 #: The other stride: frame A in the mirror, so across a cycle the figure stays
@@ -150,15 +153,15 @@ PLAYER_B = BITMAPS["PLAYER_B"]
 PLAYER_FRAMES = (PLAYER_N, PLAYER_A, PLAYER_N, PLAYER_B)
 
 #: A trapped worker, waiting and calling: the same person as the follower with
-#: the arms up -- two strips from the shoulders past the head to hands above
-#: it, which is what raised arms look like from the front and is the whole of
-#: the signal. **The only figure with ink on the top row that is not the
-#: player's lamp**, and the hands sit either side of the lamp's middle two
-#: columns, so the two are never the same shape where a glow finds them.
+#: the arms up -- which from directly above is hands beside the crown, ahead
+#: of the shoulders, and nothing else, and is the whole of the signal. The
+#: hands sit either side of where the player's lamp is, so the two are never
+#: the same shape where a glow finds them.
 WORKER = BITMAPS["WORKER"]
 
-#: The wave: arms out from the shoulders, hands level with the head. Drawn for
-#: exactly the frames the worker's HELP is painted (issue #72) -- on the
+#: The wave: the arms thrown out wide and up the screen, hands at the edges.
+#: Drawn for exactly the frames the worker's HELP is painted
+#: (issue #72) -- on the
 #: event, never on a counter -- and `WORKER` again when the word clears. See
 #: `assets/sprites/worker.txt` for why breathing was refused instead.
 WORKER_W = BITMAPS["WORKER_W"]
@@ -167,9 +170,9 @@ WORKER_W = BITMAPS["WORKER_W"]
 #: is calling, `WORKER_FRAMES[True]` is the wave.
 WORKER_FRAMES = (WORKER, WORKER_W)
 
-#: The same person, freed and walking behind you, neutral: arms down, hands at
-#: the hips, no lamp and a round head on a neck where the player has a helmet
-#: on a chin. Shoulders six wide where his are eight.
+#: The same person, freed and walking behind you, neutral: hands at the
+#: sides below the shoulders, no lamp, and a head disc four wide where the
+#: player has a helmet disc six wide. Shoulders six wide where his are eight.
 #:
 #: It exists because raised arms *mean* "I still need reaching", and leaving
 #: them up on somebody already following you is a lie the player would act on.

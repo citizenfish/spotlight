@@ -708,110 +708,110 @@ FLOOR_LIT_15:
 FOLLOWER_A:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $3C                   ; ..####..   head
-        DEFB $24                   ; ..#..#..   face
-        DEFB $3C                   ; ..####..
-        DEFB $18                   ; ...##...   neck
+        DEFB $00                   ; ........
+        DEFB $60                   ; .##.....   an arm swung forward, beside the head
+        DEFB $60                   ; .##.....
+        DEFB $3C                   ; ..####..   head - rows 5 to 7 never move
         DEFB $7E                   ; .######.   shoulders
-        DEFB $BD                   ; #.####.#   arms
-        DEFB $3D                   ; ..####.#   one arm swings forward
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..   belt
-        DEFB $44                   ; .#...#..   legs scissor
-        DEFB $42                   ; .#....#.
-        DEFB $82                   ; #.....#.
-        DEFB $C3                   ; ##....##   boots, out to the edges
+        DEFB $7E                   ; .######.
+        DEFB $06                   ; .....##.   the other arm swung back
+        DEFB $36                   ; ..##.##.   a leg out behind; the arm
+        DEFB $36                   ; ..##.##.
+        DEFB $30                   ; ..##....   the leg
+        DEFB $30                   ; ..##....
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 FOLLOWER_A_MASK:
         DEFB $00                   ; ........
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $F0                   ; ####....
+        DEFB $F0                   ; ####....
+        DEFB $FE                   ; #######.
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $7F                   ; .#######
-        DEFB $FE                   ; #######.
-        DEFB $FF                   ; ########
-        DEFB $EF                   ; ###.####
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $78                   ; .####...
+        DEFB $78                   ; .####...
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 FOLLOWER_B:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $06                   ; .....##.   frame A in the mirror
+        DEFB $06                   ; .....##.
         DEFB $3C                   ; ..####..   head
-        DEFB $24                   ; ..#..#..   face
-        DEFB $3C                   ; ..####..
-        DEFB $18                   ; ...##...   neck
         DEFB $7E                   ; .######.   shoulders
-        DEFB $BD                   ; #.####.#   arms
-        DEFB $BC                   ; #.####..   frame A in the mirror
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..   belt
-        DEFB $22                   ; ..#...#.   legs scissor the other way
-        DEFB $42                   ; .#....#.
-        DEFB $41                   ; .#.....#
-        DEFB $C3                   ; ##....##   boots
+        DEFB $7E                   ; .######.
+        DEFB $60                   ; .##.....   the first arm swung back
+        DEFB $6C                   ; .##.##..   the other leg out behind; the arm
+        DEFB $6C                   ; .##.##..
+        DEFB $0C                   ; ....##..   the leg
+        DEFB $0C                   ; ....##..
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 FOLLOWER_B_MASK:
         DEFB $00                   ; ........
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $0F                   ; ....####
+        DEFB $0F                   ; ....####
+        DEFB $7F                   ; .#######
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FE                   ; #######.
-        DEFB $7F                   ; .#######
-        DEFB $FF                   ; ########
-        DEFB $F7                   ; ####.###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
+        DEFB $FE                   ; #######.
+        DEFB $FE                   ; #######.
+        DEFB $1E                   ; ...####.
+        DEFB $1E                   ; ...####.
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 FOLLOWER_N:
         DEFB $00                   ; ........
         DEFB $00                   ; ........
-        DEFB $3C                   ; ..####..   head
-        DEFB $24                   ; ..#..#..   face
-        DEFB $3C                   ; ..####..
-        DEFB $18                   ; ...##...   neck
-        DEFB $7E                   ; .######.   shoulders, six wide
-        DEFB $BD                   ; #.####.#   arms
-        DEFB $BD                   ; #.####.#
-        DEFB $BD                   ; #.####.#   hands at the hips
-        DEFB $3C                   ; ..####..   belt
-        DEFB $24                   ; ..#..#..   legs together
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $3C                   ; ..####..   head, a disc
+        DEFB $7E                   ; .######.   shoulders either side of it
+        DEFB $7E                   ; .######.
+        DEFB $66                   ; .##..##.   hands at the sides
+        DEFB $66                   ; .##..##.
+        DEFB $24                   ; ..#..#..   toes, together, behind
         DEFB $24                   ; ..#..#..
-        DEFB $24                   ; ..#..#..
-        DEFB $66                   ; .##..##.   boots
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 FOLLOWER_N_MASK:
         DEFB $00                   ; ........
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $7E                   ; .######.
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 GRATING:
         DEFB $00                   ; ........   a grating, floor: a grille of dots, denser than the stipple
@@ -944,112 +944,112 @@ PIPE_V:
         DEFB $C3                   ; ##....##
 
 PLAYER_A:
-        DEFB $3C                   ; ..####..   the lamp
-        DEFB $3C                   ; ..####..
-        DEFB $7E                   ; .######.   helmet
-        DEFB $5A                   ; .#.##.#.   visor
-        DEFB $3C                   ; ..####..   chin
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $C0                   ; ##......   an arm swung forward, beside the helmet
+        DEFB $C0                   ; ##......
+        DEFB $D8                   ; ##.##...   the lamp
+        DEFB $7E                   ; .######.   helmet - rows 5 to 7 never move
         DEFB $FF                   ; ########   shoulders
-        DEFB $DB                   ; ##.##.##   arms
-        DEFB $99                   ; #..##..#   arms swing
-        DEFB $BD                   ; #.####.#
-        DEFB $3D                   ; ..####.#   one hand forward, off the hip
-        DEFB $3C                   ; ..####..   belt
-        DEFB $44                   ; .#...#..   legs scissor
-        DEFB $42                   ; .#....#.
-        DEFB $82                   ; #.....#.
-        DEFB $C3                   ; ##....##   boots, out to the edges
+        DEFB $FF                   ; ########
+        DEFB $1B                   ; ...##.##   the back of the helmet; the other arm swung back
+        DEFB $33                   ; ..##..##   a leg out behind; the arm
+        DEFB $33                   ; ..##..##
+        DEFB $30                   ; ..##....   the leg
+        DEFB $30                   ; ..##....
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 PLAYER_A_MASK:
-        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $E0                   ; ###.....
+        DEFB $E0                   ; ###.....
+        DEFB $FC                   ; ######..
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $EF                   ; ###.####
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $7F                   ; .#######
+        DEFB $78                   ; .####...
+        DEFB $78                   ; .####...
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 PLAYER_B:
-        DEFB $3C                   ; ..####..   the lamp
-        DEFB $3C                   ; ..####..
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $03                   ; ......##   frame A in the mirror: the other arm forward
+        DEFB $03                   ; ......##
+        DEFB $1B                   ; ...##.##   the lamp
         DEFB $7E                   ; .######.   helmet
-        DEFB $5A                   ; .#.##.#.   visor
-        DEFB $3C                   ; ..####..   chin
         DEFB $FF                   ; ########   shoulders
-        DEFB $DB                   ; ##.##.##   arms
-        DEFB $99                   ; #..##..#   arms swing
-        DEFB $BD                   ; #.####.#
-        DEFB $BC                   ; #.####..   frame A in the mirror: the other hand forward
-        DEFB $3C                   ; ..####..   belt
-        DEFB $22                   ; ..#...#.   legs scissor the other way
-        DEFB $42                   ; .#....#.
-        DEFB $41                   ; .#.....#
-        DEFB $C3                   ; ##....##   boots
+        DEFB $FF                   ; ########
+        DEFB $D8                   ; ##.##...   the first arm swung back
+        DEFB $CC                   ; ##..##..   the other leg out behind; the arm
+        DEFB $CC                   ; ##..##..
+        DEFB $0C                   ; ....##..   the leg
+        DEFB $0C                   ; ....##..
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 PLAYER_B_MASK:
-        DEFB $7E                   ; .######.
+        DEFB $00                   ; ........
+        DEFB $07                   ; .....###
+        DEFB $07                   ; .....###
+        DEFB $3F                   ; ..######
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $F7                   ; ####.###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
-        DEFB $E7                   ; ###..###
+        DEFB $FE                   ; #######.
+        DEFB $FE                   ; #######.
+        DEFB $FE                   ; #######.
+        DEFB $1E                   ; ...####.
+        DEFB $1E                   ; ...####.
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 PLAYER_N:
-        DEFB $3C                   ; ..####..   the lamp, worn on the helmet
-        DEFB $3C                   ; ..####..
-        DEFB $7E                   ; .######.   helmet
-        DEFB $5A                   ; .#.##.#.   visor
-        DEFB $3C                   ; ..####..   chin
-        DEFB $FF                   ; ########   shoulders, the kit - the full width, his alone
-        DEFB $DB                   ; ##.##.##   arms
-        DEFB $DB                   ; ##.##.##
-        DEFB $BD                   ; #.####.#
-        DEFB $BD                   ; #.####.#   hands at the hips
-        DEFB $3C                   ; ..####..   belt
-        DEFB $24                   ; ..#..#..   legs together
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $18                   ; ...##...   the lamp, at the front of the helmet
+        DEFB $7E                   ; .######.   helmet, a disc
+        DEFB $FF                   ; ########   shoulders either side of it - the kit, the full width, his alone
+        DEFB $FF                   ; ########
+        DEFB $DB                   ; ##.##.##   hands at the sides; the back of the helmet between
+        DEFB $C3                   ; ##....##
+        DEFB $24                   ; ..#..#..   toes, together, behind
         DEFB $24                   ; ..#..#..
-        DEFB $24                   ; ..#..#..
-        DEFB $66                   ; .##..##.   boots
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 PLAYER_N_MASK:
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $3C                   ; ..####..
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
         DEFB $7E                   ; .######.
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
         DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
 
 SPRAY:
         DEFB $00                   ; ........   scattered droplets, staggered so they are not the floor's columns
@@ -1382,24 +1382,27 @@ WALL_LIT_15:
         DEFB $10                   ; ...#....
 
 WORKER:
-        DEFB $66                   ; .##..##.   hands above the head, calling
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $66                   ; .##..##.   hands, raised beside the crown - calling
         DEFB $66                   ; .##..##.
-        DEFB $5A                   ; .#.##.#.   arms up, the head between them
-        DEFB $5A                   ; .#.##.#.
+        DEFB $66                   ; .##..##.
+        DEFB $3C                   ; ..####..   head, a disc
         DEFB $7E                   ; .######.   shoulders
-        DEFB $18                   ; ...##...   neck
-        DEFB $3C                   ; ..####..   trunk
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..
-        DEFB $24                   ; ..#..#..   legs
+        DEFB $7E                   ; .######.
+        DEFB $24                   ; ..#..#..   toes, together, behind - nothing at the sides, the arms are up
         DEFB $24                   ; ..#..#..
-        DEFB $24                   ; ..#..#..
-        DEFB $66                   ; .##..##.   boots
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 WORKER_MASK:
+        DEFB $00                   ; ........
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
         DEFB $FF                   ; ########
@@ -1408,47 +1411,44 @@ WORKER_MASK:
         DEFB $FF                   ; ########
         DEFB $7E                   ; .######.
         DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 WORKER_W:
         DEFB $00                   ; ........
+        DEFB $C3                   ; ##....##   the wave: the arms thrown out wide
+        DEFB $C3                   ; ##....##
+        DEFB $81                   ; #......#   and down the edges to the shoulders
+        DEFB $81                   ; #......#
+        DEFB $BD                   ; #.####.#   head, the arms either side of it
+        DEFB $7E                   ; .######.   shoulders - rows 6 onward as when calling
+        DEFB $7E                   ; .######.
+        DEFB $24                   ; ..#..#..   toes
+        DEFB $24                   ; ..#..#..
         DEFB $00                   ; ........
-        DEFB $99                   ; #..##..#   the wave: hands out, level with the head
-        DEFB $DB                   ; ##.##.##   arms out from the shoulders
-        DEFB $7E                   ; .######.   shoulders
-        DEFB $18                   ; ...##...   neck
-        DEFB $3C                   ; ..####..   trunk
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..
-        DEFB $3C                   ; ..####..
-        DEFB $24                   ; ..#..#..   legs
-        DEFB $24                   ; ..#..#..
-        DEFB $24                   ; ..#..#..
-        DEFB $66                   ; .##..##.   boots
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........
         DEFB $00                   ; ........
 
 WORKER_W_MASK:
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $E7                   ; ###..###
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $FF                   ; ########
+        DEFB $7E                   ; .######.
+        DEFB $7E                   ; .######.
         DEFB $00                   ; ........
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $7E                   ; .######.
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
-        DEFB $FF                   ; ########
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
+        DEFB $00                   ; ........
         DEFB $00                   ; ........

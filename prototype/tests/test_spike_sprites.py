@@ -252,7 +252,10 @@ def test_a_fly_over_a_person_clears_a_ring_and_the_person_drawn_after_restores_i
     port refused, so the pin says so."""
     s = Screen()
     x, y = 12 * CELL, 6 * CELL
-    fly_at = 4
+    # At the top of the box: the overhead worker's toes end on row 9 (issue
+    # #78), and the fly's legs have to sit on the row above them for the
+    # clip to be exercised at all.
+    fly_at = 0
     SP.draw(s, SP.WORKER, x, y)
     person = bytes(s.pixels)
     SP.draw(s, SP.CLEG_A, x, y + fly_at)
@@ -416,7 +419,7 @@ def test_every_silhouette_is_distinct():
         seen[key] = name
 
 
-# --- in elevation (issue #72; from above from #31 to #60) ------------------
+# --- from directly above (issue #78; in elevation for #72; #31 to #60) -----
 
 def _edges(sprite):
     """Which rows of a figure touch both edges of its 8-pixel column."""
@@ -433,22 +436,23 @@ def _topmost(sprite) -> int:
 def test_which_figure_is_yours_is_a_body_and_not_a_hat():
     """The old pair differed at the helmet, which is one row of eight pixels.
 
-    In elevation the player is told by his **kit**: the one full-width row in
-    any figure, at his shoulders, under a helmet with a lamp on it. The
-    waiting worker's width is all at the top -- hands above the head, arms up
-    -- and the follower has neither. That is still the whole of item 1 of
-    issue #31, *a different body, not a different hat*: take the lamp off and
-    the kit and the helmet are still there.
+    From directly above the player is told by his **kit**: the two
+    full-width rows in any figure, his shoulders either side of a helmet
+    disc with a lamp at its front. The waiting worker's width is all ahead
+    of its shoulders -- hands beside the crown, or arms thrown out -- and
+    the follower has neither. That is still the whole of item 1 of issue
+    #31, *a different body, not a different hat*: take the lamp off and the
+    kit and the helmet are still there.
     """
     for frame in SP.STANDING["player"]:
-        assert frame[5] == 0xFF, "the kit is not the full width"
-        assert 5 in _edges(frame)
+        assert frame[6] == frame[7] == 0xFF, "the kit is not the full width"
+        assert 6 in _edges(frame) and 7 in _edges(frame)
     for name, frames in SP.STANDING.items():
         for frame in frames:
             assert (0xFF in frame) == (name == "player"), \
                 f"{name} has a full-width row, which is the player's kit"
     for frame in SP.WORKER_FRAMES:
-        assert all(row < 5 for row in _edges(frame)), \
+        assert all(row < 6 for row in _edges(frame)), \
             "a waiting worker is wide somewhere other than the arms"
     for player_frame in SP.STANDING["player"]:
         for worker_frame in SP.WORKER_FRAMES:
@@ -456,8 +460,12 @@ def test_which_figure_is_yours_is_a_body_and_not_a_hat():
                        if a != b) >= 8
 
 
-#: The lamp's columns: the middle four of the eight. Rows 0 and 1 of the
-#: player's box are `..####..`, and this is the mask that says so.
+#: The lamp: two centred pixels on row 4 of the player's box, `...##...`, the
+#: front of his helmet seen from directly above (issue #78); and the mask of
+#: the middle four columns, which on that row are the lamp and a clear pixel
+#: each side of it.
+LAMP = 0x18
+LAMP_ROW = 4
 LAMP_COLUMNS = 0x3C
 
 
@@ -468,32 +476,34 @@ def test_only_the_player_has_a_lamp_and_the_worker_has_hands_beside_it():
     *a person* at eight pixels wide (issue #49). It is what identifies him,
     and since issue #72 it is his only mark.
 
-    **What is exactly true, and what identifies him** (issue #72): the lamp's
-    middle two columns on rows 0 and 1 are ink no other figure has in any
-    frame. The waiting worker's raised hands are on those rows too -- from
-    the front, arms up end in hands above the head -- at columns 1-2 and 5-6,
-    either side of the lamp's middle; the lamp is `..####..` and the hands
-    are `.##..##.`, different shapes on the rows a glow lands on first. The
-    follower's crown starts on row 2 and its top two rows are clear.
+    **What is exactly true, and what identifies him** (issue #78): the lamp's
+    two columns on row 4 are ink no other figure has in any frame, and the
+    pixel each side of the lamp is clear in every frame of his, so it is a
+    fitting on the helmet's front edge and not a wider helmet. The waiting
+    worker's raised hands are on rows 2-4 -- from directly above, arms up
+    are hands beside the crown -- at columns 1-2 and 5-6, either side of
+    where the lamp would be; the wave throws them out to the edge columns
+    on rows 1-2. The follower's row 4 is clear across its middle.
 
     **It is a rule about figures on their feet**, so the body is not in it
     (issue #59). A figure lying down has no head at the top of its box, and
     the arm flung back over its head is the first row of its box on purpose.
     """
     for frame in SP.STANDING["player"]:
-        assert frame[0] == frame[1] == LAMP_COLUMNS, \
-            "the lamp is four pixels wide, two rows, centred, on the top rows"
-        assert frame[2] == 0x7E, "the helmet is not under the lamp"
+        assert frame[LAMP_ROW] & LAMP_COLUMNS == LAMP, \
+            "the lamp is two pixels, centred, on row 4, with a clear pixel each side"
+        assert frame[LAMP_ROW + 1] & 0x7E == 0x7E, "the helmet is not under the lamp"
     for frame in SP.STANDING["follower"]:
-        assert frame[:2] == (0x00, 0x00), "the follower has something on its head"
-    assert SP.WORKER[0] == SP.WORKER[1] == 0x66, "the hands moved"
-    assert SP.WORKER_W[:2] == (0x00, 0x00), "the wave is not out to the sides"
+        assert not (frame[LAMP_ROW] & LAMP), \
+            "the follower has something at the front of its head"
+    assert SP.WORKER[2:5] == (0x66, 0x66, 0x66), "the hands moved"
+    assert SP.WORKER_W[1:3] == (0xC3, 0xC3), "the wave is not out to the sides"
     for name, frames in SP.STANDING.items():
         if name == "player":
             continue
         for frame in frames:
-            assert not any(row & 0x18 for row in frame[:2]), \
-                f"{name} has ink where the middle of the player's lamp is"
+            assert not (frame[LAMP_ROW] & LAMP), \
+                f"{name} has ink where the player's lamp is"
 
 
 def mirror(row: int, width: int) -> int:
@@ -512,7 +522,7 @@ def test_each_stride_is_the_other_in_the_mirror_and_neutral_is_symmetric():
     than A's reflection fails here, before anybody has to look at it walking.
 
     The waiting worker has no strides; both of its frames are symmetric,
-    because a front view of somebody standing still is.
+    because somebody standing still is, from above as from the front.
     """
     for name in ("player", "follower"):
         n, a, b = SP.STANDING[name]
@@ -537,7 +547,7 @@ def test_the_lamp_stays_symmetric_and_the_dead_stay_asymmetric():
     was: that is no longer *the* tell, and it has not been given away either.
     """
     for frame in SP.STANDING["player"]:
-        assert frame[0] == frame[1] == mirror(frame[0], 8), \
+        assert frame[LAMP_ROW] & LAMP_COLUMNS == LAMP == mirror(LAMP, 8), \
             "the walk moved the lamp"
     # The body is 16 wide, so its mirror runs across both bytes of a row: the
     # left byte reversed becomes the right one and vice versa.
@@ -548,45 +558,53 @@ def test_the_lamp_stays_symmetric_and_the_dead_stay_asymmetric():
             "the body is symmetric somewhere, which reads as somebody standing"
 
 
-def test_the_strides_move_the_arms_and_legs_and_nothing_above_the_shoulders():
-    """A walk is the silhouette changing width under a head and shoulders
-    that do not move. If the head or the shoulders differed between frames
-    the figure would appear to change size as it walked, which is what a
-    Cleg does by approaching and must not do by stepping -- and the player's
-    lamp is pinned separately because it is what identifies him.
+def test_the_strides_move_the_arms_and_legs_and_the_mass_never_moves():
+    """A walk seen from directly above is the limbs moving round a head and
+    shoulders that do not (issue #78): an arm swings forward up the screen
+    beside the head, the other back beside the toes, a leg comes out
+    behind. If the head or the shoulders differed between frames the figure
+    would appear to change size as it walked, which is what a Cleg does by
+    approaching and must not do by stepping -- and the player's lamp is
+    pinned separately because it is what identifies him. Rows 5 to 7 are
+    the mass; the strides reach both above it and below it, which is the
+    thing no figure seen from the front can do.
 
     **The wave is the inverse**: the waiting worker's arms move and nothing
     from the shoulders down does.
     """
-    still_to = {"player": 7, "follower": 8}
-    for name, rows in still_to.items():
+    MASS = slice(5, 8)
+    for name in ("player", "follower"):
         n, a, b = SP.STANDING[name]
         for frame in (a, b):
-            assert frame[:rows] == n[:rows], \
+            assert frame[MASS] == n[MASS], \
                 f"{name}'s head or shoulders move between frames"
             moving = [i for i, (x, y) in enumerate(zip(n, frame)) if x != y]
             assert moving, f"{name} does not move"
-            assert min(moving) >= rows
-    assert SP.WORKER[4:] == SP.WORKER_W[4:], "the wave moved the body"
-    assert SP.WORKER[:4] != SP.WORKER_W[:4], "the wave moves nothing"
+            assert min(moving) < MASS.start, f"{name}'s arms do not swing forward"
+            assert max(moving) >= MASS.stop, f"{name}'s legs do not come out behind"
+    assert SP.WORKER[6:] == SP.WORKER_W[6:], "the wave moved the body"
+    assert SP.WORKER[:6] != SP.WORKER_W[:6], "the wave moves nothing"
 
 
 def test_a_follower_has_its_arms_down_and_a_waiting_worker_has_them_up():
     """Raised arms mean "I still need reaching", so somebody already walking
-    behind you must not be drawn making the signal. From the front, arms up
-    are ink above the head; arms down are ink beside the trunk and nothing
-    above the head. The follower's arms down its sides reach the column's
-    edges in every frame -- which is why, since issue #72, the edge rows are
-    not what tells it from the player and are not asked to be; the contract
-    is."""
+    behind you must not be drawn making the signal. From directly above,
+    arms up are hands ahead of the shoulders beside the crown, or thrown
+    out wide, and nothing at the sides below the shoulders; arms down are
+    hands at the sides below the shoulders, and at most one arm swung
+    forward beside the head. Nothing about the edge columns tells a
+    follower from the player and nothing is asked to; the contract is what
+    does."""
     for frame in SP.WORKER_FRAMES:
-        assert _topmost(frame) < 4, "a waiting worker's arms are not up"
-        assert frame[0] or frame[2] & 0x81, "the hands are not out or up"
-        assert not any(row & 0x81 for row in frame[5:]), \
-            "a waiting worker has something at its hips"
+        assert _topmost(frame) < 5, "a waiting worker's arms are not up"
+        assert frame[2] & 0x66 or frame[1] & 0xC3, "the hands are not out or up"
+        assert not any(row & 0xC3 for row in frame[8:]), \
+            "a waiting worker has something at its sides below the shoulders"
     for frame in SP.STANDING["follower"]:
-        assert frame[:2] == (0, 0), "a follower is still signalling"
-        assert frame[7] & 0x81, "a follower's arms are not down by its sides"
+        assert frame[:3] == (0, 0, 0), "a follower is still signalling"
+        assert frame[2:5] != SP.WORKER[2:5], "a follower is still calling"
+        assert any(row & 0x66 for row in frame[8:10]), \
+            "a follower's hands are not down at its sides"
 
 
 def test_no_sprite_is_blank():

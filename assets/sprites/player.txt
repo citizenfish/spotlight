@@ -1,124 +1,114 @@
 ; player.txt
 ;
-; The player, seen from the front, standing on the plan-view floor.
-; Three frames: a neutral stance and two strides.
+; The player, seen from DIRECTLY ABOVE, walking. Three frames: a
+; neutral stance and two strides.
 ;
-; REDRAWN 2026-09-12 (issue #72), IN ELEVATION, on the user's own
-; reversal of the user's own 2026-09-07 request. The figure was asked
-; for from above, drawn to those words twice -- once as a front view
-; foreshortened, once as a disc of head and shoulders with feet
-; peeking out -- and both times the user played it and said it did
-; not read. The designer's note "Why the figures read as clunky" put
-; the cause in one word, projection: a plan-view person eight pixels
-; wide is a token, a disc on a wider disc, and a walk drawn on it
-; moves the hem and not the mass. Shown a front-view figure beside
-; the plan-view one in the same played frame, the user chose the
-; front view -- which is what Atic Atac, Sabre Wulf, Nightshade and
-; Gauntlet all did: elevation figures walking across a floor seen
-; from above, and nobody minded the mixed projection. The Cleg, the
-; walls, the floor and the lamps stay in plan. The people stand up.
+; REDRAWN 2026-09-13 FROM ABOVE (issue #78), on the user's ruling after
+; playing look-2 -- "the player and workers must be rendered as if
+; overhead view ... it overrides all previous decisions" -- and then
+; clarified the same day: "this is us looking top down onto the
+; characters, as if we were directly above them. You should not see
+; torso, only legs and arms moving." So there is NO BODY BELOW THE
+; HEAD. Everything a person stacks vertically when seen from the front
+; -- head, trunk, legs, feet -- is under the head when seen from above,
+; and what shows is one compact mass of head and shoulders in the
+; middle of the box, with the arms and the legs coming out from under
+; it: the arms at the sides, the legs behind. The figure a row or two
+; deep under the shoulders that the first plan-view drawings had was
+; a body seen from the front and foreshortened, which is exactly what
+; the user did not want. See the vault's "2026-09-13 People are drawn
+; from above, and the rule goes".
 ;
-; ONE FACING, NO MIRROR. A front view is symmetric, so there is no
-; left or right to draw, and the light is still what says which way
-; you are looking. The no-facings argument of 2026-09-07 is untouched.
-;
-; What he is, top to bottom: the lamp on his helmet (rows 0-1, four
-; pixels, centred, symmetric, exactly where it was); the helmet, a
-; visor and a chin; shoulders at the full width of the box -- the kit
-; -- which no other figure has; arms down the sides, hands at the
-; hips; a belt; legs; boots. The last row is clear.
-;
-; THERE IS NO BAR UNDER HIS FEET. Since issue #49 he wore two marks,
-; the lamp and a solid bar in the bottom two rows, because a plan-view
-; figure had nothing else to tell him from a follower on lit floor.
-; In elevation the helmet and the full-width kit do that in the middle
-; columns where the eye is, and the legibility contract -- every frame
-; of him against every frame of the other two -- passes without the
-; bar and fails without the lamp. The bar's five-pixel clause is gone
-; with it, not kept and skipped; assertion 4's five-pixel rule still
-; governs marks meant as marks, which is now the lamp alone, exempt
-; as it always was.
+; What he is: the LAMP at the front of his helmet (row 4, two pixels,
+; centred, symmetric -- the helmet's top edge, up the screen, which is
+; the way he walks); the HELMET, a disc six wide (rows 5-8); the
+; SHOULDERS either side of it at the full width of the box (rows 6-7)
+; -- the kit, his alone; his HANDS at the sides where the arms hang
+; (rows 8-9, the edge columns); and his TOES together behind (rows
+; 10-11). Rows 0-3 and 12-15 are clear in the neutral frame; the
+; strides reach into them.
 ;
 ; THE WALK IS FOUR STEPS OVER THREE FRAMES: N A N B, advancing every
-; FOUR PIXELS OF TRAVEL along either axis -- never per frame, never per
-; cell. He moves a pixel a frame, so that is a new frame every four
-; frames of walking, about 12Hz, which is a walk; the cell cadence
-; before it was a 6Hz flip that read as a foot twitch under a sliding
-; blob. A figure that stops holds its stride. The counter is
-; `walk.Stride`, drawing state that nothing in the rules reads; the
-; event log is byte-identical with it and without it.
+; FOUR PIXELS OF TRAVEL along either axis (walk.Stride, issue #72). A
+; stride swings ONE ARM FORWARD -- a strip up the screen beside the
+; helmet, cols 0-1, rows 2-4 -- and THE OTHER BACK -- a strip down
+; beside the toes, cols 6-7, rows 8-10 -- and puts ONE LEG OUT BEHIND
+; -- cols 2-3, rows 9-12 -- while the other is under him and out of
+; sight. B is A in the mirror, so the figure stays centred over its
+; column and never leans. The head and the shoulders (rows 5-7) are
+; IDENTICAL in every frame: a walk is the limbs moving round a mass
+; that does not, which is what an overhead walker looks like and what
+; nothing seen from the front looks like.
 ;
-; The strides move the arms and the legs and nothing above the
-; shoulders: A swings one arm forward and scissors the legs one way,
-; B is A in the mirror, so across a cycle the figure stays centred
-; over its column and never leans. The boots in A and B reach the
-; edges of the column (row 14, `##....##`); in N they are inboard.
+; ONE ORIENTATION, HEAD TO THE TOP OF THE SCREEN, NO FACINGS. The light
+; is what says which way you are looking. 2026-09-07's argument.
 ;
-; 68 pixels of ink in N and 65 in each stride, against 50/47/47 for a
-; follower and 50/44 for a waiting worker. Fifteen of the sixteen
-; rows are used; the port's twelve-row saving does not apply to these
-; and is out of scope.
+; THERE IS NO BAR UNDER HIS FEET (dropped at #72, kept dropped). The
+; helmet disc six wide and the kit eight wide tell him from a
+; follower's head disc four wide and shoulders six wide; the
+; legibility contract passes without the bar, and -- pinned -- without
+; the lamp too. He is a different body, not a different hat.
 ;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py, which also
-; derives the one-pixel halo mask (issue #70). Comments start with
-; ';' rather than '#', which is what a row of eight set pixels
-; starts with -- the first version of this format used '#' and
-; silently ate the player's shoulders.
+; derives the one-pixel halo mask (issue #70).
+; Comments start with ';' rather than '#', which is what a row of eight
+; set pixels starts with -- the first version of this format used '#'
+; and silently ate the player's shoulders.
 
 name: PLAYER_N
 size: 8x16
-..####..   the lamp, worn on the helmet
-..####..
-.######.   helmet
-.#.##.#.   visor
-..####..   chin
-########   shoulders, the kit - the full width, his alone
-##.##.##   arms
-##.##.##
-#.####.#
-#.####.#   hands at the hips
-..####..   belt
-..#..#..   legs together
+........
+........
+........
+........
+...##...   the lamp, at the front of the helmet
+.######.   helmet, a disc
+########   shoulders either side of it - the kit, the full width, his alone
+########
+##.##.##   hands at the sides; the back of the helmet between
+##....##
+..#..#..   toes, together, behind
 ..#..#..
-..#..#..
-.##..##.   boots
+........
+........
+........
 ........
 
 name: PLAYER_A
 size: 8x16
-..####..   the lamp
-..####..
-.######.   helmet
-.#.##.#.   visor
-..####..   chin
+........
+........
+##......   an arm swung forward, beside the helmet
+##......
+##.##...   the lamp
+.######.   helmet - rows 5 to 7 never move
 ########   shoulders
-##.##.##   arms
-#..##..#   arms swing
-#.####.#
-..####.#   one hand forward, off the hip
-..####..   belt
-.#...#..   legs scissor
-.#....#.
-#.....#.
-##....##   boots, out to the edges
+########
+...##.##   the back of the helmet; the other arm swung back
+..##..##   a leg out behind; the arm
+..##..##
+..##....   the leg
+..##....
+........
+........
 ........
 
 name: PLAYER_B
 size: 8x16
-..####..   the lamp
-..####..
+........
+........
+......##   frame A in the mirror: the other arm forward
+......##
+...##.##   the lamp
 .######.   helmet
-.#.##.#.   visor
-..####..   chin
 ########   shoulders
-##.##.##   arms
-#..##..#   arms swing
-#.####.#
-#.####..   frame A in the mirror: the other hand forward
-..####..   belt
-..#...#.   legs scissor the other way
-.#....#.
-.#.....#
-##....##   boots
+########
+##.##...   the first arm swung back
+##..##..   the other leg out behind; the arm
+##..##..
+....##..   the leg
+....##..
+........
+........
 ........

@@ -218,34 +218,32 @@ def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     """**The Atic Atac property the build was missing.**
 
     A remembered wall is 8 to 34 pixels (8 to 28 before issue #62 gave it
-    back its courses); a waiting worker is 50 calling and 44 waving. Before
+    back its courses); a waiting worker is 32 calling and 34 waving. Before
     the tiles a wall was 64 against a figure's 60 to 68, so a figure standing
     against one was inside it. If a future slice makes the dim tiles heavier,
     this is the test that should stop it.
 
-    The player is 68 neutral and 65 mid-stride since the elevation redraw
-    (issue #72; 76 in plan view, 84 with the bar and lamp before that), still
-    the heaviest figure in the room and twice the heaviest remembered wall
-    run. Either way the figure is the heavier thing on the cell.
-
-    **The follower is the lightest figure in the game, and the redraw gave
-    it back some ink**: 50 neutral and 47 mid-stride, from 36 in plan view,
-    which was a legibility cost priced rather than hidden (issue #60). It
-    now out-inks every wall run it can stand beside by thirteen pixels at
-    the narrowest, and the head is the thing the eye finds -- and this is
-    the line that says if that margin ever closes.
+    **The figures got lighter when they were drawn from directly above**
+    (issue #78): a compact mass of head and shoulders with limbs round it is
+    38 pixels for the player standing and 46 mid-stride (68 and 65 in
+    elevation, 76 in the first plan view, 84 with the bar), 28 and 34 for a
+    follower, 32 and 34 for a worker. The player standing still out-inks the
+    heaviest remembered wall run by four; **a follower or a worker standing
+    still no longer does**, and is told from a wall by being a disc between
+    shoulders rather than a run of courses. That is a consequence of the
+    user's ruling, recorded here rather than tuned away, and it is the
+    user's eye that says whether it holds on a real screen. The numbers are
+    pinned so a change to either side is seen.
     """
     inks = [tiles.ink_of(rows) for rows in tiles.WALL_DIM]
     assert min(inks) == 8 and max(inks) == 50, "mask 0 is a free-standing cell"
     # Every tile that is a wall *run* rather than a lone block: 8 to 34.
     runs = [ink for mask, ink in enumerate(inks) if mask not in (0,)]
     assert max(runs) <= 34
-    assert [tiles.ink_of(f) for f in sprites.WORKER_FRAMES] == [50, 44]
-    assert [tiles.ink_of(f) for f in sprites.STANDING["follower"]] == [50, 47, 47]
-    assert [tiles.ink_of(f) for f in sprites.STANDING["player"]] == [68, 65, 65]
-    for name, frames in sprites.STANDING.items():
-        for frame in frames:
-            assert max(runs) < tiles.ink_of(frame), name
+    assert [tiles.ink_of(f) for f in sprites.WORKER_FRAMES] == [32, 34]
+    assert [tiles.ink_of(f) for f in sprites.STANDING["follower"]] == [28, 34, 34]
+    assert [tiles.ink_of(f) for f in sprites.STANDING["player"]] == [38, 46, 46]
+    assert min(tiles.ink_of(f) for f in sprites.STANDING["player"]) > max(runs)
 
 
 def test_the_derivation_reproduces_every_tile():

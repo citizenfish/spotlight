@@ -1599,11 +1599,16 @@ def test_the_player_is_drawn_on_the_frame_his_stride_says():
         assert len(drawn) == sum(bin(b).count("1") for b in want), \
             f"the player is not drawn on stride {stride}"
         # The stride is the only thing that moved: the other frames' arms and
-        # legs are not on the screen where they differ.
+        # legs are not on the screen where they differ -- within this frame's
+        # halo, which is all a sprite clears. Since issue #78 a stride reaches
+        # further from the standing figure than a pixel, and what is on the
+        # floor out there is the floor's.
+        halo = sprites.MASK_OF[want]
         for other in sprites.STANDING["player"]:
             missing = [(dx, dy) for dy, (a, b) in enumerate(zip(want, other))
                        for dx in range(8)
-                       if (b & ~a) & (0x80 >> dx) and screen.point(x + dx, y + dy)]
+                       if (b & ~a) & halo[dy] & (0x80 >> dx)
+                       and screen.point(x + dx, y + dy)]
             assert not missing, f"another frame's pixels are on screen: {missing}"
 
 

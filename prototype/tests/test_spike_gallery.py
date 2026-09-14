@@ -346,15 +346,18 @@ def test_the_body_is_photographed_beside_somebody_standing_up():
              if any(screen.pixels[(cy * CELL + dy) * SCREEN_W + cx * CELL + dx]
                     for dy in range(CELL) for dx in range(CELL))}
     assert inked, "the picture is empty"
-    # The player is somewhere in it, found by his lamp and helmet: the top
-    # five rows of his box are the same in every stride and nothing else in
-    # the room draws them (issue #72; before it he was found by the bar).
-    head = list(zip(sprites.PLAYER_N[:5], sprites.MASK_OF[sprites.PLAYER_N][:5]))
-    players = [(px, py) for py in range(PLAY_ROWS * CELL - 5)
+    # The player is somewhere in it, found by his lamp, helmet and kit: rows
+    # 4 to 7 of his box, on whichever stride he is on, and nothing else in
+    # the room draws them (issue #78; before it he was found by the top of
+    # his box, and before #72 by the bar).
+    heads = [list(zip(frame[4:8], sprites.MASK_OF[frame][4:8]))
+             for frame in sprites.STANDING["player"]]
+    players = [(px, py) for py in range(PLAY_ROWS * CELL - 4)
                for px in range(SCREEN_W - 8)
-               if all(screen.point(px + dx, py + dy) == bool(row & (0x80 >> dx))
-                      for dy, (row, halo) in enumerate(head)
-                      for dx in range(8) if halo & (0x80 >> dx))]
+               if any(all(screen.point(px + dx, py + dy) == bool(row & (0x80 >> dx))
+                          for dy, (row, halo) in enumerate(head)
+                          for dx in range(8) if halo & (0x80 >> dx))
+                      for head in heads)]
     assert players, "the player is not in the picture"
     # ...and a body: a run of ink sixteen pixels wide on one row of cells,
     # which no standing figure can make.

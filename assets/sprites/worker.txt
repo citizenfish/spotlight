@@ -1,87 +1,77 @@
 ; worker.txt
 ;
-; A trapped worker, waiting, seen from the front. Two frames: calling,
-; and the wave.
+; A trapped worker, waiting, seen from DIRECTLY ABOVE. Two frames:
+; calling, and the wave.
 ;
-; REDRAWN 2026-09-12 (issue #72), IN ELEVATION, with the player and
-; the follower and for the same reason -- see player.txt for the
-; ruling. The same person as the follower -- the same head, neck,
-; shoulders, legs and boots -- with the ARMS UP: two arm strips rising
-; from the shoulders past the head to hands above it, which is what
-; raised arms look like from the front and is the whole of the signal.
-; It is the only figure with ink on the top row that is not the
-; player's lamp, and where the lamp is four centred pixels the hands
-; are two pairs either side of the lamp's middle two columns, so the
-; two are never the same shape at the top where a glow finds them.
-;
-; The hands were moved in from the edge columns before this was built:
-; the designer's mock put them at columns 0 and 7, and the contract
-; check found that put the whole difference from the follower in the
-; edge columns, which is the fault assertion 2 exists to refuse.
+; REDRAWN 2026-09-13 FROM ABOVE (issue #78), with the player and the
+; follower and for the same ruling -- see player.txt: no body below
+; the head. The same person as the follower -- the same head disc, the
+; same shoulders, the same toes -- with the ARMS UP. From directly
+; above, arms raised towards you are two hands beside the crown and
+; nothing else: two pairs of pixels at columns 1-2 and 5-6 on rows
+; 2-4, ahead of the shoulders and either side of the head, inboard of
+; the edges. Nothing at the sides below the shoulders, because the
+; arms are up. The hands are inboard because a difference confined to
+; the edge columns is the fault the contract's assertion 2 refuses,
+; and three rows deep because two rows against a follower's arm swung
+; forward was two pixels of difference, which assertion 1 refuses.
 ;
 ; THE WAVE PLAYS ON THE SHOUT. A waiting worker does not walk, so it
 ; has no stride; what it has is the call it already raises every few
 ; seconds. While its HELP is painted on the screen it is drawn on
-; WORKER_W -- arms out from the shoulders, hands level with the head --
-; and goes back to WORKER when the word clears. On the event, never on
-; a counter and never on a random number: the cells are already dirty
-; for the word, so the wave costs no redraw the shout was not paying
-; for. This is the one-line lever the plan-view drawing named and did
-; not pull; the user's ruling pulled it (row 6 of "Look and feel 2").
+; WORKER_W -- the arms thrown out wide and up the screen, hands at the
+; edge columns on rows 1-2 and the arms down the edges to the
+; shoulders -- and goes back to WORKER when the word clears. On the
+; event, never on a counter and never on a random number: the cells
+; are already dirty for the word, so the wave costs no redraw the
+; shout was not paying for. Rows 6 onward are the same in both frames.
 ;
 ;   Do NOT give it a counter to make it look alive. It is waiting.
-;
-; Breathing was refused with the fly's own lesson: the tester measured
-; a frame change of eight corner pixels and found it read as no
-; animation at all, and a breath at 8x16 is two pixels of shoulder for
-; a redraw of a figure that has not moved.
 ;
 ; A dropped follower goes back to WORKER on the frame it is dropped,
 ; because the drawing is chosen from the state and not remembered.
 ;
-; 50 pixels calling, 44 waving. The wave keeps rows 4 onward.
-;
 ; Authored here and generated into prototype/spikes/bitmaps_gen.py
 ; and spectrum/src/bitmaps.asm by tools/bitmaps.py, which also
-; derives the one-pixel halo mask (issue #70). Comments start with
-; ';' rather than '#', which is what a row of eight set pixels
-; starts with -- the first version of this format used '#' and
-; silently ate the player's shoulders.
+; derives the one-pixel halo mask (issue #70).
+; Comments start with ';' rather than '#', which is what a row of eight
+; set pixels starts with -- the first version of this format used '#'
+; and silently ate the player's shoulders.
 
 name: WORKER
 size: 8x16
-.##..##.   hands above the head, calling
+........
+........
+.##..##.   hands, raised beside the crown - calling
 .##..##.
-.#.##.#.   arms up, the head between them
-.#.##.#.
+.##..##.
+..####..   head, a disc
 .######.   shoulders
-...##...   neck
-..####..   trunk
-..####..
-..####..
-..####..
-..#..#..   legs
+.######.
+..#..#..   toes, together, behind - nothing at the sides, the arms are up
 ..#..#..
-..#..#..
-.##..##.   boots
+........
+........
+........
+........
 ........
 ........
 
 name: WORKER_W
 size: 8x16
 ........
+##....##   the wave: the arms thrown out wide
+##....##
+#......#   and down the edges to the shoulders
+#......#
+#.####.#   head, the arms either side of it
+.######.   shoulders - rows 6 onward as when calling
+.######.
+..#..#..   toes
+..#..#..
 ........
-#..##..#   the wave: hands out, level with the head
-##.##.##   arms out from the shoulders
-.######.   shoulders
-...##...   neck
-..####..   trunk
-..####..
-..####..
-..####..
-..#..#..   legs
-..#..#..
-..#..#..
-.##..##.   boots
+........
+........
+........
 ........
 ........

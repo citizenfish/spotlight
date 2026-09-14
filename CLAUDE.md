@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1560 tests, headless-safe
+pytest                     # 1552 tests, headless-safe
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -116,11 +116,15 @@ cent fewer bites a minute, recorded and not tuned. Everything before them was
 checked to leave the event log byte-identical.
 
 The second look-and-feel round after that, with The Great Escape as the reference, gave it
-a noise floor in place of the dot lattice, people drawn in elevation on the
-plan floor with a four-stride walk, a halo mask on every sprite, a three-frame
-wingbeat, seven furniture tiles (drawn, not yet placed), a rule under the play
-area, a border colour flag, and a beam across the title. All seven slices left
-the event log byte-identical. See *Look and feel 2* in the vault.
+a noise floor in place of the dot lattice, a four-stride walk, a halo mask on
+every sprite, a three-frame wingbeat, seven furniture tiles (drawn, not yet
+placed), a border colour flag, and a beam across the title. All seven slices
+left the event log byte-identical. See *Look and feel 2* in the vault.
+
+The day after, from play, the user overruled two of those slices (#78): the
+people are **drawn from above again**, as everything else is, with the walk
+kept and no bar under the player; and the dotted rule under the play area is
+gone. See *2026-09-13 People are drawn from above, and the rule goes*.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the
