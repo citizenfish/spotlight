@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1439 tests, headless-safe
+pytest                     # 1436 tests, headless-safe
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no

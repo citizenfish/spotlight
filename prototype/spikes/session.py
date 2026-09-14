@@ -76,6 +76,12 @@ LEAVE_FRAMES = 25
 #: to it, so the ten seconds run from the last sighting.
 MAGNET_FRAMES = 500
 
+#: The magnet's tell, in frames on and then off (issue #84): the brackets
+#: round the player's figure are drawn for this many frames in every twice
+#: this many. Eight is a pulse three times a second -- slow enough to read as
+#: a thing being tracked, fast enough not to be missed.
+MAGNET_PULSE = 8
+
 #: How many times the player can bleed out before the run is over. Deliberately
 #: not called "lives" anywhere a player will read it: the testers are people who
 #: do not know 8-bit games and that word carries none of its usual freight.
@@ -1725,12 +1731,6 @@ class Session:
             if moments_mod.hatch_is_near(nest.age - rescue_mod.BODY_FRAMES,
                                          nest.hatched, nest.owed):
                 state.add(nest.cell())
-        if self.magnet:
-            # **You, while the room knows where you are** (issue #82): the
-            # player's two cells blink for as long as the magnet counter runs,
-            # re-tested against the light like the body and the nest. The
-            # blinking stopping is how the player knows it has ended.
-            state.update(self.player.body_cells())
         field = self.place.field
         cells.update(cell for cell in state
                      if field.level_at(cell[0], cell[1]) != lighting.DARK)
@@ -2085,8 +2085,17 @@ class Session:
             sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
                          cleg.cx * CELL, cleg.cy * CELL,
                          visible=field.reveals_at)
-        sprites.draw(screen, sprites.PLAYER_FRAMES[self.player.stride],
-                     self.player.x, self.player.y)
+        figure = sprites.PLAYER_FRAMES[self.player.stride]
+        sprites.draw(screen, figure, self.player.x, self.player.y)
+        if self.magnet and (self.frame // MAGNET_PULSE) % 2 == 0:
+            # **You, while the room knows where you are** (issue #84): four
+            # corner brackets round the figure -- locked on -- eight frames
+            # in every sixteen for as long as the magnet runs. Shape, not
+            # colour: the FLASH bit was two yellow blocks with the figure cut
+            # out, and a filled halo was tried and made a compact figure into
+            # a blob. Drawing state on the frame counter, like the wingbeat;
+            # no attribute moves and the log cannot see it.
+            sprites.draw_brackets(screen, figure, self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
         # clears none, so the wall tile under the word survives. On floor the

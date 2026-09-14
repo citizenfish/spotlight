@@ -349,6 +349,50 @@ WIDE = 16
 MASK_OF = {BITMAPS[name]: mask for name, mask in MASKS.items()}
 
 
+def extent(sprite) -> tuple[int, int]:
+    """The first and last drawn rows of a sprite, or (0, -1) for none."""
+    rows = [i for i, row in enumerate(sprite) if any(row_bytes(row))]
+    return (rows[0], rows[-1]) if rows else (0, -1)
+
+
+#: The magnet's tell (issue #84): four corner brackets round the figure --
+#: the machine's own word for *locked on* -- this far outside its drawn
+#: pixels, with arms this long. Shape and not colour, which is the rule every
+#: entity lives by; twenty pixels set by OR, no attribute touched.
+BRACKET_GAP = 2
+BRACKET_ARM = 3
+
+
+def draw_brackets(screen, sprite, x: int, y: int,
+                  clip_bottom: int = PLAY_BOTTOM_PX, gap: int = BRACKET_GAP,
+                  arm: int = BRACKET_ARM) -> None:
+    """Four corner brackets round a sprite's drawn extent, set by OR.
+
+    Round the pixels the figure actually has rather than round its box: a
+    player's box has clear rows under the toes, and brackets at the box's
+    corners would float. Clipped to the screen and to the play area as a
+    sprite is; nothing is cleared, so the floor's stipple and the figure
+    survive underneath, and on the port it is twenty ORs into bytes the
+    figure's draw has just touched.
+    """
+    top, bottom = extent(sprite)
+    if bottom < top:
+        return
+    left, right = x - gap - 1, x + width_of(sprite) + gap
+    top, bottom = y + top - gap - 1, y + bottom + gap + 1
+    limit = min(SCREEN_H, clip_bottom)
+
+    def put(px, py):
+        if 0 <= px < SCREEN_W and 0 <= py < limit:
+            screen.pixels[py * SCREEN_W + px] = 1
+
+    for cx, dx in ((left, 1), (right, -1)):
+        for cy, dy in ((top, 1), (bottom, -1)):
+            for i in range(arm):
+                put(cx + dx * i, cy)
+                put(cx, cy + dy * i)
+
+
 def row_bytes(row) -> tuple:
     """One row of a sprite, as its bytes, whatever width the sprite is.
 

@@ -248,13 +248,6 @@ def _movement() -> tuple[int, int]:
             keys[pygame.K_DOWN] - keys[pygame.K_UP])
 
 
-#: How long every level opens for, in frames (issue #81): two seconds, the
-#: user's number, in which the first frame is held and the opening tune
-#: plays. One bar of the tune is 96 of them; the last four are the breath
-#: before play.
-OPENING_FRAMES = 100
-
-
 class Shell:
     """Title, play, ending, again -- the states a window is in.
 
@@ -268,23 +261,10 @@ class Shell:
     """
 
     def __init__(self, screen: Screen, speaker=None,
-                 debug: bool = False,
-                 opening_frames: int = OPENING_FRAMES) -> None:
+                 debug: bool = False) -> None:
         self.screen = screen
         self.state = TITLE
         self.run: Session | None = None
-        #: How long every level opens for (issue #81): frames the first
-        #: picture is held and the opening tune plays before anything steps.
-        #: A parameter so a test that wants play at once can ask for none;
-        #: the game asks for `OPENING_FRAMES`.
-        self.opening_frames = opening_frames
-        #: Frames of the opening still to hold. Counted down in `frame` on
-        #: the pause's mechanism and not a second one.
-        self.opening = 0
-        #: The opening tune's own voice, arbitrated like the title theme's
-        #: for the same reason: one speaker and one path to it. Nothing else
-        #: can raise a sound on a frame the run is not stepped.
-        self.opening_voice = sounds.Voice(tune.Music(tune.OPENING))
         #: Built only when the developer keys are unlocked, so that with them
         #: locked there is nothing for a stray key to reach.
         self.debug: Debug | None = None
@@ -359,15 +339,12 @@ class Shell:
     def start(self) -> None:
         """Begin a fresh run. Nothing survives from the last one.
 
-        **Every level opens on a two-second hold and a tune** (issue #81):
-        the run's first frame is stepped and drawn -- the first picture a
-        player sees, where they are standing by their own glow and the room's
-        own lights -- and then held for `opening_frames` frames while the
-        opening plays and nothing steps, so the player can take it in before
-        anything can happen to them. The same on a restart from the ending
-        screen, and on every level when there are levels. The hold is the
-        shell's, on the pause's mechanism; the session never hears of it and
-        the log cannot move.
+        For one day (issue #81) a level opened on a two-second hold with a
+        tune under it, so the player could take in where they stood. The
+        user played it against a first frame that is the room as the glow
+        lights it -- a few cells of wall and black everywhere else -- and it
+        read as the screen having failed to draw; issue #83 took it out for
+        now. The tune is still in `tune.py` for the day it comes back.
         """
         self.run = Session()
         self.debug = Debug(self.run) if self.debug_enabled else None
@@ -378,10 +355,6 @@ class Shell:
         # resumed: the next title screen starts it again from bar one, because
         # a title screen is a beginning.
         self.title_voice.music.play(tune.THEME)
-        self.run.step(Intent())
-        self.run.draw(self.screen)
-        self.opening = self.opening_frames
-        self.opening_voice.music.play(tune.OPENING)
 
     def frame(self, dx: int = 0, dy: int = 0) -> None:
         """One frame of whatever state we are in.
@@ -432,19 +405,6 @@ class Shell:
         if self.state != PLAY:
             # The ending screen: no tune, no click, nothing. Silence and a
             # count is what the design asks for and what it keeps.
-            return
-        if self.opening:
-            # **The level's opening** (issue #81): the first frame held, the
-            # opening tune on the speaker, and the run not stepped. The run's
-            # own voice is not touched either: nothing in it has started --
-            # the first frame raises no sound and the siren has not begun --
-            # so its clock starts when play does, and the siren's first wail
-            # rises from the first stepped frame. Keys pressed now land on
-            # that frame, as they do during a pause.
-            self.opening -= 1
-            self.opening_voice.update(False, False)
-            if self.speaker is not None:
-                self.speaker.play(self.opening_voice)
             return
         self.run.step(Intent(dx=dx, dy=dy, torch=self._torch,
                              spray=self._spray))

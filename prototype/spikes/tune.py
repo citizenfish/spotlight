@@ -288,11 +288,13 @@ THEME_BARS = (
 )
 
 #: The opening (issue #81): one bar under the two-second hold every level
-#: opens on. Three pulses of A3, three of E4, two of A4 -- the motif's own
+#: opened on. Three pulses of A3, three of E4, two of A4 -- the motif's own
 #: notes rising to the tonic an octave up and stopping there, the theme's
-#: tag turned the other way. 96 frames, and it **does not loop**: the hold is
+#: tag turned the other way. 96 frames, and it **does not loop**: the hold was
 #: a hundred frames and a bar that came round again would be four frames of
-#: its own start under the breath before play.
+#: its own start under the breath before play. **Nothing plays it since
+#: issue #83** took the hold out for now; it is kept as data, one row and a
+#: file in the bank, for the day the opening returns.
 OPENING_BARS = (
     (A3, E4, A4),
 )

@@ -113,8 +113,8 @@ M_GAME_OVER = "game_over"
 M_ALL_OUT = "all_out"
 M_PICKUP = "pickup"
 #: The searchlight's beam is on you, and for ten seconds the room knows where
-#: you are (issue #82). The flash is a state -- the player's two cells, for as
-#: long as the magnet counter runs -- and lives in `Session.flash_cells`.
+#: you are (issue #82). Its tell is the figure's outline pulsing for as long as
+#: the magnet counter runs, drawn in `Session.draw`; it is not a flash.
 M_MAGNET = "magnet"
 
 #: How long a readout on the status strip flashes when a moment alerts it.
@@ -197,12 +197,13 @@ MOMENTS = {
         Moment(M_ALL_OUT, SFX_ALL_OUT, 1, pause=50),
         Moment(M_PICKUP, SFX_PICKUP, 0, frames=PICKUP_FRAMES,
                strip=("light",)),
-        # A state flash, like the hatch tell: the player's cells blink for as
-        # long as the counter runs, and the session owns that. Priority 1,
-        # because being hunted outranks good news. No pause, no strip: the
-        # strip has no clock by ruling and a bar that counted down would be
-        # one.
-        Moment(M_MAGNET, SFX_MAGNET, 1, state_flash=True),
+        # No flash of its own: the tell is the figure drawn with its halo
+        # filled in for as long as the counter runs, in `Session.draw`, and
+        # not the FLASH bit at all (issue #84 -- the bit was two yellow blocks
+        # with the figure cut out). Priority 1, because being hunted outranks
+        # good news. No pause, no strip: the strip has no clock by ruling and
+        # a bar that counted down would be one.
+        Moment(M_MAGNET, SFX_MAGNET, 1),
     )
 }
 

@@ -507,7 +507,7 @@ def test_a_pause_does_not_reach_the_session():
     is simply not stepped: `run.frame` does not move and `run.log` does not
     grow.
     """
-    shell = spike1.Shell(Screen(), opening_frames=0)   # no opening hold (#81)
+    shell = spike1.Shell(Screen())
     shell.key(pygame.K_s)
     run = shell.run
     for _ in range(20):
@@ -531,7 +531,7 @@ def test_a_pause_does_not_reach_the_session():
 def test_the_pause_holds_the_frame_the_moment_happened_on():
     """It holds the ending screen *off*, which is the whole of what it is for:
     a beat on the last frame of play before the screen that explains it."""
-    shell = spike1.Shell(Screen(), opening_frames=0)   # no opening hold (#81)
+    shell = spike1.Shell(Screen())
     shell.key(pygame.K_s)
     for _ in range(20):
         shell.frame()

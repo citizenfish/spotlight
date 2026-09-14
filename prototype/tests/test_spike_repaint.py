@@ -263,7 +263,7 @@ def test_the_game_does_not_count(monkeypatch):
         raise AssertionError("the game must not enter the counting path")
 
     monkeypatch.setattr(lighting.Repaint, "frame", explode)
-    shell = spike1.Shell(Screen(), opening_frames=0)   # no opening hold (#81)
+    shell = spike1.Shell(Screen())
     shell.key(pygame.K_s)
     for _ in range(60):
         shell.frame(dx=1)

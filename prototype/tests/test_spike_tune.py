@@ -130,12 +130,13 @@ def test_the_bass_and_the_motif_take_turns_and_never_sound_together():
 
 
 def test_the_opening_is_one_bar_that_plays_once_and_then_rests():
-    """**The tune under the two-second hold** (issue #81). One bar on the
-    grid is 96 frames, the nearest the grid comes to two seconds; the hold is
-    a hundred, and a tune that looped would be four frames of its own start
-    under the breath before play. So it carries the one bit the theme does
-    not, and from its last frame on it is a rest -- through the sequencer as
-    well as through the table."""
+    """**The tune under the two-second hold** (issue #81), kept as data since
+    issue #83 took the hold out. One bar on the grid is 96 frames, the
+    nearest the grid comes to two seconds; the hold was a hundred, and a tune
+    that looped would be four frames of its own start under the breath
+    before play. So it carries the one bit the theme does not, and from its
+    last frame on it is a rest -- through the sequencer as well as through
+    the table. Nothing in the shell plays it."""
     assert tune.OPENING.frames == tune.BAR_FRAMES == 96
     assert tune.OPENING.seconds == 2
     assert tune.THEME.loops and not tune.OPENING.loops

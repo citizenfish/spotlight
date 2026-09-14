@@ -13,9 +13,6 @@ door, and get back in for the next one before the ones you left run out of time.
 Your torch shows you the room. It also shows the biting flies where you are.
 That trade is the whole game.
 
-Every level opens on two seconds of a tune while you get your bearings; nothing
-moves until it ends.
-
 Nothing ever shows you a room whole, and nothing ever shows you the plan of
 the building. What you have seen by your own light is remembered for a few
 seconds and dims; after that, what you have is whatever you held in your head.
