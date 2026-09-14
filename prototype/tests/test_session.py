@@ -136,25 +136,50 @@ def test_the_last_worker_dying_does_not_end_the_run():
     assert run.tally_adds_up()
 
 
-def test_walking_out_of_the_exit_ends_the_run():
-    """The other half of #20: the exit is a finish line, not a delivery hatch.
+def everyone_else_dead(run: Session) -> None:
+    """Bleed out everybody still waiting, so nobody living is left inside.
 
-    *Progression and Scoring* says "reach the exit with at least the quota of
-    rescued workers", so reaching it is what completes a level -- and a player
-    who cannot save anybody else has to have some way to stop that is not
-    standing in a failed room until their blood runs out.
+    Issue #87: the door does not let you out while anybody living is inside,
+    so a test of walking out has to empty the building first.
+    """
+    for worker in run.rescue.alive_waiting():
+        worker.blood = 0
+    while run.rescue.waiting:
+        run.step()
+    assert run.inside == 0
 
-    Nobody is following, and it still ends. That is the case the old rule could
-    not reach at all.
+
+def test_the_door_does_not_let_you_out_while_anybody_living_is_inside():
+    """**The user, from play** (issue #87): *"you can only exit when all
+    available are collected."* Seven people alive in there, the player
+    pushing through the door for as long as they like: nothing.
+
+    This test used to say the opposite -- that walking out with everybody
+    alive inside ended the run as an abandonment, the decision *Progression
+    and Scoring* called the game. The user has ruled that decision out.
     """
     run = Session()
     run.step()                           # one frame in the room they came into
     at_the_door(run)
     run.step()
     assert run.over is None, "a brush against the door ended the run"
+    assert push_out(run, session.LEAVE_FRAMES * 4) is None, \
+        "seven people are alive in there and the door let you out"
+    assert run.over is None and run.inside == 7
+    assert run.rescued == 0
+    assert run.tally_adds_up()
 
-    assert push_out(run) == session.ABANDONED, \
-        "seven people are alive in there and the run said otherwise"
+
+def test_walking_out_when_nobody_living_is_left_ends_the_run():
+    """The ending the door still has: everyone available collected -- here,
+    nobody, because they all died -- and the player walks out."""
+    run = Session()
+    run.step()
+    everyone_else_dead(run)
+    at_the_door(run)
+    run.step()
+    assert run.over is None, "a brush against the door ended the run"
+    assert push_out(run) == session.NOBODY_LEFT
     assert run.rescued == 0
     assert run.tally_adds_up()
 
@@ -174,11 +199,13 @@ def test_the_door_is_not_an_ending_until_you_have_gone_in():
     assert push_out(run, session.LEAVE_FRAMES * 2) is None, \
         "the run ended on the doorstep"
 
-    # Step off the door and come back: now it is a way out.
+    # Step off the door and come back, with nobody living left inside (issue
+    # #87): now it is a way out.
     run.player.x, run.player.y = scene.PLAYER_START
     run.step()
+    everyone_else_dead(run)
     at_the_door(run)
-    assert push_out(run) == session.ABANDONED
+    assert push_out(run) == session.NOBODY_LEFT
 
 
 def test_running_out_of_tries_ends_the_run():
@@ -231,7 +258,8 @@ def test_delivering_the_last_but_one_does_not_end_the_run():
     run.step()
     assert run.rescued == run.total - 1
     assert run.over is None, "delivering with somebody still inside ended the run"
-    assert push_out(run) == session.ABANDONED
+    assert push_out(run) is None, "the door let you out on the last one (#87)"
+    assert run.over is None
 
 
 def test_the_tally_adds_up_with_people_still_in_the_tail():
@@ -971,14 +999,15 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     push_out(sweep)
     endings[sweep.over] = sweep
 
-    # Walked out on people who are still alive: three delivered, four waiting.
+    # Pushing out on people who are still alive: three delivered, four
+    # waiting -- and no ending at all, since issue #87.
     part = Session()
     for worker in list(part.rescue.workers)[:3]:
         touch(part, worker)
         part.step()
     at_the_door(part)
-    push_out(part)
-    endings[part.over] = part
+    assert push_out(part) is None and part.over is None
+    assert part.tally_adds_up() and part.inside == 4
 
     # Walked out when there was nobody living left to go back for.
     empty = Session()
@@ -1002,8 +1031,8 @@ def test_the_tally_adds_up_at_every_ending_the_game_can_reach():
     spent.step()
     endings[spent.over] = spent
 
-    assert set(endings) == {session.ALL_OUT, session.ABANDONED,
-                            session.NOBODY_LEFT, session.NO_LIVES}
+    assert set(endings) == {session.ALL_OUT, session.NOBODY_LEFT,
+                            session.NO_LIVES}, "abandonment is unreachable (#87)"
     for name, run in endings.items():
         assert run.tally_adds_up(), \
             f"{name}: {run.rescued} + {run.lost} + {run.inside} " \
@@ -1026,7 +1055,7 @@ def test_arriving_with_a_tail_banks_them_before_the_run_is_judged():
     run.step()
     assert run.rescued == 2 and len(run.rescue.tail) == 0
     assert run.over is None
-    assert push_out(run) == session.ABANDONED
+    assert push_out(run) is None, "five are still inside (#87)"
     assert run.rescued == 2 and run.inside == 5
 
 
@@ -1303,6 +1332,7 @@ def test_letting_go_of_the_door_starts_the_push_again():
     """Half a second of *sustained* walking, not half a second of touching."""
     run = Session()
     run.step()
+    everyone_else_dead(run)                      # or the door stays shut (#87)
     at_the_door(run)
     out = Intent(*run.exit_facing)
     for _ in range(session.LEAVE_FRAMES - 1):
@@ -1313,7 +1343,7 @@ def test_letting_go_of_the_door_starts_the_push_again():
         run.step(out)
     assert run.over is None
     run.step(out)
-    assert run.over == session.ABANDONED
+    assert run.over == session.NOBODY_LEFT
 
 
 def test_dying_in_the_doorway_does_not_walk_you_out_of_the_building():

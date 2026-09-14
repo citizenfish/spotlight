@@ -1618,11 +1618,9 @@ class Session:
         inside the game until now:
 
         * Everybody out alive -- `ALL_OUT`.
-        * Somebody **living** still in there -- `ABANDONED`. "You left the
-          building", which is the honest name for the decision the design is
-          about. Telling that player *"there is nobody left to save, the rest of
-          them bled to death"* with four people alive behind them is not a wrong
-          screen, it is a lie.
+        * Somebody **living** still in there -- **no ending at all** since
+          issue #87: the door does not let you out. `ABANDONED` was the ending
+          here from #28 to #87 and its text stays for the screen only.
         * Nobody living left, but not everybody got out -- `NOBODY_LEFT`, which
           now says only what is true.
 
@@ -1641,10 +1639,17 @@ class Session:
             return NO_LIVES
         if self.total and self.rescued == self.total:
             return ALL_OUT
+        if self.inside:
+            # **The door does not let you out while anybody living is still
+            # inside** (issue #87, the user, from play). Pushing through it
+            # does nothing; `ABANDONED` is unreachable and its text is kept
+            # only for the screen. What this withdraws is the decision *do
+            # you go back in, or leave with what you have* -- the user wants
+            # the one where you go back in, and the question is whether you
+            # get there in time.
+            return None
         if self.leaving < LEAVE_FRAMES or not self._gone_in:
             return None
-        if self.inside:
-            return ABANDONED
         return ALL_OUT if self.rescued == self.total else NOBODY_LEFT
 
     def _record(self, kind: str, who: int | None = None, count: int = 0,
@@ -1779,7 +1784,7 @@ class Session:
             # paints the figure that means *this is you* in the colour that
             # means *a voice*. Only gathered when somebody is actually calling.
             people = self._people_cells(place) if calling else frozenset()
-            runs = [w.call_cells(people) for w in calling]
+            runs = [w.call_cells(people, place.room.is_solid) for w in calling]
             cells = [c for run in runs for c in run]
             if here:
                 self.shouting = calling

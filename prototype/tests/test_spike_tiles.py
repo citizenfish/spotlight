@@ -528,18 +528,6 @@ def test_the_jambs_either_side_of_a_gap_come_free():
 
 # --- signs are painted, not punched -----------------------------------------
 
-def _shouting_on_a_wall(run, screen, limit: int = 400):
-    """Step until somebody is shouting on a wall cell, and say which cells."""
-    room = run.place.room
-    for _ in range(limit):
-        run.step()
-        run.draw(screen)
-        walls = [c for c in run.call_cells if room.is_wall(*c)]
-        if walls:
-            return walls
-    return []
-
-
 def test_a_sign_is_painted_on_the_wall_and_does_not_punch_through_it():
     """**The fault this fixes, and the fix, on the same frame.**
 
@@ -554,9 +542,15 @@ def test_a_sign_is_painted_on_the_wall_and_does_not_punch_through_it():
     """
     run, screen = _lit_room()
     room = run.place.room
-    painted = [c for c in run.place.sign_cells if room.is_wall(*c)]
-    painted += _shouting_on_a_wall(run, screen)
-    assert painted, "no word landed on a wall, so this test proved nothing"
+    # Since issue #86 no word the game draws lands on a wall -- the exit sign
+    # is written on floor beside the door and HELP steps off the brick -- so
+    # the routine is exercised here directly, on the three row-15 wall cells
+    # the docstring's numbers were taken from. The property is the routine's,
+    # not the placement's.
+    painted = [(cx, 15) for cx in (11, 12, 13)]
+    assert all(room.is_wall(*c) for c in painted), "row 15 is not the wall it was"
+    for i, (cx, cy) in enumerate(painted):
+        font.paint_glyph(screen, cx, cy, font.GLYPHS["HEL"[i]])
 
     for cx, cy in painted:
         mask = tiles.mask_at(room.is_wall, cx, cy)

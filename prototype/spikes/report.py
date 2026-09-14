@@ -796,7 +796,10 @@ def human(run, bot: str = "", label: str = "",
             if r["outcome"] in (STILL_WAITING, STILL_FOLLOWING)]
     if left:
         following = sum(1 for r in left if r["outcome"] == STILL_FOLLOWING)
-        tail = (f", {_word(following)} still following you"
+        # "Still inside:" already says still; saying it twice cost the line
+        # that took a wanderer's report to seven once the door stopped
+        # letting it out with people inside (issue #87).
+        tail = (f", {_word(following)} following you"
                 if following else "")
         # Same rule as the other two lines: past three names it stops being a
         # sentence somebody would say and becomes a list.
@@ -811,7 +814,7 @@ def human(run, bot: str = "", label: str = "",
         else:
             who_left = _join(_name_them(left, rooms, omit=shared))
         if shared:
-            who_left += f", all in {shared}"
+            who_left += f", {'all ' if len(left) > 1 else ''}in {shared}"
         lines += _wrap(f"Still inside: {who_left}{tail}.")
 
     lines += _wrap(_nest_clause(run)

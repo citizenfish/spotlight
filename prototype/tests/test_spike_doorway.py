@@ -964,9 +964,15 @@ def test_the_call_says_the_door_and_not_the_person():
         seen |= {id(w) for w in who}
         # Their own call cells belong to the far room's field. Nothing about
         # where they are standing reaches this room.
-        for cx, cy in {cell for w in who for cell in w.call_cells()}:
+        far_room = scene.BUILDING.rooms[scene.FAR]
+        own = set(run.call_cells)          # the near room's own shouts
+        for cx, cy in {cell for w in who
+                       for cell in w.call_cells(is_solid=far_room.is_solid)}:
             assert run.places[scene.FAR].field.level_at(cx, cy) == lighting.LIT
-            if cx < COLS - len(rescue_mod.CALL):
+            # A cell the near room lights for its own reasons -- its own
+            # shouts, or a revealing light such as the beam -- proves nothing;
+            # a shout reveals nobody, so a LIT cell that reveals is not one.
+            if (cx, cy) not in own and not run.field.reveals_at(cx, cy):
                 assert run.field.level_at(cx, cy) != lighting.LIT, \
                     "a far-room caller lit a cell in the near room"
     assert door is not None

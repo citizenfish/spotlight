@@ -295,7 +295,7 @@ class Cleg:
 
     __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "goal_source",
                  "kind", "flank", "step_every", "hunger", "heading", "victim",
-                 "wing", "_run", "_timer", "_tick", "_seed")
+                 "wing", "slide", "_run", "_timer", "_tick", "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -333,6 +333,11 @@ class Cleg:
         #: Which way it is wandering, and how much longer for.
         self.heading = (0, 0)
         self._run = 0
+        #: The slide (issue #85): a step at right angles to the axis this fly
+        #: most wants, held while a wall refuses that axis, `(0, 0)` when none
+        #: is held. The one byte of memory the greedy step never had -- see
+        #: `_toward`. Cleared the frame the wanted axis is taken.
+        self.slide = (0, 0)
         #: **Which wing frame this fly is drawn in**: two bits since issue
         #: #73, a phase 0-3 over the cycle A M B M that `sprites.CLEG_FRAMES`
         #: is indexed by, advanced in `_beat`. From issue #49 to #73 it was
@@ -554,8 +559,27 @@ class Cleg:
         Trying the longer axis first is what makes the approach look purposeful
         rather than staircased, and falling back to the other axis is what stops
         a Cleg pressing itself into a wall for ever. Neither is pathfinding:
-        there is no search, no memory of where it has been, and no way out of a
-        dead end except the light moving.
+        there is no search and no map.
+
+        **And when both axes are refused, a slide** (issue #85): a step at
+        right angles to the axis it most wants, held frame to frame until that
+        axis opens. Before this a fly whose goal was straight through a wall --
+        the other axis's delta zero, so nothing to fall back to -- stood there
+        until the light moved, and the magnet gave the player a light that does
+        not move for ten seconds: on every seed a fly sat in the box above the
+        start, or under the wall below it, with the player's cell as its goal,
+        never arriving. The slide is signed toward the goal's delta on the
+        other axis if there is one and by the fly's next random bit if there is
+        not; refused, it flips once; refused again, the fly stands, which is a
+        real dead end and still the light's to open. **A slide answers brick
+        and nothing else**: a step refused by another fly -- the personal-space
+        rule, a threshold held from next door -- leaves the fly queued where it
+        was, as it always did. **While a slide is held the
+        other axis is not tried before it**: a fly one cell along the wall would
+        otherwise step straight back to where it was stuck, and the two cells
+        would trade places for ever. Dropped the frame the wanted axis is taken.
+        One byte per fly on the port, and two more tries only on a frame the
+        fly was already refused twice.
         """
         dx = (tx > self.cx) - (tx < self.cx)
         dy = (ty > self.cy) - (ty < self.cy)
@@ -563,9 +587,28 @@ class Cleg:
             first, second = (dx, 0), (0, dy)
         else:
             first, second = (0, dy), (dx, 0)
-        for step in (first, second):
-            if step != (0, 0) and self._try(*step, is_solid, avoid):
+        if first != (0, 0) and self._try(*first, is_solid, avoid):
+            self.slide = (0, 0)
+            return
+        if self.slide == (0, 0):
+            if second != (0, 0) and self._try(*second, is_solid, avoid):
                 return
+            if first == (0, 0):
+                return                      # already there
+            if not is_solid(self.cx + first[0], self.cy + first[1]):
+                # Refused by a fly and not by a wall -- the threshold held
+                # from next door, the personal-space rule -- and a fly that
+                # is queued waits, as it always did. A slide is for brick.
+                return
+            # Start a slide: across the wanted axis, toward the goal if the
+            # goal says which way, and by a coin if it does not.
+            across = (0, 1) if first[0] else (1, 0)
+            sign = (second[0] + second[1]) or (1 if self._random() & 1 else -1)
+            self.slide = (across[0] * sign, across[1] * sign)
+        if self._try(*self.slide, is_solid, avoid):
+            return
+        self.slide = (-self.slide[0], -self.slide[1])
+        self._try(*self.slide, is_solid, avoid)
 
     def _drift(self, is_solid, avoid=None) -> None:
         """Wander, for a Cleg with nothing to steer for.

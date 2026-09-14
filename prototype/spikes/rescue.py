@@ -258,7 +258,8 @@ WAITING, FOLLOWING, SAVED, DEAD = 0, 1, 2, 3
 TAIL_SPACING = 12
 
 
-def clear_run(left: int, row: int, occupied=(), steps=(0,)) -> list | None:
+def clear_run(left: int, row: int, occupied=(), steps=(0,),
+              is_solid=None) -> list | None:
     """Four cells on `row`, at the first offset in `steps` that lands clear.
 
     `None` if every offset is blocked, so the caller decides what a room with
@@ -269,12 +270,20 @@ def clear_run(left: int, row: int, occupied=(), steps=(0,)) -> list | None:
     that comes first: **a shout is never clipped.** Four cells of green with
     the last letter cut off the edge is a plain bug and not a placement
     question (issue #59).
+
+    **And a wall cell is taken, exactly as a cell a person is drawn in is**
+    (issue #86): the word is painted rather than punched, so over brick it
+    read as a sign on the wall. `is_solid` is the room's; `None` refuses
+    nothing, which is what the tests with no room want.
     """
     for step in steps:
         start = max(0, min(COLS - len(CALL), left + step))
         run = [(start + i, row) for i in range(len(CALL))]
-        if not any(cell in occupied for cell in run):
-            return run
+        if any(cell in occupied for cell in run):
+            continue
+        if is_solid is not None and any(is_solid(cx, cy) for cx, cy in run):
+            continue
+        return run
     return None
 
 
@@ -594,8 +603,9 @@ class Worker:
         # quiet, which is the one thing a shout must never do.
         return min(CALL_PERIOD, period)
 
-    def call_cells(self, occupied=()) -> list[tuple[int, int]]:
-        """Where the word sits: above their head, clear of everybody, on screen.
+    def call_cells(self, occupied=(), is_solid=None) -> list[tuple[int, int]]:
+        """Where the word sits: above their head, clear of everybody and of
+        every wall, on screen.
 
         **Ruled 2026-09-11 (issue #59), because nobody had ever said where the
         word goes** -- and a word that is drawn *somewhere* ends up in all the
@@ -624,24 +634,36 @@ class Worker:
            means *somebody else needs reaching*. The reader duly read the player
            as a bystander shouting for help and a corpse as the player.
 
+        4. **It is never on a wall** (issue #86, the user, from play: *"Help
+           should not be overlaid on top of walls"*). A wall cell counts as
+           taken, exactly as a person's does, so the same search steps the
+           word off the brick. `is_solid` is the room's map.
+
         The search for a clear place is small and fixed: the word steps along
         its row, one cell at a time, alternating right and left, out to the same
         three cells the clamp is already allowed; then the same on the other
         row. On the Z80 that is a short table of offsets and four cell compares
-        per candidate, once per shout per frame, and there are at most three
-        shouts at a time. If nothing is clear -- a room crowded enough that
-        there is nowhere -- it takes the plain place above the head, because a
-        word in a bad place is still a call and no word at all is a worker gone
-        quiet, which is the one thing a shout must never do.
+        per candidate against the people and four against the map, once per
+        shout per frame, and there are at most three shouts at a time. If
+        nothing is clear -- a room crowded enough that there is nowhere -- it
+        takes the plain place above the head, because a word in a bad place is
+        still a call and no word at all is a worker gone quiet, which is the
+        one thing a shout must never do.
         """
         head = self.y // CELL
-        above = head - 1
-        below = (self.y + HEIGHT - 1) // CELL + 1
+        feet = (self.y + HEIGHT - 1) // CELL
+        above, below = head - 1, feet + 1
         rows = [above, below] if above >= 0 else [below, above]
+        # Then beside the caller on their own rows, and then two rows off
+        # (issue #86): a caller boxed in by brick -- the near room's worker
+        # in the six-wide box above the start is one, and the box has no
+        # room for four letters beside a figure -- still gets the word on
+        # floor, over the box's roof, rather than on the brick.
+        rows += [head, feet, above - 1, below + 1]
         rows = [max(0, min(PLAY_ROWS - 1, row)) for row in rows]
         left = self.x // CELL - 1
         for row in rows:
-            run = clear_run(left, row, occupied, CALL_STEPS)
+            run = clear_run(left, row, occupied, CALL_STEPS, is_solid)
             if run is not None:
                 return run
         return clear_run(left, rows[0])

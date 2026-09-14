@@ -793,3 +793,45 @@ def test_a_worker_keeps_its_stride_through_a_change_of_state():
     rescue.reap()
     assert follower.state == R.DEAD and follower not in rescue.tail
     assert follower.stride == stride
+
+
+# --- the word is never on a wall (issue #86) ---------------------------------
+
+def test_a_caller_under_a_wall_gets_the_word_off_the_brick():
+    """The user, from play: *"Help should not be overlaid on top of walls."*
+    A wall cell is taken exactly as a person's cell is, so the same search
+    steps the word along the row and then to the other row."""
+    from spotlight.core.constants import CELL
+    # A worker whose head row is 6, with a wall across the whole of row 5.
+    worker = R.Worker(80, 6 * CELL)
+    plain = worker.call_cells()
+    assert all(cy == 5 for _cx, cy in plain), "the plain place is above the head"
+    wall = lambda cx, cy: cy == 5
+    moved = worker.call_cells(is_solid=wall)
+    assert not any(wall(cx, cy) for cx, cy in moved), "the word is on the wall"
+    assert all(cy == plain[0][1] + 3 for _cx, cy in moved), \
+        "it did not take the row below the feet"
+    # A wall over only the left half of the row above: the word steps along.
+    half = lambda cx, cy: cy == 5 and cx <= 10
+    stepped = worker.call_cells(is_solid=half)
+    assert all(cy == 5 for _cx, cy in stepped) and all(cx > 10 for cx, _cy in stepped)
+
+
+def test_a_caller_with_clear_floor_above_gets_the_cells_it_always_got():
+    worker = R.Worker(80, 48)
+    assert worker.call_cells(is_solid=lambda cx, cy: False) == worker.call_cells()
+
+
+def test_every_authored_worker_has_a_wall_free_place_for_the_word():
+    """The fallback -- the plain place above the head, wall or not -- is
+    never reached in the playtest building. Pinned, so that a room authored
+    with a worker under a wall says so here rather than on screen."""
+    from spikes import scene
+    from spikes.session import Session
+    run = Session(seed=1)
+    for worker in run.rescue.workers:
+        room = scene.BUILDING.rooms[worker.room]
+        cells = worker.call_cells(set(worker.cells()), room.is_solid)
+        assert not any(room.is_solid(cx, cy) for cx, cy in cells), \
+            f"the worker at {worker.cell()} in room {worker.room} shouts on a wall"
+        assert not set(cells) & set(worker.cells()), "the word is on the caller"
