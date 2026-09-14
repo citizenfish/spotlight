@@ -72,7 +72,8 @@ DEFAULT_OUT = "runs"
 def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           frames: int = DEFAULT_FRAMES, draw: bool = False,
           screen: Screen | None = None, on_frame=None,
-          metrics: bool = True, on_sound=None) -> session_mod.Session:
+          metrics: bool = True, on_sound=None,
+          magnet: bool = True) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -107,7 +108,7 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     # is played, not measured, and carries none of it; this is the thing that
     # measures, so every run it drives is priced. It costs a 704-byte compare
     # a frame, which three frames in four settle on the first instruction.
-    run = session_mod.Session(seed=seed, metrics=metrics)
+    run = session_mod.Session(seed=seed, metrics=metrics, magnet=magnet)
     if draw and screen is None:
         screen = Screen()
     if draw:
@@ -342,6 +343,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="make the bot hold the torch on")
     parser.add_argument("--no-light", dest="light", action="store_false",
                         help="make the bot never light")
+    parser.add_argument("--no-magnet", dest="magnet", action="store_false",
+                        help="run without the searchlight magnet (issue #82): "
+                             "the pin that the rule off is the tree before it")
     parser.add_argument("--draw", action="store_true",
                         help="run the real drawing code too, into a Screen")
     parser.add_argument("--repeat", action="store_true",
@@ -398,6 +402,7 @@ def main(argv: list[str] | None = None) -> int:
                            scales) if snap_at else None)
         recorder = _recorder() if args.wav else None
         run = drive(bot, seed=seed, frames=args.frames, draw=draw,
+                    magnet=args.magnet,
                     on_frame=snapper, on_sound=recorder)
         extra = measured(bot)
         if args.repeat:

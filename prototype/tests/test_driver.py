@@ -435,7 +435,10 @@ def test_the_searchlight_can_be_told_from_the_torch():
                                        seed=1, frames=7500))
     assert dark[f"blood_by_{sources.LURE_NAMES[sources.LURE_TORCH]}"] == 0, \
         "a torch that was never lit cannot have cost anything"
-    assert dark["blood_by_beam"] > dark["blood_by_glow"]
+    # The beam's kills are now two buckets (issue #82): a fly that came for
+    # the beam, and a fly the beam gave the player away to. Both are the
+    # searchlight's, and together they still out-cost the glow.
+    assert dark["blood_by_beam"] + dark["blood_by_magnet"] > dark["blood_by_glow"]
 
     # Seed 7 rather than 2 since issue #21. The near room's swarm went from six
     # flies to three when the building was split, so on a good many seeds every

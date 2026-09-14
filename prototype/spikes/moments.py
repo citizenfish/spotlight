@@ -82,6 +82,10 @@ SFX_HATCHED = 10
 SFX_GAME_OVER = 11
 SFX_ALL_OUT = 12
 SFX_PICKUP = 13
+#: Caught in the searchlight's beam (issue #82): the fifteenth, and the only
+#: one that announces a state the player is now in rather than a thing that
+#: happened. Raised on the rising edge only.
+SFX_MAGNET = 14
 
 #: id -> the name it is known by, so the sound slice has the table and so a
 #: rename is a failing test rather than a silent one.
@@ -89,7 +93,7 @@ SOUND_NAMES = (
     "SFX_FREED", "SFX_DELIVERED", "SFX_BITE", "SFX_WORKER_DIED",
     "SFX_PLAYER_DIED", "SFX_TORCH_OUT", "SFX_DOOR", "SFX_SPRAY",
     "SFX_SPRAY_KILL", "SFX_NEST_TURNED", "SFX_HATCHED", "SFX_GAME_OVER",
-    "SFX_ALL_OUT", "SFX_PICKUP",
+    "SFX_ALL_OUT", "SFX_PICKUP", "SFX_MAGNET",
 )
 
 # --- the moments ------------------------------------------------------------
@@ -108,6 +112,10 @@ M_HATCHED = "hatched"
 M_GAME_OVER = "game_over"
 M_ALL_OUT = "all_out"
 M_PICKUP = "pickup"
+#: The searchlight's beam is on you, and for ten seconds the room knows where
+#: you are (issue #82). The flash is a state -- the player's two cells, for as
+#: long as the magnet counter runs -- and lives in `Session.flash_cells`.
+M_MAGNET = "magnet"
 
 #: How long a readout on the status strip flashes when a moment alerts it.
 #: `Panel.alert` already owns the mechanism and its default is 96; the two
@@ -189,6 +197,12 @@ MOMENTS = {
         Moment(M_ALL_OUT, SFX_ALL_OUT, 1, pause=50),
         Moment(M_PICKUP, SFX_PICKUP, 0, frames=PICKUP_FRAMES,
                strip=("light",)),
+        # A state flash, like the hatch tell: the player's cells blink for as
+        # long as the counter runs, and the session owns that. Priority 1,
+        # because being hunted outranks good news. No pause, no strip: the
+        # strip has no clock by ruling and a bar that counted down would be
+        # one.
+        Moment(M_MAGNET, SFX_MAGNET, 1, state_flash=True),
     )
 }
 

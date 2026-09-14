@@ -87,12 +87,12 @@ TABLE_FRAMES = {
     M.SFX_WORKER_DIED: 18, M.SFX_PLAYER_DIED: 40, M.SFX_TORCH_OUT: 24,
     M.SFX_DOOR: 2, M.SFX_SPRAY: 6, M.SFX_SPRAY_KILL: 3,
     M.SFX_NEST_TURNED: 24, M.SFX_HATCHED: 30, M.SFX_GAME_OVER: 66,
-    M.SFX_ALL_OUT: 50, M.SFX_PICKUP: 8,
+    M.SFX_ALL_OUT: 50, M.SFX_PICKUP: 8, M.SFX_MAGNET: 16,
 }
 
 
-def test_all_fourteen_are_here_and_no_fifteenth():
-    assert sorted(sounds.EFFECTS) == list(range(14))
+def test_all_fifteen_are_here_and_no_sixteenth():
+    assert sorted(sounds.EFFECTS) == list(range(15))
     assert sorted(sounds.EFFECTS) == [M.MOMENTS[n].sound for n in M.MOMENTS]
 
 
@@ -113,7 +113,7 @@ def test_the_priorities_are_art_directions_and_are_not_copied():
         M.SFX_WORKER_DIED: 1, M.SFX_PLAYER_DIED: 1, M.SFX_TORCH_OUT: 0,
         M.SFX_DOOR: 0, M.SFX_SPRAY: 0, M.SFX_SPRAY_KILL: 0,
         M.SFX_NEST_TURNED: 1, M.SFX_HATCHED: 0, M.SFX_GAME_OVER: 1,
-        M.SFX_ALL_OUT: 1, M.SFX_PICKUP: 0,
+        M.SFX_ALL_OUT: 1, M.SFX_PICKUP: 0, M.SFX_MAGNET: 1,
     }
 
 
@@ -142,6 +142,7 @@ def test_the_pitches_the_note_names_are_the_pitches_that_play():
         M.SFX_DOOR: (233, 175),
         M.SFX_ALL_OUT: (440, 658, 880, 785, 880),
         M.SFX_GAME_OVER: (330, 247, 196, 110, 98),
+        M.SFX_MAGNET: (660, 1048, 660, 1048),
     }
     for sound, pitches in named.items():
         effect = sounds.EFFECTS[sound]

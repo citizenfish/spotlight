@@ -85,8 +85,8 @@ def test_the_bank_writes_every_file_headless(tmp_path):
     assert {"theme.wav", "opening.wav", "siren.wav", "siren-under-load.wav",
             "siren-with-sonar.wav"} <= names
     assert not any("ostinato" in name for name in names)
-    assert len(paths) == 24, \
-        "fourteen effects, three sonar rates, a tick, a set, and five of music"
+    assert len(paths) == 25, \
+        "fifteen effects, three sonar rates, a tick, a set, and five of music"
     for path in paths:
         assert _samples(path) > 0
 
@@ -225,7 +225,7 @@ def test_the_speaker_is_silent_and_harmless_with_no_device():
 def test_the_driver_writes_a_bank_and_a_run_wav(tmp_path, capsys):
     """Both flags, end to end, headless."""
     assert spike_driver.main(["--bank", str(tmp_path / "bank")]) == 0
-    assert len(list((tmp_path / "bank").iterdir())) == 24
+    assert len(list((tmp_path / "bank").iterdir())) == 25
 
     wav = tmp_path / "run.wav"
     assert spike_driver.main([

@@ -1,0 +1,307 @@
+"""The searchlight magnet: caught in the beam, you are hunted for ten seconds.
+
+Issue #82, from the vault's *The searchlight magnet*. The pins the note asks
+for, one section each: the hit test, the counter, the steering, the moment
+and its flash, the billing, and the switch that makes the rule off the tree
+before it.
+"""
+
+import pytest
+
+from spikes import clegs as C, lighting, moments as M, scene, session as S, sources
+from spikes.session import Intent, Session
+from spotlight.core.constants import CELL
+
+
+def _fresh(seed: int = 1) -> Session:
+    """A run one frame in, with the beam parked so it cannot drift."""
+    run = Session(seed=seed)
+    run.step()
+    beam = run.place.roaming
+    assert beam is not None, "the near room has no searchlight"
+    beam.step_every = 10 ** 6
+    return run
+
+
+def _beam_at(run, dx: int, dy: int) -> None:
+    """Park the beam so the player's feet cell is (dx, dy) from its centre."""
+    beam = run.place.roaming
+    beam.x, beam.y = run.player.cx - dx, run.player.cy - dy
+
+
+def _beam_away(run) -> None:
+    beam = run.place.roaming
+    beam.x, beam.y = (run.player.cx + 20) % 30 + 1, (run.player.cy + 10) % 20 + 1
+    assert not run.beam_on_player()
+
+
+def _lone_fly(run, cx: int, cy: int, **attrs) -> C.Cleg:
+    """The room's swarm replaced by one fly, hunting, with nothing in its head."""
+    fly = C.Cleg(cx, cy, seed=5)
+    fly.step_every = 1
+    for name, value in attrs.items():
+        setattr(fly, name, value)
+    run.place.swarm.clegs[:] = [fly]
+    return fly
+
+
+# --- the hit test ------------------------------------------------------------
+
+def test_the_feet_cell_on_the_discs_edge_is_a_hit_and_the_head_alone_is_not():
+    run = _fresh()
+    r = run.place.roaming.radius
+    _beam_at(run, r, 0)
+    assert run.beam_on_player(), "on the edge of the disc, where the floor is lit"
+    _beam_at(run, r + 1, 0)
+    assert not run.beam_on_player()
+    # Straight up the screen by r + 1: the head cell (one above the feet) is
+    # exactly r from the centre and inside; the feet are not. Not a hit.
+    _beam_at(run, 0, r + 1)
+    assert not run.beam_on_player(), "the head cell alone is a hit"
+    _beam_at(run, 0, r)
+    assert run.beam_on_player()
+
+
+def test_a_switched_off_searchlight_hits_nobody():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    assert run.beam_on_player()
+    run.place.roaming.enabled = False
+    assert not run.beam_on_player()
+
+
+def test_no_other_light_is_a_hit():
+    """The cone on, a room light and a floor lamp on the player's own cells,
+    and the beam across the room: nothing gives you away but the beam."""
+    from spikes.session import FloorLight
+    run = _fresh()
+    _beam_away(run)
+    cx, cy = run.player.cx, run.player.cy
+    run.place.room_lights.append(sources.RoomLight(cx - 1, cy - 2, 3, 3))
+    run.kit.floor.append(FloorLight(cx, cy, power=9000, lit=True, room=run.here))
+    run.step(Intent(torch=True))
+    assert run.cone.lit
+    assert run.field.level_at(cx, cy) == lighting.LIT, "the player is not even lit"
+    assert not run.beam_on_player()
+    assert run.magnet == 0
+
+
+# --- the counter -------------------------------------------------------------
+
+def test_a_hit_sets_the_counter_and_logs_once_on_the_rising_edge():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    before = len(run.log)
+    run.step()
+    assert run.magnet == S.MAGNET_FRAMES == 500
+    events = [e for e in run.log[before:] if e.kind == S.MAGNET]
+    assert len(events) == 1 and events[0].frame == run.frame
+    # Standing in the beam: hit every frame, set to 500 every frame, logged
+    # never again.
+    for _ in range(50):
+        run.step()
+        assert run.magnet == 500
+    assert len([e for e in run.log if e.kind == S.MAGNET]) == 1
+
+
+def test_a_second_hit_sets_the_counter_and_does_not_add_to_it():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    run.step()
+    _beam_away(run)
+    for _ in range(100):
+        run.step()
+    assert run.magnet == 400
+    _beam_at(run, 0, 0)
+    run.step()
+    assert run.magnet == 500, "a second hit added to the counter"
+
+
+def test_the_ten_seconds_run_from_the_last_sighting():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    for _ in range(200):
+        run.step()
+    _beam_away(run)
+    frames = 0
+    while run.magnet:
+        run.step()
+        frames += 1
+    assert frames == 500
+    # And the end is not a new event.
+    assert len([e for e in run.log if e.kind == S.MAGNET]) == 1
+
+
+def test_death_clears_the_counter_and_a_doorway_keeps_it():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    run.step()
+    assert run.magnet == 500
+    run.blood = 0
+    run.step()
+    assert run.lives == S.LIVES - 1
+    assert run.magnet == 0, "a death did not clear the magnet"
+
+    from test_spike_doorway import at_door, walk
+    run = at_door(Session(seed=1))
+    run.magnet = 400
+    walk(run, 1, 16)
+    assert run.here == scene.FAR
+    assert 380 <= run.magnet < 400, "the doorway lost the magnet"
+
+
+# --- the steering ------------------------------------------------------------
+
+def test_a_hunting_fly_in_the_dark_beyond_its_notice_comes_for_the_player():
+    """Across the room, torch off, outside its own notice range: the frame
+    after the magnet is on, its goal is the player's cell and it is billed to
+    the magnet; a few frames on it is closer than it was."""
+    run = _fresh()
+    _beam_away(run)
+    px, py = run.player.cx, run.player.cy
+    fx, fy = (2 if px > 15 else 29), (2 if py > 10 else 19)
+    fly = _lone_fly(run, fx, fy, notice=2)
+    run.step()
+    assert fly.goal is None, "the fly can see the player in the dark"
+    run.magnet = 500
+    run.step()
+    assert fly.goal == (px, py)
+    assert fly.goal_source == sources.LURE_MAGNET
+    d0 = abs(fly.cx - px) + abs(fly.cy - py)
+    for _ in range(12):
+        run.step()
+    assert abs(fly.cx - px) + abs(fly.cy - py) < d0, "it did not come"
+
+
+def test_a_sated_fly_and_an_attached_fly_are_left_alone():
+    run = _fresh()
+    _beam_away(run)
+    px, py = run.player.cx, run.player.cy
+    sated = C.Cleg(2, 2, seed=7)
+    sated.state, sated._timer = C.SATED, 10 ** 6
+    riding = C.Cleg(px, py, seed=9)
+    riding.state = C.ATTACHED
+    run.place.swarm.clegs[:] = [sated, riding]
+    run.magnet = 500
+    for _ in range(5):
+        run.step()
+    assert sated.state == C.SATED and sated.goal is None
+    assert riding.state == C.ATTACHED and riding.goal is None
+
+
+def test_the_magnet_is_offered_next_door_as_door_spill_only():
+    """The room next door sees the magnet as light through the doorway --
+    a lure standing on the threshold, of the magnet's kind -- and as nothing
+    else; with the magnet off the doorway carries no such thing."""
+    run = _fresh()
+    far = run.places[scene.FAR]
+
+    def spill_kinds():
+        own = [run._own_lures(place) for place in run.places]
+        return {lure[3] for lure in run._doors(far, own)}
+
+    assert sources.LURE_MAGNET not in spill_kinds()
+    run.magnet = 500
+    assert sources.LURE_MAGNET in spill_kinds() or run._own_lures(run.place)[-1][3] == sources.LURE_MAGNET
+    # The far room's own list never carries it: the magnet is the player's
+    # room's, and the player is not there.
+    assert all(lure[3] != sources.LURE_MAGNET for lure in run._own_lures(far))
+
+
+# --- the moment and its flash ------------------------------------------------
+
+def test_the_moment_is_raised_once_per_rising_edge_with_no_cells_and_no_pause():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    run.step()
+    raised = [cells for name, cells in run.moments.raised if name == M.M_MAGNET]
+    assert raised == [()], raised
+    assert M.MOMENTS[M.M_MAGNET].pause == 0 and M.MOMENTS[M.M_MAGNET].frames == 0
+    assert M.MOMENTS[M.M_MAGNET].strip == () and M.MOMENTS[M.M_MAGNET].priority == 1
+    assert M.MOMENTS[M.M_MAGNET].state_flash
+    for _ in range(20):
+        run.step()
+        assert not [n for n, _c in run.moments.raised if n == M.M_MAGNET]
+    # Off, and on again: a second rising edge, a second moment.
+    _beam_away(run)
+    run.magnet = 0
+    run.step()
+    _beam_at(run, 0, 0)
+    run.step()
+    assert [n for n, _c in run.moments.raised if n == M.M_MAGNET] == [M.M_MAGNET]
+
+
+def test_the_players_two_cells_flash_while_the_counter_runs_and_not_after():
+    run = _fresh()
+    _beam_at(run, 0, 0)
+    run.step()
+    cells = set(run.player.body_cells())
+    assert cells <= run.flash_cells(), "the player is not blinking"
+    _beam_away(run)
+    run.magnet = 1
+    run.step()
+    assert run.magnet == 0
+    assert not (cells & run.flash_cells()), "still blinking after it ended"
+
+
+def test_the_flash_moves_no_light_level():
+    """Two runs, the rule on and off, the beam parked on the player, stepped
+    the same: the light field is byte-identical. The flies differ; the
+    light does not."""
+    fields = []
+    for magnet in (True, False):
+        run = Session(seed=1, magnet=magnet)
+        run.step()
+        run.place.roaming.step_every = 10 ** 6
+        _beam_at(run, 0, 0)
+        for _ in range(30):
+            run.step()
+        assert (run.magnet > 0) == magnet
+        fields.append(bytes(run.place.field.charge))
+    assert fields[0] == fields[1]
+
+
+# --- billing -----------------------------------------------------------------
+
+def _fed_under_magnet(journey_source=None) -> Session:
+    run = _fresh()
+    _beam_away(run)
+    px, py = run.player.cx, run.player.cy
+    fly = _lone_fly(run, px - 2, py)
+    if journey_source is not None:
+        fly.goal, fly.goal_source = (px - 4, py), journey_source
+    run.magnet = 500
+    for _ in range(40):
+        run.step()
+        if run.swarm.attachments:
+            break
+    assert run.swarm.attachments == 1, "the fly never reached the player"
+    return run
+
+
+def test_a_bite_under_the_magnet_is_billed_to_the_magnet():
+    run = _fed_under_magnet()
+    assert run.swarm.bites_by_source[sources.LURE_MAGNET] == 1
+    assert sources.LURE_NAMES[sources.LURE_MAGNET] == "magnet"
+    assert len(sources.LURE_NAMES) == sources.LURE_KINDS == 7
+
+
+def test_a_fly_on_a_beam_journey_is_rebilled_to_the_magnet():
+    run = _fed_under_magnet(journey_source=sources.LURE_BEAM)
+    assert run.swarm.bites_by_source[sources.LURE_MAGNET] == 1
+    assert run.swarm.bites_by_source[sources.LURE_BEAM] == 0
+
+
+# --- the switch ----------------------------------------------------------------
+
+def test_with_the_rule_off_the_beam_gives_nobody_away():
+    run = Session(seed=1, magnet=False)
+    run.step()
+    run.place.roaming.step_every = 10 ** 6
+    _beam_at(run, 0, 0)
+    assert run.beam_on_player(), "the geometry still says so"
+    for _ in range(50):
+        run.step()
+    assert run.magnet == 0
+    assert not [e for e in run.log if e.kind == S.MAGNET]
+    assert not [n for n, _c in run.moments.raised if n == M.M_MAGNET]

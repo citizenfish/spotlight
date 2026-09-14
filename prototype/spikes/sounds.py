@@ -121,6 +121,7 @@ from . import tune as tune_mod
 from .moments import (
     MOMENTS, SFX_ALL_OUT, SFX_BITE, SFX_DELIVERED, SFX_DOOR, SFX_FREED,
     SFX_GAME_OVER, SFX_HATCHED, SFX_NEST_TURNED, SFX_PICKUP, SFX_PLAYER_DIED,
+    SFX_MAGNET,
     SFX_SPRAY, SFX_SPRAY_KILL, SFX_TORCH_OUT, SFX_WORKER_DIED, SOUND_NAMES,
 )
 
@@ -407,6 +408,15 @@ EFFECTS = {
     )),
     SFX_PICKUP: Effect(SFX_PICKUP, 0, (
         Segment(8, 880, 1313, 2),
+    )),
+    # Caught in the beam (issue #82): a rising pair sounded twice, E5 then C6,
+    # which is the delivered rise's top two notes with the good news taken out
+    # of them. Sixteen frames; provisional, the user's to settle by ear.
+    SFX_MAGNET: Effect(SFX_MAGNET, 1, (
+        Segment(4, 660, 660, 2),
+        Segment(4, 1048, 1048, 2),
+        Segment(4, 660, 660, 2),
+        Segment(4, 1048, 1048, 2),
     )),
 }
 

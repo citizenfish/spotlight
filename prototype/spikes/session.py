@@ -70,6 +70,12 @@ BLOOD_FULL = 64
 #: second button -- the game has neither to spare.
 LEAVE_FRAMES = 25
 
+#: How long the player is a Cleg magnet after the searchlight's beam is on
+#: them (issue #82, *The searchlight magnet*): ten seconds, the user's number,
+#: and the only number on that page that was given. A hit sets it, never adds
+#: to it, so the ten seconds run from the last sighting.
+MAGNET_FRAMES = 500
+
 #: How many times the player can bleed out before the run is over. Deliberately
 #: not called "lives" anywhere a player will read it: the testers are people who
 #: do not know 8-bit games and that word carries none of its usual freight.
@@ -151,6 +157,10 @@ TORCH_OUT = "torch_out"
 #: only worth having if people go into it, and "did a first-timer ever find the
 #: door" is the first question the playtest asks -- target T10 is stated in it.
 CROSSED = "crossed"
+#: The searchlight's beam found the player and the room was told (issue #82).
+#: On the rising edge only: a player standing in the beam is hit every frame
+#: and logs one event. The log moves on purpose; `--no-magnet` is the pin.
+MAGNET = "magnet"
 GAME_OVER = "game_over"
 
 # --- the body's lifecycle (issue #33) ---------------------------------------
@@ -351,7 +361,7 @@ class Session:
     def __init__(self, seed: int = DEFAULT_SEED,
                  blood: int = BLOOD_FULL, lives: int = LIVES,
                  metrics: bool = False,
-                 sound: bool = True) -> None:
+                 sound: bool = True, magnet: bool = True) -> None:
         self.seed = seed
         scene.validate()
         self.building = scene.BUILDING
@@ -541,6 +551,14 @@ class Session:
         #: level data and on the Z80 it is two bytes of ROM.
         self.exit_facing = self.building.exit_facing
         self._gone_in = False
+        #: Whether the searchlight magnet is wired in (issue #82). Off, the
+        #: run is byte-identical to the tree before the rule, which is the
+        #: pin; nothing in play switches it.
+        self.magnet_on = magnet
+        #: Frames the player is still a Cleg magnet for. Set to
+        #: `MAGNET_FRAMES` by a hit, counted down one per stepped frame,
+        #: cleared by a death and kept through a doorway.
+        self.magnet = 0
         self.over: str | None = None
         self.calls_on = True
         self.log: list[Event] = []
@@ -658,6 +676,47 @@ class Session:
         """out + died + still inside == everybody. Cheap enough to assert."""
         return self.rescued + self.lost + self.inside == self.total
 
+    def beam_on_player(self) -> bool:
+        """Is the searchlight's beam on the player's feet cell this frame?
+
+        The hit test of *The searchlight magnet* (issue #82), and it is
+        geometry rather than a field read: the room's `Roaming` source,
+        enabled and burning at `LIT`, and the feet cell inside its disc by the
+        same squared-distance inequality `Roaming.emit` lights by -- so a
+        player on the disc's edge is hit exactly where the floor under them
+        is lit, and there is no frame of lag. Only the beam counts: not the
+        cone, a floor lamp, a room light, the glow, the housing or the debug
+        floodlight, none of which give you away to anything that was not
+        already looking.
+        """
+        beam = self.place.roaming
+        if beam is None or not beam.enabled or beam.level < lighting.LIT:
+            return False
+        dx, dy = self.player.cx - beam.x, self.player.cy - beam.y
+        return dx * dx + dy * dy <= beam.radius * beam.radius
+
+    def _magnetise(self) -> None:
+        """Count the magnet down, and set it if the beam is on the player.
+
+        Once a frame, after the searchlights have moved and before any swarm
+        ticks. **A hit sets the counter to `MAGNET_FRAMES` and never adds to
+        it**: a player standing in the beam is hit on every frame and the ten
+        seconds run from the last sighting. The event and the moment are
+        raised on the rising edge only -- the frame the counter leaves zero.
+        With `magnet_on` off nothing here runs, and the run is the tree
+        before the rule.
+        """
+        if not self.magnet_on:
+            return
+        if self.magnet:
+            self.magnet -= 1
+        if not self.beam_on_player():
+            return
+        if not self.magnet:
+            self._record(MAGNET)
+            self._moment(moments_mod.M_MAGNET)
+        self.magnet = MAGNET_FRAMES
+
     def _lit_people(self, place: Place) -> list:
         """Everybody in one room, except the player, who is **plainly lit**.
 
@@ -708,6 +767,13 @@ class Session:
         if place.index == self.here:
             lures += [p for p in (self.glow.lure(), self.cone.lure())
                       if p is not None]
+            if self.magnet:
+                # The magnet, offered as a lure so that the room next door
+                # sees it as door spill exactly as it sees the torch
+                # (issue #82). This room's own hunting flies never compare
+                # it: `Swarm.tick` hands them the cell directly.
+                lures.append((self.player.cx, self.player.cy, sources.FAR,
+                              sources.LURE_MAGNET))
         return lures
 
     def _doors(self, place: Place, own: list) -> list:
@@ -888,6 +954,7 @@ class Session:
         for place in self.places:
             if place.roaming is not None:
                 place.roaming.update()
+        self._magnetise()
         self.spray.tick()
 
         # The one rule: Clegs steer for the nearest light that is actually lit.
@@ -918,7 +985,11 @@ class Session:
                 frame=self.frame,
                 # The rule that no two flies share a cell, carried through
                 # the doorway (issue #65).
-                held_beyond=self._held_beyond(place))
+                held_beyond=self._held_beyond(place),
+                # The player's cell while they are a magnet, to the room
+                # they are in and no other (issue #82).
+                magnet=((self.player.cx, self.player.cy)
+                        if here and self.magnet else None))
             if here:
                 self.blood = blood
         # Flies that walked through a doorway are handed over before anything
@@ -1478,6 +1549,10 @@ class Session:
         # would be carried out of a building they had just been dragged back
         # into the middle of.
         self.leaving = 0
+        # And the room has lost you (issue #82): a death puts you back at the
+        # door with the flies that were on you scattered, and a magnet that
+        # survived it would hand you straight back to them.
+        self.magnet = 0
         room = self.places[self.start_room]
         self.here = self.start_room
         self.player.x, self.player.y = self.building.rooms[self.here].player_start
@@ -1650,6 +1725,12 @@ class Session:
             if moments_mod.hatch_is_near(nest.age - rescue_mod.BODY_FRAMES,
                                          nest.hatched, nest.owed):
                 state.add(nest.cell())
+        if self.magnet:
+            # **You, while the room knows where you are** (issue #82): the
+            # player's two cells blink for as long as the magnet counter runs,
+            # re-tested against the light like the body and the nest. The
+            # blinking stopping is how the player knows it has ended.
+            state.update(self.player.body_cells())
         field = self.place.field
         cells.update(cell for cell in state
                      if field.level_at(cell[0], cell[1]) != lighting.DARK)

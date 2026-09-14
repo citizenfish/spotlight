@@ -53,7 +53,7 @@ that solved mazes would be a different animal and a much more expensive one.
 
 from spotlight.core.constants import COLS
 
-from .sources import LURE_KINDS, LURE_NONE, xorshift16
+from .sources import LURE_KINDS, LURE_MAGNET, LURE_NONE, xorshift16
 
 # --- states ----------------------------------------------------------------
 
@@ -830,8 +830,20 @@ class Swarm:
 
     def tick(self, lures, player_cell, is_solid, blood: int,
              is_sprayed=None, prey=(), doors=(), frame: int | None = None,
-             held_beyond=None) -> int:
+             held_beyond=None, magnet=None) -> int:
         """Advance every Cleg. Returns the **player's** blood remaining.
+
+        `magnet` is the player's cell while the player is a Cleg magnet
+        (issue #82, *The searchlight magnet*), or None. **While it is given,
+        every hunting fly in this swarm commits to it every frame in place of
+        the lure comparison**: no reach test, no notice range, no looking at
+        the doorways. It is not a light and it is not compared with one; the
+        beam gave the player away and for ten seconds the room knows where
+        they are. Sated and attached flies are untouched, and so is hunger --
+        a magnet changes where a fly is going and nothing about what it is.
+        The source is overwritten on every commit, so a fly that was on a
+        beam journey when the magnet started is billed to the magnet, which
+        is the beam's kill by another name.
 
         `frame` is the session's frame counter, and it is here for one thing:
         an attached fly's wingbeat runs on it (issue #61, `Cleg.flap`). It is
@@ -1008,13 +1020,19 @@ class Swarm:
             # Hunting. A light it can notice becomes the place it is going;
             # one it cannot notice may as well not be lit.
             cleg.hunger += 1
-            seen = self.notice(cleg.cx, cleg.cy, lures, cleg.notice,
-                               cleg.keenness)
-            if seen is None and doors:
-                seen = self.notice(cleg.cx, cleg.cy, doors, cleg.notice,
+            if magnet is not None:
+                # The magnet (issue #82): the player's cell, whatever the
+                # light, and the bite billed to it whatever the journey was.
+                cleg.goal = magnet
+                cleg.goal_source = LURE_MAGNET
+            else:
+                seen = self.notice(cleg.cx, cleg.cy, lures, cleg.notice,
                                    cleg.keenness)
-            if seen is not None:
-                cleg.commit((seen[0], seen[1]), seen[3])
+                if seen is None and doors:
+                    seen = self.notice(cleg.cx, cleg.cy, doors, cleg.notice,
+                                       cleg.keenness)
+                if seen is not None:
+                    cleg.commit((seen[0], seen[1]), seen[3])
             target = cleg.goal
 
             if (cleg.cx, cleg.cy) == player_cell:

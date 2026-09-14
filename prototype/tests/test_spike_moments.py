@@ -136,8 +136,9 @@ def _free_somebody(run):
 
 # --- the table --------------------------------------------------------------
 
-def test_there_are_fourteen_moments_and_these_are_they():
-    """The table, pinned. A fifteenth is a design decision and not a tidy-up.
+def test_there_are_fifteen_moments_and_these_are_they():
+    """The table, pinned. A sixteenth is a design decision and not a tidy-up;
+    the fifteenth was one (issue #82, *The searchlight magnet*).
 
     Each row is (moment, sound id, priority, flash frames, pause frames), which
     is *Art Direction*'s table with the flash column dropped -- what flashes is
@@ -160,10 +161,11 @@ def test_there_are_fourteen_moments_and_these_are_they():
         ("game_over",   M.SFX_GAME_OVER,   1,  0, 50),
         ("all_out",     M.SFX_ALL_OUT,     1,  0, 50),
         ("pickup",      M.SFX_PICKUP,      0, 32,  0),
+        ("magnet",      M.SFX_MAGNET,      1,  0,  0),
     ]
 
 
-def test_the_fourteen_sound_ids_are_the_list_the_next_slice_gets():
+def test_the_fifteen_sound_ids_are_the_list_the_next_slice_gets():
     """No more, no fewer, no renames.
 
     Slice F is entitled to assume this list is the list -- the whole point of
@@ -171,18 +173,18 @@ def test_the_fourteen_sound_ids_are_the_list_the_next_slice_gets():
     before there was a voice. A rename here is a silent breakage there, so it
     is a failing test here instead.
     """
-    assert len(M.SOUND_NAMES) == 14
+    assert len(M.SOUND_NAMES) == 15
     assert M.SOUND_NAMES == (
         "SFX_FREED", "SFX_DELIVERED", "SFX_BITE", "SFX_WORKER_DIED",
         "SFX_PLAYER_DIED", "SFX_TORCH_OUT", "SFX_DOOR", "SFX_SPRAY",
         "SFX_SPRAY_KILL", "SFX_NEST_TURNED", "SFX_HATCHED", "SFX_GAME_OVER",
-        "SFX_ALL_OUT", "SFX_PICKUP")
+        "SFX_ALL_OUT", "SFX_PICKUP", "SFX_MAGNET")
     # Every name is a real constant, and its value is its index -- a sound id
     # is one byte and an index into the table slice F will write.
     for wanted, name in enumerate(M.SOUND_NAMES):
         assert getattr(M, name) == wanted
     # ...and every moment carries one of them, each exactly once.
-    assert sorted(m.sound for m in M.MOMENTS.values()) == list(range(14))
+    assert sorted(m.sound for m in M.MOMENTS.values()) == list(range(15))
 
 
 def test_the_voice_reads_the_sound_ids_and_the_seam_is_closed():

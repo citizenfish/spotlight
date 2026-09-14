@@ -88,12 +88,17 @@ LURE_FLOOR = 3
 LURE_ROOM = 4
 #: The searchlight.
 LURE_BEAM = 5
+#: The player, caught in the searchlight's beam and hunted for ten seconds
+#: (issue #82, *The searchlight magnet*). Not a light: a hunting fly commits
+#: to the player's cell every frame without noticing anything, and the bite is
+#: billed to the beam that gave the player away rather than to the last hop.
+LURE_MAGNET = 6
 
 #: How many buckets a counter needs. A fixed-size table on the Z80.
-LURE_KINDS = 6
+LURE_KINDS = 7
 
 #: What each bucket is called in a report. Index by the constant.
-LURE_NAMES = ("none", "glow", "torch", "floor", "room", "beam")
+LURE_NAMES = ("none", "glow", "torch", "floor", "room", "beam", "magnet")
 
 #: How far light spills round a doorway, in cells.
 #:
