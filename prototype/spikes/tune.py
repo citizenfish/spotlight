@@ -287,6 +287,16 @@ THEME_BARS = (
     (A2, A2, A3),   # tag
 )
 
+#: The opening (issue #81): one bar under the two-second hold every level
+#: opens on. Three pulses of A3, three of E4, two of A4 -- the motif's own
+#: notes rising to the tonic an octave up and stopping there, the theme's
+#: tag turned the other way. 96 frames, and it **does not loop**: the hold is
+#: a hundred frames and a bar that came round again would be four frames of
+#: its own start under the breath before play.
+OPENING_BARS = (
+    (A3, E4, A4),
+)
+
 
 class Tune:
     """A table of bars, and where in it a frame counter is.
@@ -295,13 +305,17 @@ class Tune:
     same tune can be read by a render and by a run without either one moving
     the other, and so that the sequencer's place is a function of the clock
     rather than a thing that can drift from it. See `Music`.
+
+    `loops` is the one bit a tune carries besides its table: the theme comes
+    round again, the opening plays once and rests (issue #81).
     """
 
-    __slots__ = ("name", "bars")
+    __slots__ = ("name", "bars", "loops")
 
-    def __init__(self, name: str, bars: tuple) -> None:
+    def __init__(self, name: str, bars: tuple, loops: bool = True) -> None:
         self.name = name
         self.bars = bars
+        self.loops = loops
 
     @property
     def frames(self) -> int:
@@ -327,8 +341,11 @@ class Tune:
 
         A rest comes out of the articulation rather than out of the table:
         eight frames of every twelve sound and the other four are the gap that
-        makes a repeated pitch a pulse rather than a drone.
+        makes a repeated pitch a pulse rather than a drone. A tune that does
+        not loop is a rest from its last frame on.
         """
+        if not self.loops and frame >= self.frames:
+            return REST
         frame %= self.frames
         within = frame % BAR_FRAMES
         if within % UNIT_FRAMES >= ARTICULATION:
@@ -460,8 +477,9 @@ class Siren:
 #: different integers to the same class.
 SIREN = Siren("siren")
 THEME = Tune("theme", THEME_BARS)
+OPENING = Tune("opening", OPENING_BARS, loops=False)
 
-TUNES = {"siren": SIREN, "theme": THEME}
+TUNES = {"siren": SIREN, "theme": THEME, "opening": OPENING}
 
 
 # --- the frame's leftover ---------------------------------------------------

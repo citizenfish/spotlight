@@ -44,7 +44,9 @@ def snapshot(run):
 
 
 def started(debug=False):
-    shell = spike1.Shell(Screen(), debug=debug)
+    # No opening hold (issue #81): these tests are about play, not the beat
+    # before it.
+    shell = spike1.Shell(Screen(), debug=debug, opening_frames=0)
     shell.key(pygame.K_s)          # S starts it (issue #63)
     for _ in range(40):
         shell.frame(dx=1)

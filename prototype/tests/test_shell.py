@@ -17,7 +17,10 @@ from screenreader import rows
 
 @pytest.fixture
 def shell():
-    return spike1.Shell(Screen())
+    """A shell with no opening hold (issue #81), because most of what is
+    tested here is what happens in play and after it. The opening has its
+    own tests below, on a shell built the way the game builds one."""
+    return spike1.Shell(Screen(), opening_frames=0)
 
 
 def test_the_title_is_what_a_player_sees_first(shell):
@@ -39,7 +42,91 @@ def test_the_title_waits_for_a_key(shell):
 def test_s_starts_the_game(shell):
     assert shell.key(pygame.K_s) is True
     assert shell.state == spike1.PLAY
-    assert shell.run is not None and shell.run.frame == 0
+    # One frame stepped and drawn on the way in: the first picture (issue #81).
+    assert shell.run is not None and shell.run.frame == 1
+
+
+# --- the opening: two seconds and a tune (issue #81) -------------------------
+
+def _opened():
+    """The game's own shell, `S` pressed: the first frame on screen and the
+    opening hold just begun."""
+    shell = spike1.Shell(Screen())
+    shell.key(pygame.K_s)
+    return shell
+
+
+def test_a_level_opens_on_a_two_second_hold():
+    """**So the player can orientate.** The run's first frame is stepped and
+    drawn, and then a hundred shell frames pass -- keys and all -- without the
+    run stepping; the frame after them steps. The hold is the shell's, on the
+    pause's mechanism: the session never hears of it and the log cannot
+    move."""
+    shell = _opened()
+    assert spike1.OPENING_FRAMES == 100, "two seconds at 50Hz"
+    assert shell.state == spike1.PLAY
+    assert shell.run.frame == 1 and shell.opening == 100
+    log = list(shell.run.log)
+    for left in range(100, 0, -1):
+        assert shell.opening == left
+        shell.frame(dx=1)
+        assert shell.run.frame == 1, "the run was stepped during the opening"
+    assert shell.opening == 0
+    assert shell.run.log == log
+    shell.frame(dx=1)
+    assert shell.run.frame == 2, "play did not begin after the opening"
+
+
+def test_the_first_picture_is_on_screen_through_the_opening():
+    """What is held is the play frame, not the title: the strip's labels
+    are up and the controls are not."""
+    shell = _opened()
+    text = rows(shell.screen)
+    assert not any("ARROW KEYS" in line for line in text)
+    assert any("SAFE" in line or "BLOOD" in line for line in text), text
+    held = bytes(shell.screen.pixels)
+    for _ in range(100):
+        shell.frame(dx=1)
+    assert bytes(shell.screen.pixels) == held, "the picture moved during the hold"
+
+
+def test_the_opening_tune_plays_through_the_hold_and_the_siren_waits():
+    """The opening has the speaker to itself, through a voice of its own;
+    the run's voice is left alone, so the siren's clock starts when play
+    does and its first wail rises from the first stepped frame."""
+    shell = _opened()
+    from spikes import tune
+    assert shell.opening_voice.music.tune is tune.OPENING
+    assert shell.opening_voice.music.position == 0
+    siren_at = shell.run.voice.music.frame
+    siren_heard = shell.run.voice.music.heard      # the one stepped frame's
+    for _ in range(100):
+        shell.frame()
+    assert shell.opening_voice.music.frame == 100
+    assert shell.opening_voice.music.heard == 8 * tune.BAR_UNITS, \
+        "the whole bar was not heard"
+    assert shell.run.voice.music.frame == siren_at, \
+        "the run's voice was aged under the opening"
+    assert shell.run.voice.music.heard == siren_heard, \
+        "the siren was heard under the opening"
+    shell.frame()
+    assert shell.run.voice.music.frame == siren_at + 1
+
+
+def test_a_restart_from_the_ending_opens_the_same_way():
+    """The player who died and pressed space gets the same breath as the
+    player who pressed S."""
+    shell = _opened()
+    for _ in range(100):
+        shell.frame()
+    shell.run.finish(session.NO_LIVES)
+    shell.frame()
+    for _ in range(shell.held):
+        shell.frame()
+    assert shell.state == spike1.ENDED
+    shell.key(pygame.K_SPACE)
+    assert shell.state == spike1.PLAY
+    assert shell.run.frame == 1 and shell.opening == 100
 
 
 @pytest.mark.parametrize("key", [
@@ -86,7 +173,8 @@ def test_playing_advances_the_run(shell):
     shell.key(pygame.K_s)
     for _ in range(30):
         shell.frame(dx=1)
-    assert shell.run.frame == 30
+    # Thirty, and the one `start` stepped on the way in (issue #81).
+    assert shell.run.frame == 31
 
 
 def test_the_torch_and_the_spray_are_edge_triggered(shell):
@@ -149,7 +237,7 @@ def test_space_from_the_ending_starts_a_clean_run(shell):
     shell.key(pygame.K_SPACE)
     assert shell.state == spike1.PLAY
     assert shell.run is not first
-    assert shell.run.frame == 0
+    assert shell.run.frame == 1      # the one frame `start` steps (issue #81)
     assert shell.run.rescue.tail == []
     assert shell.run.cone.enabled is False
     assert shell.run.blood == shell.run.blood_full
@@ -205,7 +293,7 @@ def test_a_pause_does_not_extend_an_effects_ownership():
     from spikes import sounds
     from spikes import moments as M
 
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), opening_frames=0)
     voice = _dead_but_not_out(shell)
     frames = sounds.EFFECTS[M.SFX_PLAYER_DIED].frames
     assert voice.sound == M.SFX_PLAYER_DIED and voice.index == 0
@@ -244,7 +332,7 @@ def test_the_two_fixes_do_not_cover_for_each_other():
     """
     from spikes import sounds
 
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), opening_frames=0)
     voice = _dead_but_not_out(shell)
     for _ in range(shell.held):
         shell.frame()
@@ -259,7 +347,7 @@ def test_the_two_fixes_do_not_cover_for_each_other():
 
 def test_a_whole_session_prints_nothing(capsys):
     """Start to finish with no debug key touched: stdout stays empty."""
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), opening_frames=0)
     shell.key(pygame.K_s)
     shell.run.lives = 1
     for _ in range(100):

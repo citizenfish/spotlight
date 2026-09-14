@@ -82,7 +82,7 @@ def test_every_entry_in_every_table_is_an_integer():
     assembler cannot be handed."""
     for table in (tune.PERIODS, tune.NOTE_HZ):
         assert all(isinstance(value, int) for value in table)
-    for which in (tune.THEME,):
+    for which in (tune.THEME, tune.OPENING):
         for bar in which.bars:
             assert len(bar) == len(tune.CELL_UNITS)
             assert all(isinstance(note, int) for note in bar)
@@ -105,7 +105,12 @@ VAULT_THEME = (
 )
 
 
-@pytest.mark.parametrize("which,vault", [(tune.THEME, VAULT_THEME)])
+#: The opening as the note writes it (issue #81): one bar, rising, once.
+VAULT_OPENING = (("A3", "E4", "A4"),)
+
+
+@pytest.mark.parametrize("which,vault", [(tune.THEME, VAULT_THEME),
+                                         (tune.OPENING, VAULT_OPENING)])
 def test_the_tune_is_the_table_in_the_note(which, vault):
     named = tuple(tuple(tune.NOTE_NAMES[note] for note in bar)
                   for bar in which.bars)
@@ -117,11 +122,41 @@ def test_the_bass_and_the_motif_take_turns_and_never_sound_together():
     in the theme. The test is that a frame has one note in it, which is the
     whole of what the sequencer can return -- said out loud because it is the
     reason the idiom was chosen rather than a happy accident."""
-    for which in (tune.THEME,):
+    for which in (tune.THEME, tune.OPENING):
         for frame in range(which.frames):
             note = which.note(frame)
             assert isinstance(note, int)
             assert 0 <= note < len(tune.PERIODS)
+
+
+def test_the_opening_is_one_bar_that_plays_once_and_then_rests():
+    """**The tune under the two-second hold** (issue #81). One bar on the
+    grid is 96 frames, the nearest the grid comes to two seconds; the hold is
+    a hundred, and a tune that looped would be four frames of its own start
+    under the breath before play. So it carries the one bit the theme does
+    not, and from its last frame on it is a rest -- through the sequencer as
+    well as through the table."""
+    assert tune.OPENING.frames == tune.BAR_FRAMES == 96
+    assert tune.OPENING.seconds == 2
+    assert tune.THEME.loops and not tune.OPENING.loops
+    sounding = [tune.OPENING.note(f) for f in range(tune.OPENING.frames)]
+    assert set(sounding) == {tune.REST, tune.A3, tune.E4, tune.A4}
+    assert all(tune.OPENING.note(f) == tune.REST for f in range(96, 200))
+    # And the same when the sequencer plays it: heard for the bar, then
+    # resting, never round again.
+    music = tune.Music(tune.OPENING)
+    for _ in range(96):
+        music.update()
+    heard = music.heard
+    assert heard == 8 * tune.BAR_UNITS, "a bar is eight sounding units of eight"
+    for _ in range(100):
+        music.update()
+    assert music.heard == heard, "the opening came round again"
+    # The theme, by contrast, comes round.
+    theme = tune.Music(tune.THEME)
+    for _ in range(tune.THEME.frames + 1):
+        theme.update()
+    assert theme.slice.sounding or tune.THEME.note(tune.THEME.frames) != tune.REST
 
 
 def test_the_pedal_leans_on_g_where_the_note_says_and_nowhere_else():
@@ -795,7 +830,8 @@ def test_the_siren_is_the_four_integers_in_the_note():
     assert tune.SIREN.wail == 300
     assert tune.SIREN.frames == 900 and tune.SIREN.seconds == 18
     assert tune.DUTY == 2, "1:2, as all music is; 1:4 is a listen not spent"
-    assert tune.TUNES == {"siren": tune.SIREN, "theme": tune.THEME}
+    assert tune.TUNES == {"siren": tune.SIREN, "theme": tune.THEME,
+                          "opening": tune.OPENING}
 
 
 def test_the_sirens_period_at_the_seams():

@@ -575,6 +575,9 @@ def bank_files(out_dir: str) -> list:
     # thinning out is itself a warning* is judged on.
     paths.append(write_wav(os.path.join(out_dir, "theme.wav"),
                            tune_wave(tune.THEME)))
+    # The opening (issue #81): one bar, once, as the hold plays it.
+    paths.append(write_wav(os.path.join(out_dir, "opening.wav"),
+                           tune_wave(tune.OPENING)))
     paths.append(write_wav(os.path.join(out_dir, "siren.wav"),
                            tune_wave(tune.SIREN, loops=2)))
     paths.append(write_wav(os.path.join(out_dir, "siren-under-load.wav"),
