@@ -3,8 +3,6 @@
 Run it with:
 
     python -m spotlight            # --scale N to resize the window
-                                   # --surge-frames N to try a surge length
-                                   # --flash-frames N to try a flash length
 
 **The game is four directions and two buttons.** That is the whole control
 scheme and it is all a player ever touches:
@@ -23,7 +21,7 @@ about and never know they had. They are all still there and they all still
 work; they are simply not reachable by accident. See `Debug`.
 
 Those three are now **named on the title screen**, in words, because they used
-to be named only here: the window opened straight into the opening flash and a
+to be named only here: the window opened straight into the game and a
 stranger had no way to learn that `T` existed at all. `T` is the bargain the
 whole design rests on, so a player who does not know about it is not playing the
 game. See `screens.py` for the wording and why it is worded that way.
@@ -39,23 +37,12 @@ while still reading the controls triggers by accident. `S` is also a debug key
 in play -- the searchlight's speed -- and stays one: the title branch in
 `Shell.key` is taken before the debug keys are read, so the two never meet.
 
-**The room is shown once, at the start.** A flash of the whole layout, which
-then fades over three seconds -- you cannot play a room you have never seen the
-shape of, and what you keep is what you held in your head. Since issue #64 it
-shows the workers and the Clegs too, and makes nobody prey: the user saw a room
-light up fully and empty and then found people in it. `--flash-frames N`
-changes how long it lasts, for the same reason the surge has its flag -- twelve
-frames was chosen for a layout and may be too short to take in the people.
-
-**And the mains surge is the other one, and it is now built** (issue #53).
-Every forty to seventy seconds the power surges and the whole building plan
-appears -- both rooms, the doors, the people, the nests and the flies -- for a
-second, with the game frozen while it is up. The two are deliberately different
-things: the opening flash hands over one room, its people and its flies for a
-moment as the game runs on, the surge hands over the *whole building* as a
-plan on a frozen game. `--surge-frames N` changes how long it
-lasts, because how long a surge has to be to be readable is a number that wants
-finding at a keyboard.
+**No room is ever shown whole, and no plan of the building is ever shown**
+(issue #79). Until 2026-09-14 a room flashed up in full for twelve frames on
+first entry, and once a minute the mains surged and the whole building plan
+sat on a frozen game for a second. The user played both and ruled them out:
+*"it will make the game more playable"*. What you see of a room is what your
+own light and the room's own lights show you, and what the fade remembers.
 
 **There are seven people in the room and you have to find them.** They are
 bleeding from the frame the level starts, so a search is a race. Touch one to
@@ -94,7 +81,7 @@ from spotlight.frontend.display import Display
 
 from . import (
     lighting, session as session_mod, screens, sounds, sources, spike_sound,
-    surge, tune,
+    tune,
 )
 from .session import Intent, Session
 
@@ -144,7 +131,6 @@ class Debug:
         G  the personal glow           L  room lights
         N  the searchlight             W  do room lights show people?
         F  hold everything visible     Y  do workers call for help?
-        U  bring the mains surge on now
         V  searchlight: vary <-> repeat
         B  searchlight: radius 3 <-> 4
         A  searchlight: knight's tour <-> straight rows
@@ -155,21 +141,13 @@ class Debug:
         3/4  lives, still a placeholder    0  keys, still a placeholder
 
     `F` is the one that matters: it reveals the entire room and everybody in it
-    and holds it there. **It is not a surge**: a surge is the building plan for
-    a second with the game frozen, and this is the room itself, at full
-    brightness, for as long as you like. Neither lures anything, so the swarm
-    behaves exactly as it would in the dark, in full view -- **and since issue
-    #64 that is true**: the held view set the one reveal-and-prey bit, so
-    everybody under it was prey to any fly nearby and the swarm was not doing
-    what it would have done in the dark. It now reveals without prey, like the
-    flash it holds. See `sources.Flash.hold`.
-
-    `U` exists for one job: **settling how long a surge should last** (issue
-    #53). `--surge-frames N` sets the length and a surge otherwise arrives once
-    every forty to seventy seconds, so comparing five values by playing would
-    take five minutes of waiting. It brings the next one forward and nothing
-    else -- the schedule then carries on from where it fired, exactly as it
-    would have if the seed had said so.
+    and holds it there -- the room itself, at full brightness, for as long as
+    you like, and since issue #79 the only whole-room view there is. It lures
+    nothing, so the swarm behaves exactly as it would in the dark, in full
+    view -- **and since issue #64 that is true**: the held view set the one
+    reveal-and-prey bit, so everybody under it was prey to any fly nearby and
+    the swarm was not doing what it would have done in the dark. It now
+    reveals without prey. See `sources.Floodlight.hold`.
 
     The searchlight preferences reset when a run does. They are how you want to
     look at it today, not part of the run.
@@ -234,15 +212,10 @@ class Debug:
             print("searchlight sweeps",
                   "a knight's tour" if run.roaming.mode == sources.Roaming.ARC
                   else "in straight rows")
-        elif key == pygame.K_u:
-            # Due now, rather than drawn now: the surge then arrives through
-            # the ordinary path, so it is still held off if the player happens
-            # to be mid-doorway and the freeze is still the shell's.
-            run.surge.due = run.frame
         elif key == pygame.K_f:
-            run.opening.hold(not run.opening.held)
+            run.floodlight.hold(not run.floodlight.held)
             print("debug view:",
-                  "everything shown" if run.opening.held else "off")
+                  "everything shown" if run.floodlight.held else "off")
         elif key == pygame.K_w:
             for light in run.room_lights:
                 light.reveals = not light.reveals
@@ -288,9 +261,7 @@ class Shell:
     """
 
     def __init__(self, screen: Screen, speaker=None,
-                 debug: bool = False,
-                 surge_frames: int = surge.SURGE_FRAMES,
-                 flash_frames: int = sources.FLASH_FRAMES) -> None:
+                 debug: bool = False) -> None:
         self.screen = screen
         self.state = TITLE
         self.run: Session | None = None
@@ -312,15 +283,6 @@ class Shell:
         #: (issue #52). **The game is not stepped during them and the session
         #: never hears about them.** See `frame`.
         self.held = 0
-        #: How long a surge lasts, which is the user's number and reaches the
-        #: session from `--surge-frames`. Kept here because a restart builds a
-        #: new `Session` and the setting belongs to the sitting rather than to
-        #: the run.
-        self.surge_frames = surge_frames
-        #: How long the opening flash lasts, the same way (issue #64): the
-        #: user's number, from `--flash-frames`, kept for the sitting.
-        self.flash_frames = flash_frames
-        #: Frames the building plan is on screen for (issue #53). **The same
         #: mechanism as `held` and deliberately not a second one**: frames in
         #: which the game is not stepped, owned by the shell, invisible to the
         #: session. See `frame`.
@@ -376,12 +338,11 @@ class Shell:
 
     def start(self) -> None:
         """Begin a fresh run. Nothing survives from the last one."""
-        self.run = Session(surge_frames=self.surge_frames,
-                           flash_frames=self.flash_frames)
+        self.run = Session()
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
-        self.held = self.surging = 0
+        self.held = 0
         # The theme stops where it stops. It is not faded out and it is not
         # resumed: the next title screen starts it again from bar one, because
         # a title screen is a beginning.
@@ -412,26 +373,9 @@ class Shell:
         however long it paused. The alternative is a pause in the run log,
         which is a far larger price for a much smaller problem.
 
-        **The mains surge freezes the game the same way** (issue #53), and
-        that is why it is `self.surging` here rather than a flag that makes
-        `step` do nothing: a second mechanism for *frames in which the game is
-        not stepped* would be a second thing to keep in step with this one, and
-        a flag inside the session would move every event log in the project for
-        the reason above. The only difference is what is on screen while it
-        holds -- a pause holds the frame the moment happened on, a surge holds
-        the building plan drawn over it.
+        The mains surge froze the game the same way, on this mechanism and
+        not a second one, until issue #79 removed it.
         """
-        if self.surging:
-            # **The surge's freeze, and it is the pause's own mechanism**
-            # (issue #53). The plan is on screen and the game is not stepped,
-            # so the building does not move while you read it -- a plan you
-            # have to memorise while being bitten is not a memorisation beat.
-            # Nothing is drawn during these frames because nothing changes:
-            # they cost the port nothing at all, and the whole price of a
-            # surge is the two whole-screen repaints either side of them.
-            self.surging -= 1
-            self._sound_frame()
-            return
         if self.held:
             self.held -= 1
             self._sound_frame()
@@ -469,25 +413,6 @@ class Shell:
         if self.run.over is not None and not self.held:
             self.state = ENDED
             self.show_ending()
-            return
-        if self.held:
-            # **A death and a surge on the same frame**: the death is the beat
-            # that frame and the surge is still owed, so it is taken on the
-            # first played frame after the hold. Deferred rather than dropped,
-            # exactly like a surge that comes due mid-threshold -- and two
-            # screens back to back would read as the game hanging twice.
-            return
-        # **Taken after the frame is drawn**, so the plan goes over the frame
-        # the surge fired on and the frames above hold it there.
-        owed = self.run.surge.take()
-        if owed:
-            self.run.draw_surge(self.screen)
-            # **The frame the plan is drawn on is the first of the surge's
-            # frames**, because it is already on screen, so the shell holds the
-            # rest. That off-by-one is worth the sentence: `--surge-frames 1`
-            # has to mean one frame of plan, or the user tuning the number is
-            # tuning something other than what they are looking at.
-            self.surging = owed - 1
 
     def _sound_frame(self) -> None:
         """A frame the sound player ran and the game did not (issue #57).
@@ -495,7 +420,7 @@ class Shell:
         **The effect clock belongs to the interrupt, not to the game step.**
         On the target the player routine is driven by the 50Hz interrupt and
         does not care that the game logic is paused; here the shell holds
-        frames for a moment's pause and for a surge, and during them nothing
+        frames for a moment's pause, and during them nothing
         was ageing the sound. The mixer was playing it all the same, because
         the host is handed a whole effect at once, so the arbiter went on
         guarding a sound that had already finished -- 25 frames of it after a
@@ -518,39 +443,6 @@ class Shell:
         screens.draw_ending(self.screen, session_mod.ENDING_TEXT[run.over],
                             run.rescued, run.lost, run.inside, run.total,
                             run.seconds)
-
-
-#: The switch that lets a sitting settle `surge.SURGE_FRAMES` without a
-#: rebuild. **This is what the issue owes somebody who has to find a number by
-#: playing**: five values in one sitting rather than five edits, and the
-#: constant stays the one place the default is written down.
-SURGE_FLAG = "--surge-frames"
-
-
-def surge_frames_from(argv: list[str]) -> int:
-    """`--surge-frames N`, or the default if it is not on the command line.
-
-    A function rather than a line inside `main` so that a test can ask what a
-    command line means without opening a window. It reads the switch and
-    nothing else: what a length of 1 or 200 then does to a run is the shell's
-    business and is tested there.
-    """
-    if SURGE_FLAG not in argv:
-        return surge.SURGE_FRAMES
-    return int(argv[argv.index(SURGE_FLAG) + 1])
-
-
-#: The same switch for the opening flash (issue #64), for the same reason:
-#: twelve frames was chosen for a layout, the flash now shows the people, and
-#: whether that is long enough to take them in is a number found by playing.
-FLASH_FLAG = "--flash-frames"
-
-
-def flash_frames_from(argv: list[str]) -> int:
-    """`--flash-frames N`, or the default if it is not on the command line."""
-    if FLASH_FLAG not in argv:
-        return sources.FLASH_FRAMES
-    return int(argv[argv.index(FLASH_FLAG) + 1])
 
 
 #: `--border COLOUR` (issue #75): the Spectrum's BORDER, as a margin round the
@@ -577,8 +469,6 @@ def border_from(argv: list[str]) -> str:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     scale = int(argv[argv.index("--scale") + 1]) if "--scale" in argv else 3
-    surge_frames = surge_frames_from(argv)
-    flash_frames = flash_frames_from(argv)
     debug = DEBUG_FLAG in argv
     try:
         border = border_from(argv)
@@ -593,9 +483,7 @@ def main(argv: list[str] | None = None) -> int:
         screen = Screen()
         speaker = spike_sound.Speaker()
         speaker.open()
-        shell = Shell(screen, speaker=speaker,
-                      debug=debug, surge_frames=surge_frames,
-                      flash_frames=flash_frames)
+        shell = Shell(screen, speaker=speaker, debug=debug)
 
         running = True
         while running:

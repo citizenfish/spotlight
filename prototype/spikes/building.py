@@ -290,8 +290,8 @@ DEFAULT_INK = palette(WHITE)
 
 #: What nothing can stand on. **A wall, and the six solid kinds of furniture,
 #: and there is no second list**: `is_solid` reads this, `is_wall` reads this,
-#: the doorway check in `validate` reads this, and the surge's plan reads
-#: this, so a crate is a wall to every one of them or to none.
+#: and the doorway check in `validate` reads this, so a crate is a wall to
+#: every one of them or to none.
 SOLID = frozenset({WALL, *SOLID_FURNITURE})
 
 #: The way out of the building. It is drawn as a door because a room with a

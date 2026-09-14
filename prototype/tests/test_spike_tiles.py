@@ -416,7 +416,7 @@ def _lit_room(index: int = scene.NEAR, frames: int = 1):
         for _ in range(16):
             run.step(Intent(dx=1))
         assert run.here == index
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     screen = Screen()
     for _ in range(frames):
         run.step()

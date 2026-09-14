@@ -52,7 +52,7 @@ def lit_room(index: int, walk_in: int = 0) -> tuple[Session, Screen]:
         assert run.here == index, "the player would not walk into the far room"
     for _ in range(walk_in):
         run.step(Intent(dx=1))
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     run.step()
     screen = Screen()
     run.draw(screen)

@@ -223,9 +223,8 @@ ROOM_B = (
 #:   is the one place the swarm reliably gathers. The lure is the middle of the
 #:   zone -- (1, 11), which is what a Cleg steers at -- and it is why nothing
 #:   was allowed to move this rectangle by a column to make a picture work.
-#: * B is never wholly black on re-entry, which is what makes "the opening flash
-#:   fires on first entry and not on re-entry" cost curiosity rather than
-#:   progress.
+#: * B is never wholly black on re-entry, so going back for a look costs
+#:   curiosity rather than progress.
 #:
 #: What it does **not** do is make your tail prey while it files through. The
 #: vault's worked example says it should; *Light and Darkness* says room lights

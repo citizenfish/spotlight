@@ -185,13 +185,13 @@ def test_it_agrees_with_a_differ_run_from_outside_the_game():
 
 
 def test_the_three_room_entry_frames_are_visible():
-    """The fault the number exists to watch, and it is not this round's to fix.
+    """The fault the number existed to watch -- and issue #79 removed it.
 
-    The opening flash lights all 704 cells to the same charge, so they cross
-    both fade thresholds in lockstep: the whole field changes on the frame the
-    flash lands, again when it drops to dim, and again when it goes out. In the
-    port model the first is 102,620 T-states against 52,416 spendable. An
-    average hides all three; this test is here so that a slice which makes them
+    The opening flash lit all 704 cells to the same charge, so they crossed
+    both fade thresholds in lockstep: the whole field changed on the frame the
+    flash landed, again when it dropped to dim, and again when it went out. In
+    the port model the first was 102,620 T-states against 52,416 spendable. An
+    average hides all three; this test was here so that a slice which made them
     worse cannot do it quietly.
 
     The two fade frames were +41 and +161 until issue #68, when the flash
@@ -214,7 +214,13 @@ def test_the_three_room_entry_frames_are_visible():
 
     whole_field = [(i, c) for i, c in enumerate(counts, 1) if c > CELLS // 2]
     frames = [i for i, _c in whole_field]
-    assert frames == [1, 42, 162], whole_field
+    # Since issue #79 there is no opening flash, so there is no whole-field
+    # frame on entry and no fade frame for its memory: the three were
+    # [1, 42, 162] until 2026-09-14, and this is the record that the port's
+    # worst frame went with the flash rather than being fixed.
+    assert frames == [], whole_field
+    assert max(counts) < CELLS // 2
+    return
     # The flash arrives on a screen that is still black, so its own frame is
     # every cell there is. The two fade frames are all but the handful the
     # player's own glow is holding up.
@@ -292,7 +298,8 @@ def test_the_driver_turns_it_on_and_the_json_carries_it():
     numbers = driver.report.results(run, bot="listener")["metrics"]
     for key in lighting.REPAINT_METRICS:
         assert isinstance(numbers[key], int), key
-    assert numbers["cells_changed_max"] == 704, "the opening flash is in there"
+    assert 0 < numbers["cells_changed_max"] < 704, \
+        "the opening flash went with issue #79; nothing changes every cell"
     assert 0 <= numbers["cells_changed_p95"] <= numbers["cells_changed_p99"]
     assert numbers["wall_cells_changed_per_100f"] \
         <= numbers["cells_changed_per_100f"]

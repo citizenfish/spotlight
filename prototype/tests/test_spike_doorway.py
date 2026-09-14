@@ -107,7 +107,7 @@ def test_only_the_room_the_player_is_in_is_drawn():
     """The screen flick, at the level of pixels. The room behind you is *gone*
     rather than dark, and that is the moment the second room exists for."""
     near = Session(seed=1)
-    near.place.opening.hold(True)          # show the whole room, both times
+    near.place.floodlight.hold(True)          # show the whole room, both times
     screen = Screen()
     near.step()
     near.draw(screen)
@@ -115,7 +115,7 @@ def test_only_the_room_the_player_is_in_is_drawn():
 
     far = at_door(Session(seed=1))
     walk(far, 1, 16)
-    far.place.opening.hold(True)
+    far.place.floodlight.hold(True)
     far.step()
     far.draw(screen)
     assert bytes(screen.pixels) != before, "both rooms drew the same picture"
@@ -222,27 +222,23 @@ def test_the_far_room_has_no_searchlight_and_the_near_room_does():
     assert len(run.searchlights) == 1
 
 
-# --- the opening flash, and the fade across a room change -------------------
+# --- first entry, and the fade across a room change -------------------------
 
-def test_the_opening_flash_fires_on_first_entry_and_not_on_re_entry():
-    """You cannot play a room you have never seen the shape of. Re-entry is
-    precisely the case where you are supposed to be living off what you held in
-    your head, so flashing every time would make the fade pointless and hand
-    the building over for free."""
+def test_first_entry_is_noted_once_and_nothing_is_fired_on_it():
+    """Since issue #79 no room is ever shown whole: entering one notes the
+    first entry and lights nothing. The floodlight is the debug view and
+    stays off through a crossing, in and out and in again."""
     run = at_door(Session(seed=1))
     far = run.places[scene.FAR]
     assert not far.seen
     walk(run, 1, 16)
     assert far.seen
-    assert far.opening.left > 0, "the far room did not open with a flash"
-    for _ in range(far.opening.frames + 2):
-        run.step()
-    assert far.opening.left == 0
+    assert not far.floodlight.enabled, "the far room lit up on entry"
     walk(run, -1, 24)                       # back to the near room
     assert run.here == scene.NEAR
     walk(run, 1, 24)                        # and in again
     assert run.here == scene.FAR
-    assert far.opening.left == 0, "the flash fired again on re-entry"
+    assert not far.floodlight.enabled
 
 
 def test_the_fade_keeps_running_in_the_room_you_have_left():

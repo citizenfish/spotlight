@@ -32,7 +32,7 @@ IDLE_KEYS += [getattr(pygame, f"K_{d}") for d in "0123456789"]
 def snapshot(run):
     """Everything a debug key can reach. If none of this moved, none of them did."""
     return (
-        run.opening.held, run.opening.enabled,
+        run.floodlight.held, run.floodlight.enabled,
         run.glow.enabled, run.roaming.enabled,
         run.roaming.vary, run.roaming.radius, run.roaming.inset,
         run.roaming.step_every, run.roaming.memory, run.roaming.mode,
@@ -73,7 +73,7 @@ def test_f_does_not_reveal_the_room_without_the_flag():
     shell = started()
     shell.key(pygame.K_f)
     shell.frame()
-    assert shell.run.opening.held is False
+    assert shell.run.floodlight.held is False
 
 
 def test_the_three_controls_still_work_without_the_flag():
@@ -97,7 +97,7 @@ def test_with_the_flag_the_debug_keys_work_exactly_as_before():
     assert shell.debug is not None
 
     shell.key(pygame.K_f)
-    assert run.opening.held is True
+    assert run.floodlight.held is True
 
     glow = run.glow.enabled
     shell.key(pygame.K_g)

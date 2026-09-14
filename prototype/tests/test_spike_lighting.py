@@ -322,8 +322,9 @@ def test_the_field_holds_one_byte_per_cell_and_no_second_one():
     touched list, and never carried between frames. Nothing new survives the
     frame, so the fade is still one byte per cell, and on the Z80 the two
     flags are two bits of the same per-frame byte rather than two arrays. It
-    exists because the opening flash reveals people without making them
-    prey, and one bit could not say that.
+    exists because a light can reveal people without making them prey --
+    the opening flash did, and the held debug view still does -- and one bit
+    could not say that.
     """
     f = L.LightField()
     cells = COLS * layout.PLAY_ROWS

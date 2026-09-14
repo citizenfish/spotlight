@@ -1,6 +1,6 @@
 """The title screen and the ending screen: a run with a beginning and an end.
 
-Issue #15. Before this the window opened straight into the opening flash and
+Issue #15. Before this the window opened straight into the game and
 closed on the last life, and everything the player needed to know was either in
 a module docstring or printed to a terminal they were not looking at.
 

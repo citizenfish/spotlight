@@ -211,10 +211,27 @@ def test_getting_everybody_out_is_its_own_ending():
     at_the_door(run)
     run.step()
     assert run.rescued == run.total, "the door did not hand them over on touch"
-    assert run.over is None, "delivering ended the run"
-    assert push_out(run) == session.ALL_OUT
-    assert run.rescued == run.total
+    # **And that is the ending** (issue #80): the user got all seven out and
+    # stood in the doorway with nothing happening. There is nobody to go back
+    # in for, so there is no decision for the walk-out rule to keep.
+    assert run.over == session.ALL_OUT, "getting everyone out did not end the run"
     assert run.tally_adds_up()
+
+
+def test_delivering_the_last_but_one_does_not_end_the_run():
+    """The walk-out rule still stands while anybody is inside: a brush past
+    the door delivers and ends nothing, because the decision -- do you go
+    back in? -- is still there to be made."""
+    run = Session()
+    workers = list(run.rescue.workers)
+    for worker in workers[:-1]:
+        touch(run, worker)
+        run.step()
+    at_the_door(run)
+    run.step()
+    assert run.rescued == run.total - 1
+    assert run.over is None, "delivering with somebody still inside ended the run"
+    assert push_out(run) == session.ABANDONED
 
 
 def test_the_tally_adds_up_with_people_still_in_the_tail():
@@ -715,14 +732,11 @@ def test_a_fly_on_somebody_you_cannot_see_at_all_still_clicks():
     cells off in the dark is not drawn at all, and neither is the fly on them:
     there is no channel but the sonar, and it is now saying something.
 
-    The opening flash is let go out first: since issue #64 it shows every
-    worker in the room, so a test about somebody you cannot see cannot run
-    inside its twelve frames.
+    (Until issue #79 the opening flash had to be let go out first, since it
+    showed every worker in the room; nothing shows them now.)
     """
     run = Session(seed=1)
-    for _ in range(sources.FLASH_FRAMES + 1):
-        run.step()
-    assert not run.place.opening.enabled, "the flash is still on"
+    run.step()
     worker = next(w for w in run.rescue.workers if w.room == run.here)
     lamp = FloorLight(*worker.cell(), power=9000, lit=True, room=worker.room)
     run.kit.floor.append(lamp)
@@ -1339,7 +1353,7 @@ def test_a_cleg_is_drawn_in_the_frame_its_own_wing_bit_says():
     cleg = run.place.swarm.clegs[0]
     # Somewhere with nothing else drawn over it, and lit, so it is on screen.
     cleg.cx, cleg.cy = 20, 5
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     run.step()
     for wing in range(clegs_mod.WING_CYCLE):
         cleg.wing = wing
@@ -1441,7 +1455,7 @@ def test_a_body_is_drawn_across_the_cell_it_has_always_been_read_at():
     cell = body.cell()
 
     screen = Screen()
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     run.step()
     run.draw(screen)
 
@@ -1575,8 +1589,8 @@ def _pixels_at(screen: Screen, x: int, y: int, sprite) -> list:
 
 def _hold_everybody_still(run: Session) -> None:
     """Lit, and with the whole room shown, so people are drawn wherever they
-    stand -- the sheet's own convenience, `sources.Flash.hold`."""
-    run.place.opening.hold(True)
+    stand -- the sheet's own convenience, `sources.Floodlight.hold`."""
+    run.place.floodlight.hold(True)
     run.step()
 
 
@@ -1671,7 +1685,7 @@ def test_a_waiting_worker_waves_exactly_on_the_frames_its_shout_is_painted():
     waved = called = 0
     for _ in range(400):
         run.step()
-        run.place.opening.hold(True)
+        run.place.floodlight.hold(True)
         if _a_fly_is_on(run, worker):
             continue
         shouting = any(w is worker for w in run.shouting)
@@ -1699,7 +1713,7 @@ def test_the_wave_is_silenced_with_the_word():
     worker = run.rescue.alive_waiting(run.here)[0]
     for _ in range(400):
         run.step()
-        run.place.opening.hold(True)
+        run.place.floodlight.hold(True)
         assert not run.shouting and not run.shout_runs
         if not _a_fly_is_on(run, worker):
             assert _waiting_drawn_as(run, worker, sprites.WORKER)

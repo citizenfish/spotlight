@@ -80,11 +80,9 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     freed = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
     assert f"{freed}_x1.png" in names and f"{freed}_x3.png" in names
     assert f"{freed}-flashed_x1.png" in names
-    # The mains surge (issue #53), in both halves of the cycle for the same
-    # reason: the player's mark on the plan is drawn with the FLASH bit, and
-    # finding yourself is the precondition for reading the plan at all.
-    for sheet in ("surge", "surge-flashed"):
-        assert f"{sheet}_x1.png" in names and f"{sheet}_x3.png" in names
+    # No surge sheet and no flash sheet (issue #79): neither is in the game.
+    assert not any(name.startswith("surge") for name in names)
+    assert not any("-flash_" in name for name in names)
     # **A body in a played room** (issue #59). The sprite sheet is where a
     # sprite is named and the played screen is where it is judged, and the body
     # is the drawing that proved it: sprawled and obvious on the sheet for three
@@ -96,13 +94,10 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # say it is off for 80 to 95 per cent of a run.
     dark = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-torch-off"
     assert f"{dark}_x1.png" in names and f"{dark}_x3.png" in names
-    # **During the opening flash, with the people in it** (issue #64).
-    flash = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-flash"
-    assert f"{flash}_x1.png" in names and f"{flash}_x3.png" in names
     # Seven sheets (the people since issue #72, the furniture since #74) and
-    # eight set-up frames at two scales, and a lit shot plus four strides
-    # per room.
-    assert len(paths) == len(names) == 30 + 10 * len(scene.BUILDING.rooms)
+    # five set-up frames at two scales, and a lit shot plus four strides
+    # per room. The flash frame and the surge's two went with issue #79.
+    assert len(paths) == len(names) == 24 + 10 * len(scene.BUILDING.rooms)
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -449,7 +444,7 @@ def test_the_tile_sheet_plan_has_a_doorway_in_it():
 # --- the rooms --------------------------------------------------------------
 
 def test_getting_into_a_room_walks_through_the_door(monkeypatch):
-    """**Not `run.here = 1`.** Entering a room fires its opening flash, moves
+    """**Not `run.here = 1`.** Entering a room notes the first entry, moves
     any fly riding the player and logs a crossing; a picture of a room the
     session was teleported into would be a picture of a state the game cannot
     reach. So the crossing is the real one, and the log says so."""
@@ -474,7 +469,7 @@ def test_a_room_with_no_door_from_here_is_refused():
 
 
 def test_the_lit_shot_uses_the_games_own_reveal(monkeypatch):
-    """`sources.Flash.hold`, the debug view the `F` key has used since the
+    """`sources.Floodlight.hold`, the debug view the `F` key has used since the
     spike -- not a new draw-everything path.
 
     A second way to light a room is a second thing that can disagree with the
@@ -482,8 +477,8 @@ def test_the_lit_shot_uses_the_games_own_reveal(monkeypatch):
     they are what the game draws.
     """
     held = []
-    real = sources.Flash.hold
-    monkeypatch.setattr(sources.Flash, "hold",
+    real = sources.Floodlight.hold
+    monkeypatch.setattr(sources.Floodlight, "hold",
                         lambda self, on: held.append(on) or real(self, on))
     gallery.room_screen(scene.NEAR, lit=True)
     assert held == [True], "the lit sheet did not go through Flash.hold"
@@ -548,39 +543,12 @@ def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
     assert coursed, "no remembered wall in the frame shows its courses"
 
 
-def test_the_flash_frame_shows_the_people_and_the_flies(monkeypatch):
-    """**What the user asked for, in the frame they asked about** (issue
-    #64): the opening flash, and the workers and the Clegs drawn in it. It
-    is taken from the run's own flash and not through `Flash.hold`, so it is
-    the game's frame and not the debug view's; and the same run, stepped the
-    same way here, says where everybody was standing so the ink can be
-    checked at their feet rather than anywhere on the screen.
-    """
-    held = []
-    real = sources.Flash.hold
-    monkeypatch.setattr(sources.Flash, "hold",
-                        lambda self, on: held.append(on) or real(self, on))
-    screen = gallery.flash_room(scene.NEAR)
-    assert held == [], "the flash frame went through the debug hold"
-
-    run = gallery.session_mod.Session(seed=gallery.GALLERY_SEED)
-    for _ in range(gallery.FLASH_SHOT_FRAME):
-        run.step()
-    assert run.place.opening.enabled
-    here = [w for w in run.rescue.workers if w.room == run.here]
-    assert len(here) == 3
-    for worker in here:
-        assert any(screen.pixels[(worker.y + dy) * SCREEN_W + worker.x + dx]
-                   for dy in range(16) for dx in range(CELL)), \
-            f"the worker at {worker.cell()} is not in the flash frame"
-    for cleg in run.place.swarm.clegs:
-        assert any(screen.pixels[(cleg.cy * CELL + dy) * SCREEN_W
-                                 + cleg.cx * CELL + dx]
-                   for dy in range(CELL) for dx in range(CELL)), \
-            f"the fly at {(cleg.cx, cleg.cy)} is not in the flash frame"
-    # ...and the whole room is lit, which is what makes it the flash.
-    assert lit_cells(screen) > lit_cells(
-        gallery.room_screen(scene.NEAR, lit=False, stride=0)) * 2
+def test_no_sheet_shows_a_room_whole_but_the_lit_one():
+    """Issue #79: the opening flash is gone, so the only whole-room picture
+    the gallery can take is the held debug view, and it says so by going
+    through `Floodlight.hold`. There is no flash frame to photograph."""
+    assert not hasattr(gallery, "flash_room")
+    assert not hasattr(gallery, "surge_screen")
 
 
 def test_each_lit_room_is_the_room_it_is_named_after():

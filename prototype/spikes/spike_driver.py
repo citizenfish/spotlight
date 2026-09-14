@@ -101,7 +101,7 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     frame zero the walls are drawn but every attribute is still black on black
     and the play area photographs almost empty. The **window never shows this
     frame** -- the host loop steps and then draws -- so frame 1 is the first
-    picture a player sees, and the opening flash is frames 1 to 12.
+    picture a player sees.
     """
     # **The driver is where the repaint counter is on** (issue #46). The game
     # is played, not measured, and carries none of it; this is the thing that
@@ -128,15 +128,6 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
             on_sound(run)
         if draw:
             run.draw(screen)
-            # **The driver schedules and counts surges and never waits for
-            # one** (issue #53). Its frames are frames of simulation: holding
-            # here would mean the same `--frames` bought fewer stepped frames,
-            # every bot run would end somewhere new, and the tail of every
-            # event log in the project would shift -- the same reason it
-            # honours no pause. With `--draw` it draws the plan, so the frame
-            # can be photographed and its cells counted, and steps straight on.
-            if run.surge.take():
-                run.draw_surge(screen)
             if on_frame is not None:
                 on_frame(run, screen)
     if run.over is None:
@@ -276,17 +267,13 @@ SUMMARY = (
     # What each frame costs to draw (issue #46), which is what every slice of
     # the look-and-feel round has to be priced against. The first column is the
     # mean per hundred frames -- 306 is 3.06 cells a frame -- kept integer like
-    # everything else here. `chgmax` is 704 in any run that entered a room,
-    # because the opening flash changes the whole field at once.
+    # everything else here. `chgmax` was 704 in any run that entered a room
+    # while the opening flash changed the whole field at once; since issue
+    # #79 it is whatever the lights actually did.
     ("chg/100f", "cells_changed_per_100f", 8),
     ("chgp99", "cells_changed_p99", 6),
     ("chgmax", "cells_changed_max", 6),
     ("wall/100f", "wall_cells_changed_per_100f", 9),
-    # **The one figure the repaint counter cannot see** (issue #53). A surge
-    # changes no light level, so the four columns to the left of this one must
-    # not move by one when it lands; what it costs instead is two whole-screen
-    # repaints apiece, and this is how many times a run paid them.
-    ("surges", "surges", 6),
     # **What the one speaker costs the sonar** (issue #54, remade by #57).
     # `quiet` is the figure the first ruling named -- frames from a dropped
     # click to the next one heard, which is silence the sonar did not ask for

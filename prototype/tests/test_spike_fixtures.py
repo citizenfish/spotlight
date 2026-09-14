@@ -118,9 +118,9 @@ def test_a_dropped_spotlight_is_drawn_like_a_key_and_not_like_a_person():
     run = Session(seed=1)
     light = [l for l in run.kit.floor if l.room == run.here][0]
     # Light the room once and then let the memory of it fade to DIM.
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     run.step()
-    run.place.opening.hold(False)
+    run.place.floodlight.hold(False)
     for _ in range(60):
         run.step()
     assert run.field.level_at(light.cx, light.cy) == lighting.DIM, \
@@ -202,7 +202,7 @@ def test_the_housing_cell_is_lit_on_every_frame_and_never_moves():
 def test_the_housing_is_not_in_the_rooms_list_of_lights():
     """**The trap this issue flagged, pinned.**
 
-    The room's lights are `Place.fixed` -- the opening flash, the authored room
+    The room's lights are `Place.fixed` -- the held debug view, the authored room
     lights, and the searchlight. Nothing was added to that list, and nothing
     may be: a `Source` at the mount corner is a permanent lure at the corner
     the beam is bolted to, and the swarm would gather there for the rest of the

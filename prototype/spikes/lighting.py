@@ -37,8 +37,9 @@ see the note in the vault, this is a design change and not merely a fix.
 
 **And, since issue #64, a source says separately whether what it reveals is
 prey.** Those were one bit -- *if you can see them, so can the flies* -- and
-one bit cannot express the opening flash, which the user ruled shows the
-workers and the Clegs without handing anybody to the swarm. So there are two
+one bit cannot express a light that shows the workers and the Clegs without
+handing anybody to the swarm -- the opening flash, then; since issue #79
+removed it, the held debug view. So there are two
 bits per source and two flags per cell for the frame: `reveals` is what the
 drawing reads, `prey` is what the swarm's prey list reads, and nothing else
 reads either. Every revealing source sets both, except the flash, which sets
@@ -174,7 +175,7 @@ class LightField:
         self._reveal = bytearray(_CELLS)
         #: Cells a light that makes prey is on this frame (issue #64). Kept
         #: beside the reveal flag rather than folded into it because the
-        #: opening flash sets one and not the other. Never remembered either:
+        #: held debug view sets one and not the other. Never remembered either:
         #: both are cleared with the touched list, so no state survives the
         #: frame and the field is still one charge byte per cell.
         self._prey = bytearray(_CELLS)
@@ -206,7 +207,7 @@ class LightField:
         the room they are in. `prey` says whether the people it shows are prey
         to the swarm (issue #64); a source that does not say follows `reveals`,
         because *if you can see them, so can the flies* is the rule and the
-        opening flash is its one exception. Neither is remembered.
+        held debug view is its one exception. Neither is remembered.
         """
         if level <= DARK or not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
             return
@@ -274,8 +275,9 @@ class LightField:
 
         Room lights are not on that list, and deliberately: they show the room
         and not who is in it, to Clegs exactly as to the player. Nor, since
-        issue #64, is the opening flash: it shows the room *and* who is in it,
-        and hands nobody over. **This reads the prey flag and nothing else** --
+        issue #64, is the held debug view (the opening flash, until #79): it
+        shows the room *and* who is in it, and hands nobody over. **This reads
+        the prey flag and nothing else** --
         it read the reveal flag until #64, which is why the two could not be
         told apart and why the debug hold had been making everybody prey.
         """
@@ -417,9 +419,11 @@ class Repaint:
     stored per frame. That is what a Z80 would do if it ever wanted this. It
     would use 256 counters and clamp; here there is one per possible count,
     because clamping at 255 would throw away exactly the whole-field frames the
-    number was wanted for -- the opening flash lights all 704 cells to the same
-    charge, so they cross both fade thresholds in lockstep and three frames per
-    room entry change everything at once.
+    number was wanted for -- the opening flash lit all 704 cells to the same
+    charge, so they crossed both fade thresholds in lockstep and three frames
+    per room entry changed everything at once. Issue #79 removed the flash and
+    those frames with it; the counter keeps the range in case anything else
+    ever does the same.
 
     The mean is reported per hundred frames rather than per frame, because the
     metrics block is all-integer by design and 3.06 cells a frame is a number
@@ -448,7 +452,7 @@ class Repaint:
         self._wall_hist = [0] * (_CELLS + 1)
         #: What the screen is showing. Starts all-dark because that is what a
         #: display holds before the first frame is drawn -- which is why the
-        #: opening flash reads as 704 changed cells rather than as nothing.
+        #: opening flash read as 704 changed cells rather than as nothing.
         self._shown = bytes(_CELLS)
 
     def frame(self, levels, solid) -> int:

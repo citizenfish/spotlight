@@ -300,7 +300,7 @@ def test_exit_and_help_cells_are_in_the_painted_set_in_both_rooms(index):
 
     run = session_mod.Session(seed=gallery.GALLERY_SEED)
     gallery.enter(run, index)
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     screen = Screen()
     for _ in range(600):
         run.step()

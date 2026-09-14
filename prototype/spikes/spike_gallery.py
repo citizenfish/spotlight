@@ -11,7 +11,7 @@ as it looks when you are in it with a torch.
 Three choices worth stating, because each of them is the sheet being useful
 rather than merely correct:
 
-* **The lit shots use `sources.Flash.hold`**, the debug reveal the `F` key has
+* **The lit shots use `sources.Floodlight.hold`**, the debug reveal the `F` key has
   used since the spike, rather than a new "draw everything" path. A second way
   to light a room is a second thing that can disagree with the game about what
   is in the room -- and the whole value of these images is that they are what
@@ -68,7 +68,7 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, floor, lighting, moments, player as player_mod
+from . import bots, floor, lighting, moments, player as player_mod, sources
 from . import screens, scene, sprites
 from . import session as session_mod, tiles, walk
 from . import spike_snap
@@ -76,7 +76,7 @@ from . import building
 from .building import EAST
 
 #: How many frames into a run the "as played" shot of a room is taken.
-#: Six seconds: long enough that the opening flash has faded and the swarm has
+#: Six seconds: long enough that the swarm has
 #: started moving, short enough that the torch is still lit.
 PLAYED_FRAMES = 300
 
@@ -644,7 +644,7 @@ def enter(run, index: int):
     """Get the player into room `index`, by walking through the door.
 
     Teleporting `here` would be one line, and it would be a picture of a room
-    the game never put the player in: entering a room fires its opening flash,
+    the game never put the player in: entering a room notes the first entry,
     migrates any fly riding the player, and logs the crossing. So the player is
     stood in the doorway -- which is the same convenience the doorway tests use
     -- and then *walks*, and every rule about arriving somewhere runs.
@@ -685,7 +685,7 @@ def lit_room(index: int) -> tuple:
     screen = Screen()
     # The debug reveal, held: the room and everybody in it, which is what a
     # reviewer needs and what the player is deliberately never given.
-    run.place.opening.hold(True)
+    run.place.floodlight.hold(True)
     run.step()
     run.draw(screen)
     return run, screen
@@ -747,38 +747,6 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     return kept if kept is not None else copy_of(screen)
 
 
-#: Which frame of the opening flash is photographed. The second: the first
-#: is the frame a player sees first and the flash is at full strength on
-#: either, so this is one frame in from the edge of the window rather than on
-#: it, and it is inside the shortest flash anybody could set.
-FLASH_SHOT_FRAME = 2
-
-
-def flash_room(index: int = scene.NEAR) -> Screen:
-    """A room during its opening flash, with the people in it (issue #64).
-
-    **The picture the user asked for**: they saw a room light up fully and
-    empty, and then found people in it. The ruling is that the flash shows
-    the workers and the Clegs without making anybody prey, and this is the
-    frame that shows it -- the whole room lit, every worker and every fly
-    drawn in their own colours, and the player at the start cell.
-
-    Photographed from the run's own flash rather than from `Flash.hold`, so
-    what is in the picture is what the flash draws and not what the debug
-    view draws: the two share a source but only one of them is the game.
-    """
-    run = session_mod.Session(seed=GALLERY_SEED)
-    enter(run, index)
-    for _ in range(FLASH_SHOT_FRAME):
-        run.step()
-    if not run.place.opening.enabled:
-        raise RuntimeError("the opening flash has gone out, so this would be "
-                           "a picture of the fade and not of the flash")
-    screen = Screen()
-    run.draw(screen)
-    return screen
-
-
 def draw_on_stride(run, screen: Screen, stride: int | None) -> None:
     """Draw the run's current frame with every walker on step `stride`.
 
@@ -811,12 +779,10 @@ def draw_on_stride(run, screen: Screen, stride: int | None) -> None:
 #: clear of an 8x16 figure and still inside the pool it is making.
 SWAP_STEPS = 24
 
-#: And how long to stand there afterwards. The opening flash lights the whole
-#: room and the memory of it takes about three seconds to go out, so a frame
-#: taken straight after the swap is a picture of a fully lit room with a lamp
-#: in it -- which shows the sprite and hides the thing the sprite is for. Held
-#: until the flash has faded, so what is on screen is the pool the lamp itself
-#: is making.
+#: And how long to stand there afterwards, so that what is on screen is the
+#: pool the lamp itself is making and not the walk up to it. (It was set for
+#: the opening flash's memory to fade; the flash went with issue #79 and the
+#: number is left where it was.)
 SWAP_SETTLE = 200
 
 
@@ -909,9 +875,16 @@ def freed_room(index: int = scene.NEAR) -> Screen:
     if not waiting:
         raise ValueError(f"room {index} has nobody waiting to be freed")
     worker = waiting[0]
+    # A moment flashes only cells the player is already being shown, and it
+    # reads the frame before. The opening flash used to have shown the whole
+    # room; since issue #79 nothing has, so the torch is put on the worker
+    # first, from two cells off, and then the player steps onto them.
+    run.player.x, run.player.y = worker.x - 2 * CELL, worker.y
+    run.player.facing = sources.RIGHT
+    run.step(session_mod.Intent(torch=True))
     run.player.x, run.player.y = worker.x, worker.y
-    # The torch goes on in the same step, because the picture is of a lit room
-    # and because the sheet's other played shots hold it on too.
+    # The torch stays on, because the picture is of a lit room and because
+    # the sheet's other played shots hold it on too.
     run.step(session_mod.Intent(torch=True))
     raised = [name for name, _cells in run.moments.raised]
     if moments.M_FREED not in raised:
@@ -1025,72 +998,6 @@ def _standing_room(room, cells) -> tuple | None:
     return None
 
 
-#: How long the gallery will play a run looking for a frame with a nest on it.
-#:
-#: A nest is a body twenty seconds after a death, so it is the one thing on the
-#: surge plan that a run has to be played *into* rather than set up: the statue
-#: on the gallery seed turns its first at frame 4,000. The limit is generous
-#: rather than tight because what it guards against is an infinite loop, not a
-#: slow one -- and if the game ever stops producing a nest in two minutes of
-#: play, that is a finding rather than a broken sheet.
-SURGE_LIMIT = 6000
-
-
-def surge_screen() -> Screen:
-    """The mains surge, on a played frame: the whole building plan.
-
-    Issue #53. **The one picture in the game that shows both rooms at once**,
-    and the beat the whole memorisation premise rests on -- so the sheet has to
-    show it with something in it. A plan of two empty rooms would be a picture
-    of the geometry working and would say nothing about the thing the surge is
-    for, which is that it hands you *the people* as well as the building.
-
-    So the run is played until there is a nest in the building, because a nest
-    is the one mark on the plan that cannot be set up: it is a body twenty
-    seconds after a death, and both halves of that have to actually happen. The
-    workers, the flies and the player are there from the first frame.
-
-    **The statue plays it**, which is the one choice here worth arguing. The
-    listener reaches the same state at frame 3,200 and rescues five people on
-    the way, so its plan has one green mark left on it -- a truthful frame of a
-    good run and a poor picture of what a surge hands over. The statue saves
-    nobody, so the plan carries five people in both rooms, a nest, the swarm
-    and a player standing on open floor, which is what a reviewer has to be able
-    to look at. Nothing about the level or the rules moves either way.
-
-    **The surge is drawn by the game's own code on an ordinary frame** --
-    `Session.draw_surge`, exactly as the shell calls it -- rather than by
-    anything this module knows about plans. It is not scheduled: waiting for a
-    real one would mean playing a run until its own seed said so, and the
-    picture would then be of whatever frame that landed on rather than of a
-    frame with a nest in it. What is photographed is the drawing, which is what
-    the sheet is for.
-
-    It raises rather than returning a picture of nothing if the run never
-    produces one, for the same reason `swapped_room` does: a sheet that quietly
-    showed an empty plan would be the one image on it nobody could check.
-    """
-    run = session_mod.Session(seed=GALLERY_SEED)
-    playing = bots.make("statue", seed=GALLERY_SEED)
-    for _ in range(SURGE_LIMIT):
-        run.step(playing.intent(run))
-        if run.over is not None:
-            break
-        if run.rescue.nests() and run.rescue.alive_waiting():
-            break
-    if not (run.rescue.nests() and run.rescue.alive_waiting()):
-        raise RuntimeError(
-            f"no nest and somebody alive in {SURGE_LIMIT} frames of the "
-            f"gallery run, so the plan would be photographed without them")
-    screen = Screen()
-    # The ordinary frame first and the plan over the top of it, which is what
-    # the shell does: the play area is replaced and the status strip is left
-    # exactly where it is, still reading out the run underneath.
-    run.draw(screen)
-    run.draw_surge(screen)
-    return screen
-
-
 def standing_clear(run) -> bool:
     """Is the player far enough from the edges to be a picture of a room?
 
@@ -1180,10 +1087,6 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     # the game had them -- the walk is judged on the pair above, not here.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-torch-off",
           room_screen(scene.NEAR, lit=False, torch=False))
-    # **During the opening flash, with the people in it** (issue #64): the
-    # one whole-room moment the game gives, which used to hide everybody.
-    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-flash",
-          flash_room(scene.NEAR))
     # The one thing on the sprite sheet that a played frame cannot otherwise
     # show: a spotlight burning where somebody put it down.
     sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",
@@ -1199,12 +1102,4 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     # The sprite sheet said the body read for three rounds and the played
     # screen said otherwise, so this is the picture a redraw is judged on.
     sheet(f"room-{near}-body", body_room(scene.NEAR))
-    # The mains surge (issue #53), in both halves of the cycle for the same
-    # reason: the player's mark and the nests are drawn with the FLASH bit, and
-    # a still can only ever show one half of it. **The half where the player is
-    # inverted is the half you find yourself in**, so a reviewer given only the
-    # other one would be looking at a plan with no player on it.
-    surged = surge_screen()
-    sheet("surge", surged)
-    sheet("surge-flashed", surged, flashing=True)
     return paths

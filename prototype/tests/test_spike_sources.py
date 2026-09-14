@@ -358,7 +358,7 @@ def test_no_source_carries_a_colour():
     Pinned as a signature rather than as a picture, because the fault this
     guards against is somebody adding `hue=` back to one source and nothing
     on screen changing until the next room is authored."""
-    for cls in (S.Roaming, S.Cone, S.Glow, S.RoomLight, S.Flash):
+    for cls in (S.Roaming, S.Cone, S.Glow, S.RoomLight, S.Floodlight):
         assert "hue" not in inspect.signature(cls.__init__).parameters, cls
     assert "hue" not in inspect.signature(S.Source.__init__).parameters
     roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
@@ -435,74 +435,6 @@ def test_whether_a_room_light_reveals_is_switchable():
     assert not _field(room).reveals_at(3, 3)
     room.reveals = True
     assert _field(room).reveals_at(3, 3)
-
-
-# --- the opening flash (issue #9) ------------------------------------------
-
-def test_the_flash_lights_the_whole_room():
-    """You cannot play a room you have never seen the shape of."""
-    flash = S.Flash()
-    flash.fire()
-    assert _lit_cells(_field(flash)) == {
-        (cx, cy) for cx in range(COLS) for cy in range(PLAY_ROWS)
-    }
-
-
-def test_the_flash_is_brief_and_then_stops_by_itself():
-    """Five frames, counted in the order the contract says -- update, then
-    apply -- which is the order the session uses. This used to check
-    `enabled` *before* each update and so counted five where the session
-    got four (issue #68)."""
-    flash = S.Flash(frames=5)
-    flash.fire()
-    for _ in range(5):
-        flash.update()
-        assert flash.enabled
-        assert _lit_cells(_field(flash))
-    flash.update()
-    assert not flash.enabled
-    assert not _lit_cells(_field(flash))
-
-
-def test_the_room_fades_after_the_flash_rather_than_snapping_back():
-    """What the player keeps is what they held in their head."""
-    field = L.LightField()
-    flash = S.Flash(frames=2)
-    flash.fire()
-    for _ in range(2):
-        flash.update(); field.begin(); flash.apply(field); field.commit()
-    assert field.level_at(5, 5) == L.LIT
-    for _ in range(L.LIT_FRAMES + 1):
-        field.begin(); field.commit()
-    assert field.level_at(5, 5) == L.DIM, "should linger, not snap off"
-
-
-def test_the_flash_shows_the_building_and_who_is_in_it_and_makes_no_prey():
-    """**Reveal without prey** (issue #64). It showed the building and not
-    who was in it -- the room lights' rule -- until the user saw a room light
-    up fully and empty and then found people in it. Now the drawing sees
-    everyone under the flash and the swarm's prey test does not."""
-    flash = S.Flash()
-    flash.fire()
-    field = _field(flash)
-    assert field.level_at(9, 9) == L.LIT
-    assert field.reveals_at(9, 9), "the flash hides the people"
-    assert not field.prey_at(9, 9), "the flash handed them to the swarm"
-
-
-def test_the_flash_draws_the_swarm_nowhere():
-    """A light that is everywhere has no *toward* for a Cleg to climb."""
-    flash = S.Flash()
-    flash.fire()
-    assert flash.lure() is None
-
-
-def test_firing_again_restarts_it():
-    flash = S.Flash(frames=4)
-    flash.fire()
-    flash.update(); flash.update()
-    flash.fire()
-    assert flash.left == 4
 
 
 # --- the lamp lights its bearer (issue #10) --------------------------------
@@ -622,55 +554,18 @@ def test_the_straight_serpentine_is_still_there_for_the_editor():
     assert _whole_room() - covered == set()
 
 
-# --- the surge shows people; the opening flash does not (issue #10) --------
+# --- the held view: the room whole, for the debugger (issues #64, #79) ------
 
-def test_the_opening_flash_shows_the_room_and_who_is_in_it_but_not_to_the_flies():
-    """Superseded 2026-09-11 (issue #64): it used to show the room and hide
-    the people. The one thing this must never become is `reveals=True` with
-    the prey bit following it, which was option 1 of the ruling and would
-    make everybody prey for twelve frames."""
-    flash = S.Flash()
-    flash.fire()
-    field = _field(flash)
-    assert field.level_at(9, 9) == L.LIT
-    assert field.reveals_at(9, 9)
-    assert not field.prey_at(9, 9)
-    assert flash.reveals and not flash.prey
-
-
-def test_a_surge_shows_everything_people_included():
-    """The in-field surge, everybody prey. It is a different thing from the
-    flash, and the mains surge the game plays is `surge.py`, not this."""
-    flash = S.Flash()
-    flash.fire(surge=True)
-    field = _field(flash)
-    assert field.level_at(9, 9) == L.LIT
-    assert field.reveals_at(9, 9)
-    assert field.prey_at(9, 9)
-
-
-def test_a_surge_does_not_leave_the_flash_making_prey_afterwards():
-    flash = S.Flash()
-    flash.fire(surge=True)
-    assert flash.reveals and flash.prey
-    flash.fire()
-    assert flash.reveals and not flash.prey
-
-
-def test_neither_a_flash_nor_a_surge_lures_anything():
-    flash = S.Flash()
-    for surge in (False, True):
-        flash.fire(surge=surge)
-        assert flash.lure() is None
-
-
-def test_a_held_flash_stays_on_until_let_go():
-    """A real flash is a fifth of a second; this is for watching things in."""
-    flash = S.Flash(frames=3)
+def test_a_held_floodlight_stays_on_until_let_go():
+    """The whole room, for watching things in. Since issue #79 nothing in
+    play lights a room whole; this is the debug view and it never counts
+    down."""
+    flash = S.Floodlight()
     flash.hold(True)
-    for _ in range(500):
-        flash.update()
     assert flash.enabled and flash.reveals
+    assert _lit_cells(_field(flash)) == {
+        (cx, cy) for cx in range(COLS) for cy in range(PLAY_ROWS)
+    }
     field = _field(flash)
     assert field.level_at(9, 9) == L.LIT and field.reveals_at(9, 9)
 
@@ -685,24 +580,12 @@ def test_holding_it_does_not_change_what_the_clegs_do():
     reveal-and-prey bit from the day it was written, so everybody under the
     held view was prey to any fly that blundered near them, while its
     docstring said it changed nothing about the swarm. Now it is true."""
-    flash = S.Flash()
+    flash = S.Floodlight()
     flash.hold(True)
     assert flash.lure() is None
     field = _field(flash)
     assert field.reveals_at(9, 9), "the held view shows nobody"
     assert not field.prey_at(9, 9), "the held view is still making prey"
-
-
-def test_a_timed_surge_still_counts_down_after_a_hold():
-    flash = S.Flash(frames=4)
-    flash.hold(True)
-    flash.hold(False)
-    flash.fire(surge=True)
-    for _ in range(4):
-        flash.update()
-        assert flash.enabled
-    flash.update()
-    assert not flash.enabled
 
 
 # --- the beam moves like a knight (issue #10) ------------------------------

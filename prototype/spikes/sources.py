@@ -17,7 +17,9 @@ and forgotten far sooner.
 And two bits about the people it falls on: whether it **reveals** them, and,
 since issue #64, whether what it reveals is **prey**. They were one bit until
 the user ruled that the opening flash shows the workers and the Clegs without
-handing anybody to the swarm; every other revealing source still sets both.
+handing anybody to the swarm; the flash went with issue #79 and the held
+debug view is what sets one bit and not the other now. Every other revealing
+source sets both.
 
 There was a third, a **hue** that cells with no colour of their own took on,
 and it is what made the searchlight yellow. Issue #47 withdrew it: after
@@ -189,7 +191,7 @@ class Source:
         self.reveals = reveals
         #: Whether the people it shows are prey (issue #64). A source that
         #: does not say follows `reveals` -- *if you can see them, so can the
-        #: flies* -- and the opening flash is the one that says otherwise.
+        #: flies* -- and the held debug view is the one that says otherwise.
         self.prey = reveals if prey is None else prey
 
     def light(self, field: LightField, cx: int, cy: int) -> None:
@@ -396,139 +398,38 @@ class Cone(Source):
             self.light(field, cx, cy)
 
 
-#: How long the opening flash lasts, in frames.
-#:
-#: **Provisional, and it is the user's number to settle at a keyboard** (issue
-#: #64) -- the same shape as `surge.SURGE_FRAMES`: one named constant, nothing
-#: derived from it, threaded through the session so that `spike1
-#: --flash-frames N` overrides it and a sitting can try five values without
-#: five rebuilds. When the user settles it the value is recorded in the design
-#: notes and this line changes.
-#:
-#: The reason for twelve, so the default is not the one that never gets
-#: revisited: it was chosen for a **layout** -- walls are big, and a fifth of a
-#: second is enough to take in the shape of a room. Since the ruling on
-#: *After look-1* item 8 the flash also shows the workers and the Clegs, and
-#: twelve frames may be too short to take in three people and five flies: the
-#: surge went from 12 to 50 for exactly that reason, when a player reported
-#: that people were "not reliably showing". A longer flash leaves a longer
-#: memory behind it by the same amount, which is the fade doing its job and
-#: not a second change.
-#:
-#: **It is a count of lit frames** (issue #68). It was not, from the day the
-#: flash was written until 2026-09-12: `Flash.update` took a frame off the
-#: counter and switched the light off on reaching zero, *before* the field was
-#: built, so the twelfth step turned the flash off before the twelfth frame was
-#: lit and twelve meant eleven. Nobody counted -- the driver's docstring said
-#: "frames 1 to 12" throughout. Left alone when the constant was named, because
-#: the fix moves the light field; fixed before the user tunes it, because a
-#: number turned at a keyboard has to mean what it says. The default is still
-#: twelve, so the flash is one frame longer than it was: a correction, not a
-#: retune.
-FLASH_FRAMES = 12
+class Floodlight(Source):
+    """The whole room lit and everybody in it drawn, held on. **A debug view,
+    not a mechanic**, and since issue #79 the only whole-room light there is.
 
+    It was the opening flash: the room lit for twelve frames on first entry,
+    then the fade. The user ruled on 2026-09-14 that no room is ever shown
+    whole -- *"it will make the game more playable"* -- so the flash went,
+    and the mains surge with it. What stayed is this, because the `F` key,
+    the gallery's lit-room sheets and every test that lights a room to
+    measure something need a way to see a room whole, and it has to be the
+    game's own reveal rather than a second draw-everything path that can
+    disagree with it.
 
-class Flash(Source):
-    """The whole room, lit for a moment, at the start of a level.
-
-    You cannot play a room you have never seen the shape of. The flash gives
-    the player the **layout** once, briefly, and then takes it away -- and
-    because it tops cells up to the ordinary full memory, the room does not
-    snap back to black but fades over the next few seconds. What the player
-    keeps is what they managed to hold in their head, which is the whole
-    premise of the game rather than a convenience bolted onto it.
-
-    **It shows the building and who is in it, and it hands nobody to the
-    swarm** (issue #64). Until then it showed the room and hid the people --
-    the same rule as the room lights -- and the user saw a room light up fully
-    and empty, and then found people in it, which reads as a fault to the
-    person the game is for. So the flash is the one source with the reveal bit
-    and not the prey bit: the drawing sees everyone under it, the prey list
-    does not, and nothing the flies do changes. Setting `reveals=True` alone
-    would have made everybody prey for twelve frames and moved every event
-    log; that is why the second bit exists.
-
-    What that gives up is said in the vault, *Light and Darkness*: in a
-    building whose workers do not wander, twelve frames of the occupants is a
-    true map of where they are for the whole run, and *finding people stays
-    the player's job* is now half true. The mains surge is still the different
-    thing -- a plan of the whole building, drawn on a frozen game, in
-    `surge.py` -- and does not change.
+    **It reveals without prey** (issue #64): the drawing sees everyone under
+    it, the swarm's prey list does not, so the Clegs do what they would do in
+    the dark, in full view. A light that is everywhere offers nothing to
+    steer toward, so it lures nobody either. Nothing in play ever switches it
+    on.
     """
 
-    def __init__(self, frames: int = FLASH_FRAMES, level: int = LIT,
-                 memory: int = CHARGE_LIT) -> None:
+    def __init__(self, level: int = LIT, memory: int = CHARGE_LIT) -> None:
         super().__init__(level, memory, enabled=False, reveals=False,
                          prey=False)
-        self.frames = frames
-        self.left = 0
-        #: Debug: held on indefinitely rather than counting down.
+        #: Held on, or off. Never counts down.
         self.held = False
 
-    def fire(self, surge: bool = False) -> None:
-        """Start a flash. Firing again while one is running restarts it.
-
-        A plain flash is the level opening: the room **and who is in it**, and
-        nobody under it is prey (issue #64).
-
-        A `surge` is the older in-field surge -- everything lit and everybody
-        prey -- kept for the tests that still drive it. The mains surge the
-        game plays is `surge.py`, a plan drawn on a frozen game that adds
-        nothing to any field, and it is not this.
-        """
-        self.left = self.frames
-        self.enabled = True
-        self.reveals = True
-        self.prey = surge
-
     def hold(self, on: bool) -> None:
-        """Hold the flash on, or let it go. **A debug view, not a mechanic.**
-
-        A real flash is a fifth of a second, which is the point of it and also
-        why it is no use for watching anything: by the time you have registered
-        what is on screen it has gone. Held on, the room stays lit and everything
-        in it stays drawn, so the Clegs can be watched deciding where to go.
-
-        It changes nothing about their behaviour, **and since issue #64 that
-        sentence is true.** A flash lures nobody -- a light that is everywhere
-        offers nothing to steer toward -- but this used to set the one
-        reveal-and-prey bit, so everybody under the held view was prey to any
-        fly that blundered near them: the swarm was *not* doing what it would
-        have done in the dark, and the docstring claimed it was. It now sets
-        the reveal bit and not the prey bit, like the flash it holds. The
-        gallery's lit room shots and every test that lights a room through
-        `hold` were photographing and measuring a room whose people were prey;
-        none of them read the prey list, so none of them moved.
-        """
+        """Hold the room lit, or let it go."""
         self.held = on
         self.enabled = on
         self.reveals = on
         self.prey = False
-        if not on:
-            self.left = 0
-
-    def update(self) -> None:
-        """Burn down. Call once a frame, **before applying**.
-
-        A flash of N frames lights N frames (issue #68). `left` is the lit
-        frames still owed *after this one*: `fire` sets it to N, each update
-        takes one off, and the flash goes out on the update that finds nothing
-        left -- so the frame on which `left` reaches zero is still lit, and it
-        is the Nth. Until 2026-09-12 the light went off on the same update that
-        reached zero, which, called before the field is built as the contract
-        says, lit N - 1 frames; `FLASH_FRAMES = 12` was eleven lit frames and
-        the tests that counted twelve were counting in the other order,
-        checking `enabled` before the update rather than after it.
-
-        The order matters and is the whole bug, so it is pinned:
-        `test_a_flash_of_n_frames_lights_n_frames` counts through the session.
-        """
-        if self.held:
-            return
-        if self.left > 0:
-            self.left -= 1
-        else:
-            self.enabled = False
 
     def origin(self) -> tuple[int, int]:
         return COLS // 2, PLAY_ROWS // 2

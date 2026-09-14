@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1552 tests, headless-safe
+pytest                     # 1416 tests, headless-safe
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -106,10 +106,11 @@ A playable prototype with a face and a voice, tagged `look-3` (2026-09-13).
 Two rooms, seven people to walk out, a swarm, and the light bargain the design
 rests on. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
-music, and the mains surge.
+music, and the mains surge (since removed).
 
 The round after it, from the user's own play, added walking overhead figures,
-flies that beat their wings, coursed walls, the flash showing everyone, a
+flies that beat their wings, coursed walls, the flash showing everyone (since
+removed), a
 distant siren, and two rule changes: flies keep personal space, and no two
 share a cell through a doorway. **Those two move the game**: about six per
 cent fewer bites a minute, recorded and not tuned. Everything before them was
@@ -124,7 +125,9 @@ left the event log byte-identical. See *Look and feel 2* in the vault.
 The day after, from play, the user overruled two of those slices (#78): the
 people are **drawn from above again**, as everything else is, with the walk
 kept and no bar under the player; and the dotted rule under the play area is
-gone. See *2026-09-13 People are drawn from above, and the rule goes*.
+gone. See *2026-09-13 People are drawn from above, and the rule goes*. Then
+(#79) **the opening flash and the mains surge were removed**: no room is ever
+shown whole and the building plan is never shown. See *2026-09-14 No preview*.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

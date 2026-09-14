@@ -43,10 +43,15 @@ def _settle(run, frames: int = 20):
     A moment tests the light **when it is raised**, and the field is built at
     the end of a step -- so on frame one nothing anywhere is lit and every
     flash in this file would be suppressed for the right reason at the wrong
-    moment. The opening flash lights the room on entry; twenty frames later it
-    is still remembered.
+    moment. The opening flash used to light the room on entry; since issue
+    #79 nothing in play does, so the room is lit once here through the held
+    debug view and let go, which leaves exactly the memory the flash left:
+    twenty frames later it is still remembered, four hundred later it is not.
     """
-    for _ in range(frames):
+    run.place.floodlight.hold(True)
+    run.step()
+    run.place.floodlight.hold(False)
+    for _ in range(frames - 1):
         run.step()
     return run
 
@@ -414,7 +419,7 @@ def test_a_moment_over_a_dark_cell_raises_no_flash():
 
 def test_a_moment_flashes_only_the_lit_half_of_what_it_is_given():
     """Cell by cell, not all or nothing."""
-    # Long enough that the opening flash has faded out of the room's memory,
+    # Long enough that the settling light has faded out of the room's memory,
     # so that there is a dark cell to be had at all.
     run = _settle(Session(seed=1), 400)
     lit = run.player.cx, run.player.cy

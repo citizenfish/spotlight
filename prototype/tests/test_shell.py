@@ -21,7 +21,7 @@ def shell():
 
 
 def test_the_title_is_what_a_player_sees_first(shell):
-    """The window used to open straight into the opening flash."""
+    """The window used to open straight into the game."""
     assert shell.state == spike1.TITLE
     assert shell.run is None
     text = rows(shell.screen)

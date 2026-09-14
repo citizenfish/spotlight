@@ -768,7 +768,7 @@ class Voice:
         and this is where a host says so. On the target the player routine is
         driven by the 50Hz interrupt, which does not stop because the game
         logic paused; here the shell holds whole frames for a moment's pause
-        (`moments.Moment.pause`) and for a mains surge, and during them nothing
+        (`moments.Moment.pause`), and during them nothing
         calls `update`.
 
         **The defect this fixed, measured rather than argued.** A player's

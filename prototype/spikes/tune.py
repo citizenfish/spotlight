@@ -631,8 +631,8 @@ class Music:
     The counter is this object's own rather than the session's, for the same
     reason the effect clock is: **on the target the player routine runs off the
     50Hz interrupt, and the interrupt does not stop because the game logic
-    paused.** A moment's pause and a mains surge are frames the game does not
-    step, and the music goes on through them. See `sounds.Voice.audio_frame`.
+    paused.** A moment's pause is frames the game does not step, and the
+    music goes on through them. See `sounds.Voice.audio_frame`.
     """
 
     __slots__ = ("tune", "frame", "slice", "clegs", "heard", "taken",

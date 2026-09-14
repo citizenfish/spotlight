@@ -81,13 +81,12 @@ python -m spikes.spike_driver --gallery runs/gallery
 | --- | --- |
 | `--snap 0,300,900` | Saves those frames of the run as PNGs, into `--out`, named after the same run as its `.json` and `.txt`. Implies `--draw`. |
 | `--scales 1,3` | Which scales to write (the default). 1:1 is the only honest view of the pixels; x3 is what a person can actually look at. |
-| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet of the objects, the doors and the body, a people sheet with every frame of the three standing figures and their walk laid out as a strip, each room fully lit and as it looks a few seconds into a run — the same instant four times, with every walker on each stride of the cycle N A N B in turn, so the walk can be judged where a figure is actually seen — and the frames a bot cannot produce on its own — a spotlight burning on the floor, a moment's flash, the mains surge, and **a body in a played room beside somebody standing up**. Runs no seeds and writes no report. |
+| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet of the objects, the doors and the body, a people sheet with every frame of the three standing figures and their walk laid out as a strip, each room fully lit and as it looks a few seconds into a run — the same instant four times, with every walker on each stride of the cycle N A N B in turn, so the walk can be judged where a figure is actually seen — and the frames a bot cannot produce on its own — a spotlight burning on the floor, a moment's flash, and **a body in a played room beside somebody standing up**. Runs no seeds and writes no report. |
 
 A snapshot is named by its session frame. **Frame 0 is the run before it has
 run** — the walls are drawn but no light has been applied yet, so it comes out
 almost black; the window never shows that frame, because the loop steps and then
-draws. Frame 1 is the first picture a player sees, and the opening flash of a
-room is frames 1 to 12.
+draws. Frame 1 is the first picture a player sees.
 
 Scaling is nearest-neighbour at whole numbers only — a smoothed screenshot of a
 1-bit display invents colours the Spectrum does not have. The colour comes from

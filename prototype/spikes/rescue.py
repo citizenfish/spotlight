@@ -80,7 +80,7 @@ the primary channel and not a garnish, it quickens as the window runs out, and
 it carries from the room next door, which the sonar does not.
 
 They are people, so the rules from issue #12 apply: drawn only where a light is
-on them this frame, and the opening flash does not show them.
+on them this frame, and nothing in play ever shows the whole room.
 """
 
 from spotlight.core.constants import CELL, COLS
