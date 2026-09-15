@@ -369,3 +369,74 @@ def test_with_the_rule_off_the_beam_gives_nobody_away():
     assert run.magnet == 0
     assert not [e for e in run.log if e.kind == S.MAGNET]
     assert not [n for n, _c in run.moments.raised if n == M.M_MAGNET]
+
+
+# --- the whole building, and the sated wake (issue #88) ----------------------
+
+def test_a_fly_in_the_far_room_is_handed_the_doorway_and_comes_through():
+    """Building scope: with the player magnetised in the near room, a hunting
+    fly deep in the far room has the far room's threshold to the near room
+    as its goal, walks to it, and is handed over."""
+    run = _fresh()
+    _beam_away(run)
+    far = run.places[scene.FAR]
+    door = next(d for d in far.room.doorways if d.to == scene.NEAR)
+    fly = C.Cleg(20, 4, seed=5)
+    fly.step_every = 1
+    far.swarm.clegs[:] = [fly]
+    run.step()
+    assert fly.goal is None, "the far room's fly can see the player from next door"
+    run.magnet = 500
+    run.step()
+    assert fly.goal == (door.beyond, door.middle)
+    assert fly.goal_source == sources.LURE_MAGNET
+    for _ in range(300):
+        run.step()
+        if fly in run.place.swarm.clegs:
+            break
+    assert fly in run.place.swarm.clegs, "it never crossed into the player's room"
+    run.step()                     # its first tick in the player's room
+    assert fly.goal == (run.player.cx, run.player.cy)
+
+
+def test_a_hit_wakes_every_sated_fly_in_the_building_once():
+    run = _fresh()
+    _beam_away(run)
+    near = C.Cleg(3, 3, seed=7)
+    far = C.Cleg(20, 4, seed=9)
+    for fly in (near, far):
+        fly.state, fly._timer = C.SATED, 10 ** 6
+    run.place.swarm.clegs[:] = [near]
+    run.places[scene.FAR].swarm.clegs[:] = [far]
+    run.step()
+    assert near.state == C.SATED and far.state == C.SATED
+    _beam_at(run, 0, 0)
+    run.step()                                    # the rising edge
+    assert near.state == C.HUNTING and far.state == C.HUNTING, "nobody woke"
+    # Sated again during the magnet -- a bite, say -- and the beam still on
+    # the player: not woken again until the magnet has ended and a new hit
+    # comes.
+    near.state, near._timer = C.SATED, 10 ** 6
+    for _ in range(20):
+        run.step()
+        assert run.magnet == 500
+    assert near.state == C.SATED, "a hit frame woke a fly that had just fed"
+    _beam_away(run)
+    run.magnet = 0
+    run.step()
+    _beam_at(run, 0, 0)
+    run.step()
+    assert near.state == C.HUNTING, "a second rising edge did not wake it"
+
+
+def test_a_fly_sated_by_a_bite_under_the_magnet_keeps_its_ten_seconds():
+    run = _fed_under_magnet()
+    fly = run.place.swarm.clegs[0]
+    for _ in range(200):
+        run.step()
+        if fly.state == C.SATED:
+            break
+    assert fly.state == C.SATED, "it never finished feeding"
+    for _ in range(100):
+        run.step()
+    assert fly.state == C.SATED, "the running magnet woke it"

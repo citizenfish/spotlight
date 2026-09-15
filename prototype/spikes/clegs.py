@@ -1107,6 +1107,24 @@ class Swarm:
             taken.add((cleg.cx, cleg.cy))
         return blood
 
+    def wake(self) -> int:
+        """Every sated fly hunts again. Returns how many woke.
+
+        The magnet's rising edge (issue #88): the beam has just given the
+        player away, and a fly that had eaten and lost interest is told where
+        they are like the rest. Once per hit, not once per frame -- a fly
+        woken at the feet it has just let go of would feed without pause,
+        and the ten seconds' sating after a bite is what bounds a caught
+        player's loss. Hunger is left where it was.
+        """
+        woke = 0
+        for cleg in self.clegs:
+            if cleg.state == SATED:
+                cleg.state = HUNTING
+                cleg._timer = 0
+                woke += 1
+        return woke
+
     def _attach(self, cleg: Cleg, victim=None) -> None:
         """Land on somebody. `victim` of `None` is the player.
 

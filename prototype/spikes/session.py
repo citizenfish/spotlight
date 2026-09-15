@@ -701,6 +701,26 @@ class Session:
         dx, dy = self.player.cx - beam.x, self.player.cy - beam.y
         return dx * dx + dy * dy <= beam.radius * beam.radius
 
+    def _magnet_cell(self, place: Place):
+        """What this room's hunting flies are handed while the magnet runs.
+
+        The player's cell in the player's room. In any other room, **the cell
+        just past the doorway that leads to the player's room**, in this
+        room's own coordinates (issue #88): the fly walks to the door by the
+        ordinary greedy step, is handed over by `_migrate` when it crosses,
+        and takes the player's cell on the other side. No reach test in either
+        room -- the magnet pulls the whole building. A room with no doorway to
+        the player's room is handed nothing, which never happens with two.
+        """
+        if not self.magnet:
+            return None
+        if place.index == self.here:
+            return self.player.cx, self.player.cy
+        for door in place.room.doorways:
+            if door.to == self.here:
+                return door.beyond, door.middle
+        return None
+
     def _magnetise(self) -> None:
         """Count the magnet down, and set it if the beam is on the player.
 
@@ -721,6 +741,11 @@ class Session:
         if not self.magnet:
             self._record(MAGNET)
             self._moment(moments_mod.M_MAGNET)
+            # **And the building wakes** (issue #88): every sated fly in every
+            # room hunts again, on the rising edge and not on the frames after
+            # it -- see `Swarm.wake` for why once.
+            for place in self.places:
+                place.swarm.wake()
         self.magnet = MAGNET_FRAMES
 
     def _lit_people(self, place: Place) -> list:
@@ -993,9 +1018,9 @@ class Session:
                 # the doorway (issue #65).
                 held_beyond=self._held_beyond(place),
                 # The player's cell while they are a magnet, to the room
-                # they are in and no other (issue #82).
-                magnet=((self.player.cx, self.player.cy)
-                        if here and self.magnet else None))
+                # they are in; to every other room, the threshold of the
+                # doorway that leads there (issues #82, #88).
+                magnet=self._magnet_cell(place))
             if here:
                 self.blood = blood
         # Flies that walked through a doorway are handed over before anything

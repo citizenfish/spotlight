@@ -63,13 +63,19 @@ def _until_event(kind: str, bot: str = "listener", seed: int = 1,
     `run.moments.raised` is therefore what that frame raised, which is what
     "raised exactly once, on the frame its event fires" is asked of.
     """
-    run = Session(seed=seed, **kw)
-    playing = bots.make(bot, seed=seed, light=True)
-    while run.over is None and run.frame < limit:
-        run.step(playing.intent(run))
-        if any(e.kind == kind for e in run.frame_events):
-            return run
-    raise AssertionError(f"no {kind} in {limit} frames of {bot} on seed {seed}")
+    # The first seed from `seed` on which the event happens at all: a tuning
+    # change that makes the listener get everyone out on seed 1 (or die
+    # sooner) must not take five tests about flashes with it. What is asked
+    # of the run is what it raised on the event's frame, whichever seed.
+    for try_seed in range(seed, seed + 8):
+        run = Session(seed=try_seed, **kw)
+        playing = bots.make(bot, seed=try_seed, light=True)
+        while run.over is None and run.frame < limit:
+            run.step(playing.intent(run))
+            if any(e.kind == kind for e in run.frame_events):
+                return run
+    raise AssertionError(f"no {kind} in {limit} frames of {bot} on seeds "
+                         f"{seed}..{seed + 7}")
 
 
 def _stand_on(run, thing) -> None:

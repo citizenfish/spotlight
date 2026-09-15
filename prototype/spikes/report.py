@@ -507,7 +507,9 @@ def _sentence(prefix: str, records, rooms: int, key: str,
     # same time for all of them. Both got repetitive the moment there were two
     # rooms to name.
     shared = _shared_room(records, rooms)
-    together = times[0] == times[-1]
+    # Together to the ten seconds the times are rounded to anyway: two people
+    # who died at 1:00 and 1:00 are not "at 1:00 and at 1:00" (issue #88).
+    together = clock(times[0] // 10 * 10) == clock(times[-1] // 10 * 10)
     named = _name_them(records, rooms, omit=shared)
     if not together:
         # **"about" is said once, by the prefix** (issue #35). It was six
@@ -520,7 +522,22 @@ def _sentence(prefix: str, records, rooms: int, key: str,
                  for clause, r in zip(named, records)]
     # Anything that is true of one of them and not the others rides their own
     # name (issue #35), so nobody is described twice to say a second thing
-    # about them.
+    # about them. **And anything true of all of them is said once, at the
+    # end** (issue #88): three people who each died following you took a
+    # line each to say so once the magnet started pulling the building, and
+    # "all following you" says it in three words.
+    hoisted = ""
+    if notes and len(records) > 1 and all(notes.get(r["who"]) for r in records):
+        parts = [notes[r["who"]].strip()[1:-1].split(", ") for r in records]
+        common = [part for part in parts[0]
+                  if all(part in others for others in parts)]
+        if common:
+            hoisted = ", all " + " and ".join(common)
+            notes = {}
+            for r, own in zip(records, parts):
+                rest = [part for part in own if part not in common]
+                if rest:
+                    notes[r["who"]] = f" ({', '.join(rest)})"
     named = [clause + notes.get(r["who"], "")
              for clause, r in zip(named, records)]
     if len(named) > NAME_LIMIT:
@@ -530,7 +547,8 @@ def _sentence(prefix: str, records, rooms: int, key: str,
         # design cares most about along with them: somebody who died while you
         # were leading them out is a different story from somebody you never
         # reached. They lose their name, not their story.
-        capped = sum(1 for r in records[NAME_LIMIT:] if notes.get(r["who"]))
+        capped = sum(1 for r in records[NAME_LIMIT:]
+                     if "following you" in notes.get(r["who"], ""))
         more = f"{_word(rest)} more by {clock(times[-1] // 10 * 10)}"
         if capped:
             more += (", one of them following you" if capped == 1
@@ -541,7 +559,7 @@ def _sentence(prefix: str, records, rooms: int, key: str,
     if together:
         tail += f" at {roughly(times[0])}" if shared \
             else f", all at {roughly(times[0])}"
-    return f"{prefix}: {_join(named)}{tail}."
+    return f"{prefix}: {_join(named)}{tail}{hoisted}."
 
 
 def crossing_lines(measured: dict | None) -> list[str]:

@@ -459,7 +459,10 @@ def test_a_patch_over_a_nest_kills_what_it_hatches():
     """**Suppression, not destruction.** A hatchling arrives on the nest's own
     cell, which is sprayed ground, so a charge buys exactly the one spawn its
     five seconds cover -- and a nest's life is six of them."""
-    run = Session(seed=1, lives=99)
+    # The magnet off (issue #88): with it on, a hatchling handed the player's
+    # cell walks off the patch before it dies, and a fly from next door walks
+    # in. This is a test of the spray, not of the magnet.
+    run = Session(seed=1, lives=99, magnet=False)
     assert _run_until(run, lambda: bool(run.rescue.nests(run.here)), 40000)
     nest = run.rescue.nests(run.here)[0]
     cx, cy = nest.cell()

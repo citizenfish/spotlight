@@ -225,7 +225,12 @@ def test_the_human_log_is_a_handful_of_lines():
             lines = report.human(run, bot=name)
             assert len(lines) >= 3, (name, seed, lines)
             worst = max(worst, len(lines))
-    assert worst <= 6, f"the human log has grown past six lines: {worst}"
+    # Seven since issue #88: the magnet pulling the building and waking the
+    # sated made the runs deadlier, and a run that ends with people dead
+    # *and* people still inside has one more fact to state than the bound of
+    # six was set against. The wording was trimmed twice first (#87, #88);
+    # what is left is facts, and the sweep still says none above seven.
+    assert worst <= 7, f"the human log has grown past seven lines: {worst}"
 
 
 def test_the_human_log_is_words_not_numbers():
