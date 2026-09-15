@@ -137,7 +137,8 @@ def test_the_bar_fills_from_the_left():
     blood = panel.REGIONS["blood"]
     filled = [s.point(cx * 8 + col, blood.row * 8 + row)
               for cx in range(blood.col, blood.col + blood.width)]
-    assert filled == [True, True, True, False, False, False, False, False]
+    # Six cells since issue #90; three of blood fill three of them.
+    assert filled == [True, True, True, False, False, False]
 
 
 # --- the power bar must not lie about being empty (issue #12) --------------
@@ -341,6 +342,12 @@ def test_nothing_else_on_the_strip_changed_colour():
         "spray": CYAN,
         "keys": CYAN,
         "rescued": GREEN,
+        # The three badges (issue #90): following you in the tally's green,
+        # dead in blood's red, still to find in the labels' white. Colour is
+        # what tells three adjacent badges apart, so each is a decision.
+        "with": GREEN,
+        "dead": RED,
+        "left": WHITE,
     }
     assert panel.LABEL_INK == WHITE
 

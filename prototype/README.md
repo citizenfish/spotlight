@@ -23,6 +23,32 @@ That starts the game. `--border` takes one of the Spectrum's fifteen colours
 window's margin and nothing else -- no snapshot shows it and no rule reads it. Three controls, and the title screen names them: arrow
 keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
 
+## The old looks, for comparison
+
+```sh
+python -m spotlight --dark-clegs     # flies drawn only where the light falls on them
+python -m spotlight --trail          # your lights leave a memory behind you
+```
+
+Since 2026-09-15 the flies are red and seen wherever they are, and your own
+lights leave no trail; these two put the earlier looks back, on the demo too.
+
+## Demo mode
+
+For a screen recording, or a cabinet in a corridor: the game plays itself.
+
+```sh
+python -m spikes.spike_demo                        # the listener, for ever
+python -m spikes.spike_demo --bot oracle --runs 3  # three perfect runs, then quit
+```
+
+The ordinary window and the ordinary game, with a bot pressing the keys a
+player would press. The title is pressed for you after four seconds, an ending
+screen is left up for six and then a fresh run starts on the next seed. `--bot`
+takes any of the driver's bots, `--seed` the first run's, `--runs` how many
+before it quits (`0` loops for ever), `--title-seconds` and `--ending-seconds`
+the two waits, and `--scale` and `--border` are the window's. `ESC` stops it.
+
 ## Developer keys
 
 Off by default, and deliberately not mentioned on any screen:

@@ -261,10 +261,19 @@ class Shell:
     """
 
     def __init__(self, screen: Screen, speaker=None,
-                 debug: bool = False) -> None:
+                 debug: bool = False,
+                 seed: int = session_mod.DEFAULT_SEED,
+                 luminous: bool = True, trail: bool = False) -> None:
         self.screen = screen
+        #: The two look flags (issue #91), kept for the sitting so a restart
+        #: keeps them.
+        self.luminous, self.trail = luminous, trail
         self.state = TITLE
         self.run: Session | None = None
+        #: The seed the next run starts on. The game's own is the default and
+        #: a player never changes it; the demo loop (issue #89) moves it on
+        #: between runs so an attract mode does not show the same run twice.
+        self.seed = seed
         #: Built only when the developer keys are unlocked, so that with them
         #: locked there is nothing for a stray key to reach.
         self.debug: Debug | None = None
@@ -346,7 +355,8 @@ class Shell:
         read as the screen having failed to draw; issue #83 took it out for
         now. The tune is still in `tune.py` for the day it comes back.
         """
-        self.run = Session()
+        self.run = Session(seed=self.seed, luminous=self.luminous,
+                           trail=self.trail)
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
@@ -460,6 +470,12 @@ class Shell:
 #: shows it, because a snapshot is the 256x192 and the border is outside it.
 BORDER_FLAG = "--border"
 
+#: Two looks the user tried and kept (issues #91, #92): red Clegs drawn
+#: wherever they are, and no light trail from the player. Both are the
+#: default now; these two flags put the old looks back for comparison.
+DARK_CLEGS_FLAG = "--dark-clegs"
+TRAIL_FLAG = "--trail"
+
 
 def border_from(argv: list[str]) -> str:
     """The border colour's name, or the default if it is not asked for.
@@ -478,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     scale = int(argv[argv.index("--scale") + 1]) if "--scale" in argv else 3
     debug = DEBUG_FLAG in argv
+    luminous = DARK_CLEGS_FLAG not in argv
+    trail = TRAIL_FLAG in argv
     try:
         border = border_from(argv)
     except ValueError as err:
@@ -491,7 +509,8 @@ def main(argv: list[str] | None = None) -> int:
         screen = Screen()
         speaker = spike_sound.Speaker()
         speaker.open()
-        shell = Shell(screen, speaker=speaker, debug=debug)
+        shell = Shell(screen, speaker=speaker, debug=debug,
+                      luminous=luminous, trail=trail)
 
         running = True
         while running:

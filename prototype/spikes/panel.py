@@ -28,6 +28,10 @@ LABEL_INK = WHITE
 #: TALLY draws "n/m" -- a count against a total, which a row of pips cannot do
 #: once the total stops being small enough to count at a glance.
 BAR, COUNT, FLAG, TALLY = "bar", "count", "flag", "tally"
+#: BADGE draws a mark and a digit: two cells, a count of at most nine, which
+#: is every count this building has (issue #90). Three of them fit where a
+#: word and a number would not.
+BADGE = "badge"
 
 #: How long a readout flashes when something happens to it: two seconds, which
 #: is three blinks of the Spectrum's 32-frame flash cycle. Long enough to catch
@@ -110,7 +114,16 @@ LABELS = (
 )
 
 REGIONS: dict[str, Region] = {
-    "blood": Region(_TOP, STATUS_LEFT + 6, 8, RED, BAR),
+    # Six cells since issue #90, from eight: a readout scaled to capacity
+    # reads full at six as it did at eight, and the two cells bought the
+    # three badges after it.
+    "blood": Region(_TOP, STATUS_LEFT + 6, 6, RED, BAR),
+    # **Where every one of the seven is** (issue #90), with the tally below:
+    # following you, dead, still to find. Adjacent, colour telling them
+    # apart, because the six cells after the bar are what there is.
+    "with": Region(_TOP, STATUS_LEFT + 13, 2, GREEN, BADGE, font.WITH_MARK),
+    "dead": Region(_TOP, STATUS_LEFT + 15, 2, RED, BADGE, font.DEAD_MARK),
+    "left": Region(_TOP, STATUS_LEFT + 17, 2, WHITE, BADGE, font.LEFT_MARK),
     "lives": Region(_BOTTOM, STATUS_LEFT + 6, 3, RED, COUNT, font.HEART),
     "light": Region(_TOP, ACTION_LEFT + 6, 6, YELLOW, BAR),
     # Against the bar, not a cell clear of it: they are one readout, and the
@@ -163,6 +176,9 @@ class Panel:
             value = 1 if value else 0
         elif region.kind == TALLY:
             value = max(0, min(self.totals[name], value))
+        elif region.kind == BADGE:
+            # One digit: nine is every count this building has (issue #90).
+            value = max(0, min(9, value))
         else:
             value = max(0, min(region.width, value))
         if self.values[name] == value:
@@ -236,6 +252,9 @@ class Panel:
                 glyph = font.BAR_FULL if i < value else font.BAR_EMPTY
             elif region.kind == COUNT:
                 glyph = region.glyph if i < value else font.BLANK
+            elif region.kind == BADGE:
+                glyph = (region.glyph if i == 0
+                         else font.GLYPHS[str(min(9, max(0, value)))])
             else:
                 glyph = region.glyph if value else font.BLANK
             cx = region.col + i

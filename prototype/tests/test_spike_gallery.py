@@ -518,8 +518,17 @@ def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
     wall cell in it is drawn as the *dim* tile its mask asks for and not the
     lit one; and that dim tile has its courses in it, which is the change.
     """
-    off = gallery.room_screen(scene.NEAR, lit=False, torch=False)
-    on = gallery.room_screen(scene.NEAR, lit=False, stride=0)
+    # The remembered tile is what is under test, so the trail is on for this
+    # picture: since issue #92 the game itself leaves none behind the player,
+    # and the gallery's own torch-off sheet shows the game as it is.
+    import functools
+    real = gallery.session_mod.Session
+    gallery.session_mod.Session = functools.partial(real, trail=True)
+    try:
+        off = gallery.room_screen(scene.NEAR, lit=False, torch=False)
+        on = gallery.room_screen(scene.NEAR, lit=False, stride=0)
+    finally:
+        gallery.session_mod.Session = real
     assert bytes(off.pixels) != bytes(on.pixels)
     assert lit_cells(off) < lit_cells(on)
 

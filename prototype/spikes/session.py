@@ -40,7 +40,7 @@ from . import (
     tally as tally_mod, tiles, tune as tune_mod,
 )
 from .building import EAST
-from .layout import PLAY_BOTTOM, PLAY_TOP
+from .layout import PLAY_BOTTOM, PLAY_TOP, PLAY_ROWS
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
 from .player import Player
@@ -367,8 +367,21 @@ class Session:
     def __init__(self, seed: int = DEFAULT_SEED,
                  blood: int = BLOOD_FULL, lives: int = LIVES,
                  metrics: bool = False,
-                 sound: bool = True, magnet: bool = True) -> None:
+                 sound: bool = True, magnet: bool = True,
+                 luminous: bool = True, trail: bool = False) -> None:
         self.seed = seed
+        #: Two looks the user tried and ruled on (issue #91, then #92), both
+        #: now the default. `luminous`: Clegs are drawn wherever they are,
+        #: lit or not, **and their cells wear red** -- a dark cell is black
+        #: ink on black paper, so pixels alone showed nothing, which is what
+        #: the first cut got wrong. `trail` off: the player's own glow and
+        #: torch leave no memory, so the floor and the walls behind you go
+        #: dark the frame after you pass. It reaches the rules -- a body
+        #: waits on remembered ground, a scout maps what it has seen -- and
+        #: the log moved with it, recorded. `--dark-clegs` and `--trail` put
+        #: the old looks back for comparison.
+        self.luminous = luminous
+        self.trail = trail
         scene.validate()
         self.building = scene.BUILDING
 
@@ -384,9 +397,13 @@ class Session:
         #: is special-cased anywhere in the game.
         self.here, self.start_room = self.building.start[0], self.building.start[0]
         self.player = Player(*self.building.start[1])
-        self.glow = sources.Glow()
+        # No trail: a memory of nought, so the cell shows the light's level
+        # while the light is on it and is not topped up at all -- the frame
+        # after, it is whatever the fade already had there.
+        self.glow = sources.Glow() if trail else sources.Glow(memory=0)
         self.glow.x, self.glow.y = self.player.cx, self.player.cy
-        self.cone = sources.Cone(reach=7)
+        self.cone = (sources.Cone(reach=7) if trail
+                     else sources.Cone(reach=7, memory=0))
         self.cone.x = self.player.cx
         self.cone.y = self.player.cy
         self.cone.facing = self.player.facing
@@ -1110,6 +1127,13 @@ class Session:
         if self.rescue.saved != self.tally.found:
             self.tally.found = self.rescue.saved
             self.panel.set("rescued", self.rescue.saved)
+        # **Where every one of the seven is** (issue #90): following you,
+        # dead, still to find. `set` repaints only on a change, so this costs
+        # three compares a frame and a cell or two when somebody moves
+        # between columns. With the tally they add up to the total.
+        self.panel.set("with", len(self.rescue.tail))
+        self.panel.set("dead", self.rescue.lost)
+        self.panel.set("left", len(self.rescue.alive_waiting()))
 
         bites = self.swarm.attachments - was_bites
         if bites:
@@ -2099,10 +2123,16 @@ class Session:
             sprites.draw(screen,
                          sprites.WORKER_FRAMES[worker in self.shouting],
                          worker.x, worker.y, visible=field.reveals_at)
+        # **A follower is drawn wherever they are** (issue #90). They are
+        # yours and you know where they are; seven of them reach ten cells
+        # behind you, the glow lit the first and the torch points the other
+        # way, and the user watched a full tail vanish. The prey rule is
+        # untouched: a follower is bitable only while lit, and the swarm reads
+        # the light and not the drawing.
         for worker in self.rescue.tail:
             if worker.room == self.here:
                 sprites.draw(screen, sprites.FOLLOWER_FRAMES[worker.stride],
-                             worker.x, worker.y, visible=field.reveals_at)
+                             worker.x, worker.y)
         # The frame is the fly's own wing phase, advanced when it steps a
         # cell, and -- since issue #61 -- on the clock while it is attached
         # to somebody, and in place when an idle fly's drift comes up (0, 0).
@@ -2114,7 +2144,8 @@ class Session:
         for cleg in place.swarm.clegs:
             sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
                          cleg.cx * CELL, cleg.cy * CELL,
-                         visible=field.reveals_at)
+                         # Luminous (issue #91): drawn wherever they are.
+                         visible=None if self.luminous else field.reveals_at)
         figure = sprites.PLAYER_FRAMES[self.player.stride]
         sprites.draw(screen, figure, self.player.x, self.player.y)
         if self.magnet and (self.frame // MAGNET_PULSE) % 2 == 0:
@@ -2183,6 +2214,29 @@ class Session:
         # and the cell's contents already chose, and a moment adds nothing to
         # the field they chose them from. It has to come after `paint`, which
         # overwrites every play-area attribute.
+        # **What is seen in the dark wears its own ink** (issue #92), after
+        # the paint because the paint makes a dark cell black on black and
+        # pixels alone show nothing there. A luminous Cleg's cell is bright
+        # red wherever it is -- the one colour the play area did not use, and
+        # the user's; a follower's cells wear the room's hue, unbright, where
+        # the light left them dark, so the tail is seen as the tail. Both are
+        # attribute writes on cells the sprites have just been drawn into;
+        # the clash a red fly makes of a lit cell it stands in is accepted
+        # for now.
+        if self.luminous:
+            red = attr_byte(ink=RED, paper=BLACK, bright=True)
+            for cleg in place.swarm.clegs:
+                if 0 <= cleg.cx < COLS and 0 <= cleg.cy < PLAY_ROWS:
+                    screen.set_attr(cleg.cx, cleg.cy, red)
+        for worker in self.rescue.tail:
+            if worker.room != self.here:
+                continue
+            for cx, cy in worker.cells():
+                if 0 <= cx < COLS and 0 <= cy < PLAY_ROWS \
+                        and field.level_at(cx, cy) == lighting.DARK:
+                    screen.set_attr(cx, cy, attr_byte(
+                        ink=frame_inks[cy * COLS + cx], paper=BLACK,
+                        bright=False))
         for cx, cy in self.flash_cells():
             screen.set_attr(cx, cy,
                             screen.get_attr(cx, cy) | moments_mod.FLASH_BIT)

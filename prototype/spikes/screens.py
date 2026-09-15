@@ -299,11 +299,35 @@ def draw_words(screen: Screen) -> None:
     for i, line in enumerate(WARNING):
         write(screen, 1, 17 + i, line, CYAN)
 
+    # The three badges on the strip, taught here in one line (issue #90): a
+    # badge is a picture you have to have been taught, and row 20 was empty.
+    draw_badge_legend(screen)
+
     # Flashing, because it is the one thing that has to be noticed and the
     # attribute flash bit costs nothing on the target. It is also the only
     # movement on an otherwise static screen.
     write(screen, centre(START_PROMPT), 22, START_PROMPT, WHITE, bright=True,
           flash=True)
+
+
+#: The strip's three badges and what each counts, as (mark, ink, word).
+BADGE_LEGEND = (
+    (font.WITH_MARK, GREEN, "WITH YOU"),
+    (font.DEAD_MARK, RED, "DEAD"),
+    (font.LEFT_MARK, WHITE, "TO FIND"),
+)
+BADGE_LEGEND_ROW = 20
+
+
+def draw_badge_legend(screen: Screen, row: int = BADGE_LEGEND_ROW) -> None:
+    """One line: each mark in its own colour, its word in white after it."""
+    width = sum(1 + 1 + len(word) + 2 for _m, _i, word in BADGE_LEGEND) - 2
+    cx = (COLS - width) // 2
+    for mark, ink, word in BADGE_LEGEND:
+        font.draw_glyph(screen, cx, row, mark)
+        screen.set_attr(cx, row, _attr(ink))
+        write(screen, cx + 2, row, word, WHITE)
+        cx += 1 + 1 + len(word) + 2
 
 
 def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,

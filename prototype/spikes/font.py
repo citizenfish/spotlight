@@ -77,6 +77,14 @@ LIT = (0x00, 0x10, 0x54, 0x38, 0x54, 0x10, 0x00, 0x00)
 # count. Issue #31 replaced it with the word SAFE: a badge is a picture you
 # have to have been taught, and the testers are people who have been taught
 # nothing about this game on purpose.
+#
+# **Three badges came back with issue #90**, because the strip is full and
+# the user wants three more counts on it: a figure for the people following
+# you, a cross for the dead, and the font's own question mark for the ones
+# still to find. They are taught, in one line, on the title screen.
+WITH_MARK = (0x00, 0x18, 0x18, 0x3C, 0x5A, 0x18, 0x24, 0x00)
+DEAD_MARK = (0x00, 0x10, 0x38, 0x10, 0x10, 0x10, 0x10, 0x00)
+LEFT_MARK = GLYPHS["?"]
 
 BLANK = GLYPHS[" "]
 

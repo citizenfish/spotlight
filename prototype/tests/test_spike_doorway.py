@@ -134,7 +134,9 @@ def test_you_cannot_see_into_the_far_room_from_the_near_rooms_doorway():
     hardest case: the cone reaches seven cells, so without the rule the player
     would be looking a quarter of the way into the room next door.
     """
-    run = at_door(Session(seed=1))
+    # With the trail (issue #92 made no trail the default): this asks what
+    # the field remembers at the wall, which is the trail's business.
+    run = at_door(Session(seed=1, trail=True))
     run.step(Intent(dx=1, torch=True))
     for _ in range(4):
         run.step(Intent(dx=1))
@@ -244,7 +246,7 @@ def test_first_entry_is_noted_once_and_nothing_is_fired_on_it():
 def test_the_fade_keeps_running_in_the_room_you_have_left():
     """Time passes everywhere. Duck out and back and your memory is still warm;
     come back much later and it has gone."""
-    run = at_door(Session(seed=1))
+    run = at_door(Session(seed=1, trail=True))      # the fade is the subject
     near = run.places[scene.NEAR]
     # The near room's searchlight is switched off for this test and only this
     # test. It is the one light in the building that keeps writing into a room

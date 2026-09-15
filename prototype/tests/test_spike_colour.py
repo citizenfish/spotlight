@@ -202,6 +202,13 @@ def test_a_cells_brightness_is_the_light_and_its_ink_is_the_contents():
         levels = run.field.levels()
         inks = run.place.room.ink_map()
         specials = spoken_for(run)
+        # A luminous fly's cell is red wherever it is, and a follower's dark
+        # cells wear the room's hue (issue #92): the two exceptions to light
+        # deciding brightness, both deliberate, both attribute writes after
+        # the paint. Neither is what this test is about.
+        specials |= {(c.cx, c.cy) for c in run.place.swarm.clegs}
+        specials |= {cell for w in run.rescue.tail if w.room == run.here
+                     for cell in w.cells()}
         for cy in range(PLAY_ROWS):
             for cx in range(COLS):
                 if (cx, cy) in specials:
