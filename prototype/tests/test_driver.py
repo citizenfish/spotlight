@@ -43,6 +43,7 @@ def test_the_driver_runs_the_real_loop(monkeypatch):
                         lambda self, intent=session.IDLE:
                         calls.append(1) or real(self, intent))
     run = driver.drive(bots.make("statue"), seed=1, frames=250)
+    # The driver never strobes (issue #94): every call stepped a frame.
     assert len(calls) == run.frame == 250
 
 

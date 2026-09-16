@@ -122,6 +122,18 @@ ROAM_RUN, ROAM_SPREAD = 6, 9
 #: should not do the job for it.
 DRIFT_EVERY = 45
 
+#: **Boredom** (issue #93). A hunting fly that has not moved for this many
+#: frames while it had somewhere to go -- standing on a room light it has
+#: reached, or queued behind another fly beside one -- gives its goal up and
+#: drifts for `MILL_FRAMES` before it notices anything again. Two seconds of
+#: standing, three of wandering. The far room's swarm used to reach its door
+#: light and stand there for the rest of the run, which held the door as the
+#: design meant and looked dead as the user said; now it mills round the
+#: light instead. A magnet is exempt: a fly handed the player's cell is not
+#: bored, it is queued at you.
+STUCK_FRAMES = 100
+MILL_FRAMES = 150
+
 #: Blood a single Cleg takes before it drops off, and how fast it takes it.
 #: One point every twelve frames, eight points in all -- about two seconds
 #: attached, which is long enough to feel and short enough not to be a cutscene.
@@ -295,7 +307,8 @@ class Cleg:
 
     __slots__ = ("cx", "cy", "state", "taken", "notice", "goal", "goal_source",
                  "kind", "flank", "step_every", "hunger", "heading", "victim",
-                 "wing", "slide", "_run", "_timer", "_tick", "_seed")
+                 "wing", "slide", "still", "bored", "_run", "_timer", "_tick",
+                 "_seed")
 
     def __init__(self, cx: int, cy: int, seed: int = 0xBEEF) -> None:
         self.cx, self.cy = cx, cy
@@ -338,6 +351,10 @@ class Cleg:
         #: is held. The one byte of memory the greedy step never had -- see
         #: `_toward`. Cleared the frame the wanted axis is taken.
         self.slide = (0, 0)
+        #: Frames since this fly last changed cell, and frames of boredom left
+        #: (issue #93) -- see `STUCK_FRAMES`. Two bytes on the port.
+        self.still = 0
+        self.bored = 0
         #: **Which wing frame this fly is drawn in**: two bits since issue
         #: #73, a phase 0-3 over the cycle A M B M that `sprites.CLEG_FRAMES`
         #: is indexed by, advanced in `_beat`. From issue #49 to #73 it was
@@ -545,6 +562,8 @@ class Cleg:
             return False
         if avoid is not None and avoid(nx, ny):
             return False
+        if (dx, dy) != (0, 0):
+            self.still = 0
         self.cx, self.cy = nx, ny
         # It stepped, so it is being erased and redrawn anyway: the wingbeat
         # rides on the move and costs nothing. See `wing`. **A (0, 0) step
@@ -640,7 +659,36 @@ class Cleg:
             dy = ((r >> 2) & 1) - ((r >> 3) & 1)
             self.heading = (dx, dy)
             self._run = ROAM_RUN + (r >> 4) % ROAM_SPREAD
-            self._try(dx, dy, is_solid, avoid)
+            if not (dx or dy):
+                # **The null heading is one twitch, not a run of them**
+                # (issue #93). One roll in four comes up (0, 0), and a run of
+                # six to fourteen of it was six to fourteen idle periods --
+                # up to twelve seconds -- of a fly standing in its own cell,
+                # which in a room with no searchlight to chase was what the
+                # user watched. The twitch stays, at one per null roll; the
+                # next drift rolls again.
+                self._run = 1
+            if not self._try(dx, dy, is_solid, avoid) and (dx or dy) \
+                    and is_solid(self.cx + dx, self.cy + dy):
+                # **Turned by a wall, it walks along it** (issue #93). A
+                # heading into brick used to be a heading wasted: the fly
+                # stood for another DRIFT_EVERY and rolled again, and in a
+                # corner most rolls are brick, so the far room's flies -- no
+                # searchlight to chase, most of their time with no goal --
+                # hardly moved at all. The heading is turned a quarter, the
+                # way one more bit of the same roll says, and taken if the
+                # room will have it; a wall on both sides is a wall on both
+                # sides. No extra random number, so a fly in the open rolls
+                # exactly what it rolled before.
+                turn = 1 if (r >> 8) & 1 else -1
+                self.heading = (-dy * turn, dx * turn)
+                if not self._try(*self.heading, is_solid, avoid):
+                    self.heading = (dy * turn, -dx * turn)
+                    self._try(*self.heading, is_solid, avoid)
+                # One step along the wall and then a fresh roll: a turned
+                # heading with the whole run behind it walked the room's
+                # perimeter, which is a march and not a mill.
+                self._run = 1
         self._run -= 1
 
 
@@ -1063,18 +1111,33 @@ class Swarm:
             # Hunting. A light it can notice becomes the place it is going;
             # one it cannot notice may as well not be lit.
             cleg.hunger += 1
+            cleg.still += 1
             if magnet is not None:
                 # The magnet (issue #82): the player's cell, whatever the
                 # light, and the bite billed to it whatever the journey was.
                 cleg.goal = magnet
                 cleg.goal_source = LURE_MAGNET
+                cleg.bored = 0
+            elif cleg.bored:
+                # Bored (issue #93): no lure is looked at until it is over.
+                cleg.bored -= 1
             else:
                 seen = self.notice(cleg.cx, cleg.cy, lures, cleg.notice,
                                    cleg.keenness)
                 if seen is None and doors:
                     seen = self.notice(cleg.cx, cleg.cy, doors, cleg.notice,
                                        cleg.keenness)
-                if seen is not None:
+                if cleg.still >= STUCK_FRAMES \
+                        and (seen is not None or cleg.goal is not None):
+                    # Somewhere to go and not getting there: standing on a
+                    # light it has reached -- arrival clears the goal, so it
+                    # is the light seen again that says so -- or queued
+                    # beside one. Give it up and wander (issue #93).
+                    cleg.goal = None
+                    cleg.goal_source = LURE_NONE
+                    cleg.bored = MILL_FRAMES
+                    cleg.still = 0
+                elif seen is not None:
                     cleg.commit((seen[0], seen[1]), seen[3])
             target = cleg.goal
 

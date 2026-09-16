@@ -121,7 +121,7 @@ from . import tune as tune_mod
 from .moments import (
     MOMENTS, SFX_ALL_OUT, SFX_BITE, SFX_DELIVERED, SFX_DOOR, SFX_FREED,
     SFX_GAME_OVER, SFX_HATCHED, SFX_NEST_TURNED, SFX_PICKUP, SFX_PLAYER_DIED,
-    SFX_MAGNET,
+    SFX_MAGNET, SFX_STROBE,
     SFX_SPRAY, SFX_SPRAY_KILL, SFX_TORCH_OUT, SFX_WORKER_DIED, SOUND_NAMES,
 )
 
@@ -417,6 +417,13 @@ EFFECTS = {
         Segment(4, 1048, 1048, 2),
         Segment(4, 660, 660, 2),
         Segment(4, 1048, 1048, 2),
+    )),
+    # The opening strobe's crack (issue #95): two frames of the spray's
+    # noise, stepped faster so it is a snap rather than a hiss. One per
+    # flash, three a run, and nothing else can want the voice on a held
+    # frame.
+    SFX_STROBE: Effect(SFX_STROBE, 1, (
+        Segment(2, SPRAY_STEP // 2, SPRAY_STEP // 2, 0, noise=True),
     )),
 }
 

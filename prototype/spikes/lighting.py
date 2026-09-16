@@ -225,18 +225,26 @@ class LightField:
         if prey and level > self._prey[idx]:
             self._prey[idx] = level
 
-    def commit(self) -> None:
+    def commit(self, decay: bool = True) -> None:
         """Decay everything, top up what was lit, then work out what shows.
 
         A cell that already remembers more than the source can give it -- the
         cone has just left and the searchlight is passing over -- keeps its
         charge. The longer memory is the truer one.
+
+        `decay=False` is a held frame (issue #94, the opening strobe): the
+        game has not moved, so the fade must not either, or eighteen held
+        frames would age every memory in the building and move every log.
         """
-        self.charge[:] = self.charge.translate(_DECAY)
-        for idx in self._touched:
-            memory = self._memory[idx]
-            if memory > self.charge[idx]:
-                self.charge[idx] = memory
+        if decay:
+            self.charge[:] = self.charge.translate(_DECAY)
+            for idx in self._touched:
+                memory = self._memory[idx]
+                if memory > self.charge[idx]:
+                    self.charge[idx] = memory
+        # A held frame leaves the charge exactly as it was: no decay and no
+        # top-up either, or the beam at its first station would be remembered
+        # eighteen frames before the game had shown it.
 
         # What the player sees is the fade, except where a light is shining
         # now. Only the cells a source touched this frame can differ, so this

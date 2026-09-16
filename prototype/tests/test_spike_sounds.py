@@ -87,12 +87,12 @@ TABLE_FRAMES = {
     M.SFX_WORKER_DIED: 18, M.SFX_PLAYER_DIED: 40, M.SFX_TORCH_OUT: 24,
     M.SFX_DOOR: 2, M.SFX_SPRAY: 6, M.SFX_SPRAY_KILL: 3,
     M.SFX_NEST_TURNED: 24, M.SFX_HATCHED: 30, M.SFX_GAME_OVER: 66,
-    M.SFX_ALL_OUT: 50, M.SFX_PICKUP: 8, M.SFX_MAGNET: 16,
+    M.SFX_ALL_OUT: 50, M.SFX_PICKUP: 8, M.SFX_MAGNET: 16, M.SFX_STROBE: 2,
 }
 
 
-def test_all_fifteen_are_here_and_no_sixteenth():
-    assert sorted(sounds.EFFECTS) == list(range(15))
+def test_all_sixteen_are_here_and_no_seventeenth():
+    assert sorted(sounds.EFFECTS) == list(range(16))
     assert sorted(sounds.EFFECTS) == [M.MOMENTS[n].sound for n in M.MOMENTS]
 
 
@@ -113,7 +113,7 @@ def test_the_priorities_are_art_directions_and_are_not_copied():
         M.SFX_WORKER_DIED: 1, M.SFX_PLAYER_DIED: 1, M.SFX_TORCH_OUT: 0,
         M.SFX_DOOR: 0, M.SFX_SPRAY: 0, M.SFX_SPRAY_KILL: 0,
         M.SFX_NEST_TURNED: 1, M.SFX_HATCHED: 0, M.SFX_GAME_OVER: 1,
-        M.SFX_ALL_OUT: 1, M.SFX_PICKUP: 0, M.SFX_MAGNET: 1,
+        M.SFX_ALL_OUT: 1, M.SFX_PICKUP: 0, M.SFX_MAGNET: 1, M.SFX_STROBE: 1,
     }
 
 
@@ -811,10 +811,10 @@ def test_a_click_is_only_ever_lost_to_an_effect_that_owns_the_voice(bot):
     """
     from spikes import bots
 
+    dropped = 0
     for seed in SEEDS:
         run = session_mod.Session(seed=seed)
         player = bots.make(bot, seed=seed)
-        dropped = 0
         while run.over is None and run.frame < 4000:
             before = run.voice.clicks.dropped
             run.step(player.intent(run))
@@ -822,7 +822,10 @@ def test_a_click_is_only_ever_lost_to_an_effect_that_owns_the_voice(bot):
                 dropped += 1
                 assert run.voice.kind == sounds.EFFECT, \
                     "a click was lost to nothing at all"
-        assert dropped or run.frame < 4000
+    # Across the seeds, not on each: a seed on which the bot lost no click
+    # in eighty seconds proves nothing and disproves nothing (issue #93
+    # produced one for the wanderer).
+    assert dropped, "no click was ever dropped, so the invariant was not exercised"
 
 
 #: **The finding, measured rather than assumed**, and then the ruling it forced.

@@ -252,6 +252,7 @@ def test_a_fly_will_not_step_through_a_doorway_beside_a_fly_next_door():
     crosser = _put_flies(run, scene.NEAR, [(COLS - 2, DOOR_ROW + 1)])[0]
     for fly in run.places[scene.FAR].swarm.clegs:
         fly.step_every = 10 ** 6            # parked
+        fly.still = -10 ** 9                # and never bored of it (issue #93)
     _ready(crosser)
     held = 0
     for _ in range(200):

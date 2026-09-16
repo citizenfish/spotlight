@@ -116,6 +116,9 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
         if on_frame is not None:
             on_frame(run, screen)
     while run.over is None and run.frame < frames:
+        # The driver's sessions never strobe (issue #94) -- the strobe is
+        # the window's opening -- so every step is a stepped frame and a
+        # bot is asked on every one, as it always was.
         run.step(bot.intent(run) if bot is not None else session_mod.IDLE)
         # **What the speaker did on this frame, taken as the frame happens**
         # (issue #54). A run's WAV is a recording of the performance the game

@@ -294,12 +294,17 @@ def _word(screen, region):
     return "".join(out)
 
 
-def test_the_tally_says_in_words_what_it_is_counting():
+def test_the_tally_says_with_its_mark_what_it_is_counting():
     """`*3/7` left a first-timer to guess. The testers do not know the game."""
     s, p = _tally()
     p.set("rescued", 3)
     p.draw(s, force=True)
-    assert _word(s, panel.REGIONS["rescued"]) == "SAFE"
+    # Since issue #96 the word is the tick mark, drawn by the same label
+    # machinery from the glyph table, and taught on the title.
+    region = panel.REGIONS["rescued"]
+    assert region.label == "√"
+    assert _cell_rows(s, region.label_col, region.row) == list(font.SAFE_MARK) \
+        or tuple(_cell_rows(s, region.label_col, region.row)) == font.SAFE_MARK
     assert _read(s, panel.REGIONS["rescued"]).rstrip() == "3/7"
 
 

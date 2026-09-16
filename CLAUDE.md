@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1467 tests, headless-safe
+pytest                     # 1486 tests, headless-safe
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -121,6 +121,15 @@ a noise floor in place of the dot lattice, a four-stride walk, a halo mask on
 every sprite, a three-frame wingbeat, seven furniture tiles (drawn, not yet
 placed), a border colour flag, and a beam across the title. All seven slices
 left the event log byte-identical. See *Look and feel 2* in the vault.
+
+**Look and feel 3** (2026-09-16), the last round before new levels: three
+reviewers, a designer's plan with 123 mocks, thirteen rulings all taken in one
+sitting, eight slices built as #98–#105 with every event log byte-identical
+to the tester's sixteen hashes. Red flies only on dark cells, the player bright
+white, the worker's frames swapped, a closed box for the magnet, thin walls in
+a running bond, remembered walls as outline only, the furniture placed, three
+strip marks redrawn, the title's beam replaced by a still pool, the logo on
+the ending, the strip black through the opening. See *Look and feel 3*.
 
 The day after, from play, the user overruled two of those slices (#78): the
 people are **drawn from above again**, as everything else is, with the walk

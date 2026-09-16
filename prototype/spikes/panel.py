@@ -118,12 +118,14 @@ REGIONS: dict[str, Region] = {
     # reads full at six as it did at eight, and the two cells bought the
     # three badges after it.
     "blood": Region(_TOP, STATUS_LEFT + 6, 6, RED, BAR),
-    # **Where every one of the seven is** (issue #90), with the tally below:
-    # following you, dead, still to find. Adjacent, colour telling them
-    # apart, because the six cells after the bar are what there is.
+    # **Where every one of the seven is** (issues #90, #96), with the tally:
+    # following you and still to find on the top row, dead beside the tally
+    # on the bottom, a cell of air between every readout on the strip. They
+    # were three abreast after the bar until the user called the strip
+    # cluttered; the dead moved down and the tally's word became a mark.
     "with": Region(_TOP, STATUS_LEFT + 13, 2, GREEN, BADGE, font.WITH_MARK),
-    "dead": Region(_TOP, STATUS_LEFT + 15, 2, RED, BADGE, font.DEAD_MARK),
-    "left": Region(_TOP, STATUS_LEFT + 17, 2, WHITE, BADGE, font.LEFT_MARK),
+    "left": Region(_TOP, STATUS_LEFT + 16, 2, WHITE, BADGE, font.LEFT_MARK),
+    "dead": Region(_BOTTOM, STATUS_LEFT + 16, 2, RED, BADGE, font.DEAD_MARK),
     "lives": Region(_BOTTOM, STATUS_LEFT + 6, 3, RED, COUNT, font.HEART),
     "light": Region(_TOP, ACTION_LEFT + 6, 6, YELLOW, BAR),
     # Against the bar, not a cell clear of it: they are one readout, and the
@@ -142,8 +144,13 @@ REGIONS: dict[str, Region] = {
     # the key in the world is now magenta. The strip is a different surface
     # with a different job: in the play area cyan means the spray, and on the
     # strip it is what the kit half is drawn in.
-    "rescued": Region(_BOTTOM, STATUS_LEFT + 15, 3, GREEN, TALLY,
-                      label="SAFE"),
+    # Since issue #96 the word is a tick, one cell, taught on the title
+    # beside the other three marks: the strip had no room for four letters
+    # once every readout was given a cell of air, and a title that teaches
+    # marks makes a taught mark as honest as a word (which is what issue
+    # #31's argument against a badge rested on).
+    "rescued": Region(_BOTTOM, STATUS_LEFT + 12, 3, GREEN, TALLY,
+                      label="√"),
 }
 
 
@@ -255,6 +262,10 @@ class Panel:
             elif region.kind == BADGE:
                 glyph = (region.glyph if i == 0
                          else font.GLYPHS[str(min(9, max(0, value)))])
+            elif name == "lit":
+                # The torch's flag is a lamp, filled or hollow (issue #103);
+                # the key's flag stays blank with no key.
+                glyph = font.LIT if value else font.LIT_OFF
             else:
                 glyph = region.glyph if value else font.BLANK
             cx = region.col + i

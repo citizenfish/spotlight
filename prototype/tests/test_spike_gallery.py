@@ -501,7 +501,7 @@ def _drawn_cell(screen: Screen, cx: int, cy: int) -> tuple:
         for dy in range(CELL))
 
 
-def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
+def test_the_torch_off_frame_shows_remembered_walls_as_lines():
     """**The picture nobody had taken** (issue #62).
 
     The user said the walls needed more texture and thought it was a render
@@ -543,13 +543,12 @@ def test_the_torch_off_frame_shows_remembered_walls_with_their_courses():
             if drawn == tiles.WALL_DIM[mask] and drawn != tiles.WALL_LIT[mask]:
                 remembered.append((cx, cy, mask))
     assert remembered, "no wall in the torch-off frame is drawn remembered"
-    # ...and the remembered tile is the coursed one: its rows 1 and 5 carry
-    # the dotted course. A run tile has a side face on those rows too, so ask
-    # for the course's own bits between the faces.
-    coursed = [(cx, cy) for cx, cy, mask in remembered
-               if tiles.WALL_DIM[mask][1] & 0x3C == 0x28
-               or tiles.WALL_DIM[mask][5] & 0x3C == 0x28]
-    assert coursed, "no remembered wall in the frame shows its courses"
+    # ...and the remembered tile is a line alone again (issue #101, Look and
+    # feel 3 row 7): nothing on rows 1 and 5 between the side faces.
+    for cx, cy, mask in remembered:
+        assert tiles.WALL_DIM[mask][1] & 0x3C == 0 \
+            and tiles.WALL_DIM[mask][5] & 0x3C == 0, \
+            f"the remembered wall at {(cx, cy)} carries a course"
 
 
 def test_no_sheet_shows_a_room_whole_but_the_lit_one():
@@ -582,9 +581,12 @@ def test_each_lit_room_is_the_room_it_is_named_after():
     for index, room in enumerate(scene.BUILDING.rooms):
         run, screen = gallery.lit_room(index)
         painted = set(run.place.sign_cells) | set(run.call_cells)
+        from spikes import building
         for cy in range(PLAY_ROWS):
             for cx in range(COLS):
-                if not room.is_wall(cx, cy):
+                if not room.is_wall(cx, cy) \
+                        or room.rows[cy][cx] in building.FURNITURE:
+                    # Furniture draws its own tile (issues #74, #102).
                     continue
                 mask = tiles.mask_at(room.is_wall, cx, cy)
                 want = (tiles.WALL_DIM if (cx, cy) in painted
@@ -670,18 +672,18 @@ def test_the_title_is_photographed_in_both_flash_phases(tmp_path):
             != pygame.image.tostring(pygame.image.load(flashed), "RGB"))
 
 
-def test_the_title_sheet_shows_the_beam(tmp_path):
-    """Issue #76: the beam is on the sheet a reviewer looks at, in the colour
-    it is drawn in. One beam cell's first dot is found through `screens` and
+def test_the_title_sheet_shows_the_pool(tmp_path):
+    """Issue #104: the pool is on the sheet a reviewer looks at, in the colour
+    it is drawn in. One pool cell's first dot is found through `screens` and
     `floor`, and the pixel at that spot in `title_x1.png` is non-bright yellow
-    -- the one colour nothing else on the title uses, so it can only be the
-    beam. Both flash phases carry it; the beam does not flash."""
+    -- the one colour nothing else on the title uses. Both flash phases carry
+    it; the pool does not flash."""
     from spikes import floor, screens
     from spotlight.core.constants import YELLOW, rgb
 
     words = Screen()
     screens.draw_words(words)
-    cx, cy = min(screens.beam_cells(words))
+    cx, cy = min(screens.pool_cells(words))
     block = floor.FLOOR_LIT[floor.tile_index(cx, cy)]
     dy = next(i for i, bits in enumerate(block) if bits)
     dx = next(i for i in range(CELL) if block[dy] & (0x80 >> i))

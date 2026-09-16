@@ -23,6 +23,16 @@ That starts the game. `--border` takes one of the Spectrum's fifteen colours
 window's margin and nothing else -- no snapshot shows it and no rule reads it. Three controls, and the title screen names them: arrow
 keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
 
+## The opening
+
+A level opens on two seconds of black with the SPOTLIGHT logo centred on it,
+then three one-frame flashes of the room and the people in it -- not the
+flies -- with a crack of noise on each, five dark frames apart, then two
+seconds more of black and the logo, then play. The game is held throughout,
+the room is whole for sixty milliseconds in all, and nothing is remembered
+afterwards. The opening is the window's; a session driven by the driver or a
+test starts at frame one.
+
 ## The old looks, for comparison
 
 ```sh

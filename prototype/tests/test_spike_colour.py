@@ -86,6 +86,10 @@ def spoken_for(run) -> set:
         set(run.spray.cells_in(run.here))
     if run.place.housing is not None:
         cells.add(run.place.housing)
+    # And the player's own cells (issue #99, Look and feel 3 row 2): bright
+    # white in both rooms, the one figure colour tells apart.
+    from spikes import sprites
+    cells |= sprites.cells_spanned(run.player.x, run.player.y, 16)
     return cells
 
 
@@ -163,10 +167,14 @@ def test_a_sprite_takes_the_hue_of_the_cell_it_stands_in():
     """A sprite sets pixels and never an attribute, so everybody in room A is
     yellow and everybody in room B is cyan. That is not a loss: colour has
     never been allowed to tell entities apart, and telling you which room you
-    are in is the strongest use left for it."""
+    are in is the strongest use left for it. (Two exceptions since, both the
+    user's and both attribute writes after the paint: the fly's red in the
+    dark, #92 and #98, and the player's white, #99.)"""
     for index, expected in ((scene.NEAR, YELLOW), (scene.FAR, CYAN)):
         run, screen = lit_room(index, walk_in=24)
-        cx, cy = run.player.x // CELL, run.player.y // CELL
+        # Since issue #99 the player himself is the one exception -- white in
+        # both rooms -- so the cell asked about is the one beside him.
+        cx, cy = run.player.x // CELL + 2, run.player.y // CELL
         assert run.place.room.rows[cy][cx] == scene.FLOOR
         assert (cx, cy) not in spoken_for(run)
         assert ink_at(screen, cx, cy) == expected

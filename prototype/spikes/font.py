@@ -71,7 +71,11 @@ BAR_EMPTY = (0x00, 0x7E, 0x42, 0x42, 0x42, 0x42, 0x7E, 0x00)
 PIP = (0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00)
 HEART = (0x00, 0x6C, 0xFE, 0xFE, 0x7C, 0x38, 0x10, 0x00)
 KEY = (0x00, 0x1C, 0x22, 0x22, 0x1C, 0x08, 0x0E, 0x00)
-LIT = (0x00, 0x10, 0x54, 0x38, 0x54, 0x10, 0x00, 0x00)
+#: The light flag (issue #103, Look and feel 3 row 9): the play area's own
+#: lamp at font scale -- filled while the torch burns, hollow when it is off
+#: -- where an asterisk was the one glyph on the strip nobody could name.
+LIT = (0x00, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x3C, 0x00)
+LIT_OFF = (0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00)
 
 # There was a PERSON glyph here -- a squat 8x8 figure that badged the rescue
 # count. Issue #31 replaced it with the word SAFE: a badge is a picture you
@@ -82,9 +86,20 @@ LIT = (0x00, 0x10, 0x54, 0x38, 0x54, 0x10, 0x00, 0x00)
 # the user wants three more counts on it: a figure for the people following
 # you, a cross for the dead, and the font's own question mark for the ones
 # still to find. They are taught, in one line, on the title screen.
-WITH_MARK = (0x00, 0x18, 0x18, 0x3C, 0x5A, 0x18, 0x24, 0x00)
-DEAD_MARK = (0x00, 0x10, 0x38, 0x10, 0x10, 0x10, 0x10, 0x00)
+#: Redrawn by issue #103 (Look and feel 3 rows 8 and 10): the figure is the
+#: follower's own overhead silhouette, and the dead's mark is an X -- the
+#: dagger was a red cross of the same weight as a fly with its wings out,
+#: and a reviewer taught the mark read the flies in the dark as bodies.
+WITH_MARK = (0x00, 0x3C, 0x7E, 0x7E, 0x66, 0x66, 0x24, 0x00)
+DEAD_MARK = (0x00, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x00, 0x00)
 LEFT_MARK = GLYPHS["?"]
+#: The tally's mark (issue #96): a tick for *safe*, which replaced the word
+#: SAFE when the strip was laid out again with a cell of air round every
+#: readout. It is in the glyph table under a character of its own so that
+#: the tally's label machinery draws it like a word. Taught on the title
+#: with the other three.
+SAFE_MARK = (0x00, 0x02, 0x04, 0x08, 0x90, 0x60, 0x00, 0x00)
+GLYPHS["√"] = SAFE_MARK
 
 BLANK = GLYPHS[" "]
 

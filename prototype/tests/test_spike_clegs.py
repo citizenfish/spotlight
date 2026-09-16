@@ -144,8 +144,13 @@ def test_switching_it_off_makes_them_lose_interest():
     _run(swarm, [], frames=C.DRIFT_EVERY * 40)
     cleg = swarm.clegs[0]
     assert cleg.state == C.HUNTING, "still hungry, just with nothing to aim at"
-    # Drifting is aimless: over many steps it should not have marched anywhere.
-    assert max(abs(cleg.cx - 2), abs(cleg.cy - 2)) < 20
+    # Drifting is aimless: it has not left the room and it has not converged
+    # on anything. (It used to be pinned under twenty cells; since issue #93
+    # an idle fly takes about four times the steps in the same time, because
+    # a null heading no longer holds it for a run, and *aimless* is pinned by
+    # the twenty-second test below rather than by this distance.)
+    assert (cleg.cx, cleg.cy) != (2, 2), "it never moved at all"
+    assert 0 <= cleg.cx < 32 and 0 <= cleg.cy < 22
 
 
 def test_they_go_to_the_nearest_light_not_always_to_the_player():
@@ -329,10 +334,15 @@ def test_a_fed_cleg_leaves_rather_than_parking_on_you():
     swarm = C.Swarm([cleg])
     _run(swarm, [], player=(20, 10), frames=1)
     assert cleg.state == C.ATTACHED
-    _run(swarm, [], player=(20, 10),
-         frames=C.DRAIN_EVERY * C.DRAIN_TOTAL + C.SATED_FRAMES)
-    assert max(abs(cleg.cx - 20), abs(cleg.cy - 10)) > 2, \
-        "still sitting on the cell it fed from"
+    # How far it got from the cell it fed on, at any point while sated: a
+    # drift is a random walk and where it *ends* is the seed's business
+    # (issue #93 changed the walk); that it leaves is the claim.
+    farthest = 0
+    for _ in range(C.DRAIN_EVERY * C.DRAIN_TOTAL + C.SATED_FRAMES):
+        _run(swarm, [], player=(20, 10), frames=1)
+        farthest = max(farthest, max(abs(cleg.cx - 20), abs(cleg.cy - 10)))
+    assert farthest > 2, "still sitting on the cell it fed from"
+    assert cleg.state != C.ATTACHED
 
 
 def test_a_fed_cleg_moves_off_faster_than_an_idle_one():

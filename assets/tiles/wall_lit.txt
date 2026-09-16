@@ -22,6 +22,12 @@
 ; These files are the source. The derivation is kept as a check on them (see
 ; tests/test_spike_tiles.py), not as their author: a rule in code must not
 ; become the source of what a wall looks like.
+;
+; MASKS 1, 4 AND 5 -- the only thin north-south tiles -- LAY THEIR BRICKS
+; ALONG THE RUN (Look and feel 3, row 5, issue #101): vertical joints in a
+; running bond between the two side lines, where the east-west courses at
+; rows 1 and 5 read as ladder rungs on a one-cell-wide wall. The far room's
+; six thin columns were ladders in three reviews running. Lit ink 42, 41, 34.
 
 name: WALL_LIT_00
 size: 8x8
@@ -36,12 +42,12 @@ size: 8x8
 
 name: WALL_LIT_01
 size: 8x8
-#..#...#   mask  1, N
-########
-#......#
-#......#
-#......#
-########
+#...#..#   mask  1, N
+#####..#
+#...#..#
+#...####
+#...#..#
+#####..#
 ########
 ########
 
@@ -71,23 +77,23 @@ name: WALL_LIT_04
 size: 8x8
 ########   mask  4, S
 ########
-#......#
-#......#
-#......#
-########
-#..#...#
-#..#...#
+#...#..#
+#...####
+#...#..#
+#####..#
+#...#..#
+#...####
 
 name: WALL_LIT_05
 size: 8x8
-#..#...#   mask  5, NS
-########
-#......#
-#......#
-#......#
-########
-#..#...#
-#..#...#
+#...#..#   mask  5, NS
+#####..#
+#...#..#
+#...####
+#...#..#
+#####..#
+#...#..#
+#...####
 
 name: WALL_LIT_06
 size: 8x8

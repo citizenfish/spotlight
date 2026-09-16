@@ -182,9 +182,14 @@ def draw_logo(screen: Screen, top: int = LOGO_TOP) -> None:
 #: a row down per step, for `BEAM_STEPS` steps. Forty steps take it from
 #: (34, -4), wholly off the screen, to (-5, 15), wholly off it again, so the
 #: beam enters and leaves like a light passing rather than one switched on.
-BEAM_RADIUS = 3
-BEAM_START_X, BEAM_START_Y = 34, -4
-BEAM_STEPS = 40
+#: The title's searchlight (issue #104, Look and feel 3 row 11): the housing
+#: bolted at a cell in the top-right corner, and its disc, standing still,
+#: centred two cells down and in. The beam of #76 ran a diagonal through the
+#: story text and read as dust at 1:1; a pool that does not move is the
+#: fixture the player will meet in the room, seen before they meet it.
+POOL_RADIUS = 3
+HOUSING_CELL = (30, 0)
+POOL_CENTRE = (28, 2)
 
 
 def _has_ink(screen: Screen, cx: int, cy: int) -> bool:
@@ -197,70 +202,64 @@ def _has_ink(screen: Screen, cx: int, cy: int) -> bool:
     return False
 
 
-def beam_cells(screen: Screen) -> set[tuple[int, int]]:
-    """The cells the beam is drawn on, given the words already on `screen`.
+def pool_cells(screen: Screen) -> set[tuple[int, int]]:
+    """The cells the pool is drawn on, given the words already on `screen`.
 
-    The union of the disc at every step, clipped to the screen, minus every
-    cell that holds a pixel. Computed as a set before a dot is drawn, and it
-    has to be: the beam is itself pixels, and a routine that tested cells as
-    it went would find its own earlier dots and call them text.
+    The disc, clipped to the screen, minus every cell that holds a pixel and
+    minus the housing's own cell. Computed as a set before a dot is drawn,
+    and it has to be: the pool is itself pixels, and a routine that tested
+    cells as it went would find its own earlier dots and call them text.
 
-    The disc loop is `Roaming.emit`'s test written out rather than called.
-    Sharing it would mean handing the title a `LightField`, and the title has
-    no light in it; the same eleven-word test in two places is cheaper than a
-    field that exists to be thrown away.
+    The disc test is `Roaming.emit`'s written out rather than called: the
+    title has no light field, and the same eleven-word test in two places is
+    cheaper than one made to be thrown away.
     """
-    r2 = BEAM_RADIUS * BEAM_RADIUS
+    r2 = POOL_RADIUS * POOL_RADIUS
+    x, y = POOL_CENTRE
     cells = set()
-    for step in range(BEAM_STEPS):
-        x, y = BEAM_START_X - step, BEAM_START_Y + step // 2
-        for dy in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
-            for dx in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
-                if dx * dx + dy * dy > r2:
-                    continue
-                cx, cy = x + dx, y + dy
-                if 0 <= cx < COLS and 0 <= cy < ROWS \
-                        and not _has_ink(screen, cx, cy):
-                    cells.add((cx, cy))
+    for dy in range(-POOL_RADIUS, POOL_RADIUS + 1):
+        for dx in range(-POOL_RADIUS, POOL_RADIUS + 1):
+            if dx * dx + dy * dy > r2:
+                continue
+            cx, cy = x + dx, y + dy
+            if 0 <= cx < COLS and 0 <= cy < ROWS \
+                    and (cx, cy) != HOUSING_CELL \
+                    and not _has_ink(screen, cx, cy):
+                cells.add((cx, cy))
     return cells
 
 
-def draw_beam(screen: Screen) -> None:
-    """A searchlight passing across the title, in the floor's own noise.
+def draw_pool(screen: Screen) -> None:
+    """The searchlight's housing and its pool, standing still, in the corner.
 
-    Issue #76, ruling 10 of *Look and feel 2*. The retro-gamer's first review
-    called the title *a screen of text, not a title screen*, and the logo
-    (issue #56) answered half of that. This is the other half, and it is the
-    reference's device -- The Great Escape's title runs a diagonal in one ink
-    that never shares a cell with the words -- done with this game's own
-    object: the disc the searchlight in the far room throws, in the lit noise
-    tile the floor wears (issue #71), so it is a pool of light on gravel and
-    not a stripe.
+    Issue #104, replacing the moving beam of #76 (ruling 10 of *Look and feel
+    2*, overturned by row 11 of *Look and feel 3*): the beam ran a diagonal
+    through the story text, and at 1:1 the reviewers read it as dust on the
+    only briefing a tester gets. The reference's device -- one ink that never
+    shares a cell with the words -- stands; the object is now the fixture the
+    player meets in the room, seen before they meet it, and it does not move.
 
     **Non-bright yellow, on cells that hold no text, and never the other way
     round.** The logo is bright yellow and the keys are bright yellow; the
-    beam is the same hue a step dimmer, which reads as light rather than as
-    more words. It is drawn only where `draw_words` set nothing, so no cell is
-    ever asked for two inks and the one-ink rule the whole screen is built on
-    is not bent -- a beam that crossed a word would either recolour the word or
-    vanish into it, and on this machine those are the only two choices.
+    pool is the same hue a step dimmer, which reads as light rather than as
+    more words. The housing's cell is bright white, as it is in the room.
 
-    **The words are not touched.** Same pixels, same attributes, same rows and
-    columns as before the beam: `test_screens` pins every text cell with and
-    without it. The pin in *Art Direction* holds.
+    **The words are not touched.** Same pixels, same attributes, same rows
+    and columns as before the pool: `test_screens` pins every text cell with
+    and without it.
 
-    **Nothing resident, nothing per frame.** The title never steps, so this is
-    a one-off draw from the floor table the play area already holds. On the
-    port the cell test is eight byte reads; done as written here, forty discs
-    of twenty-nine cells is about 1,200 tests and on the order of 200,000
-    T-states -- three frames, once, on a screen with no clock running. A
-    visited bit per cell (96 bytes) would cut that to the 188 cells the discs
-    cover, but it is not worth a byte on a screen that is drawn once.
+    **Nothing resident, nothing per frame.** One disc of twenty-nine cells
+    and one sprite, drawn once on a screen with no clock running.
     """
+    from . import sprites
     attr = _attr(YELLOW)
-    for cx, cy in beam_cells(screen):
+    for cx, cy in pool_cells(screen):
         stipple(screen, cx, cy, LIT)
         screen.set_attr(cx, cy, attr)
+    hx, hy = HOUSING_CELL
+    sprites.draw(screen, sprites.HOUSING, hx * CELL, hy * CELL,
+                 clip_bottom=ROWS * CELL)
+    screen.set_attr(hx, hy, _attr(WHITE, bright=True))
 
 
 def draw_title(screen: Screen) -> None:
@@ -273,7 +272,7 @@ def draw_title(screen: Screen) -> None:
     out from under them.
     """
     draw_words(screen)
-    draw_beam(screen)
+    draw_pool(screen)
 
 
 def draw_words(screen: Screen) -> None:
@@ -306,7 +305,7 @@ def draw_words(screen: Screen) -> None:
     # Flashing, because it is the one thing that has to be noticed and the
     # attribute flash bit costs nothing on the target. It is also the only
     # movement on an otherwise static screen.
-    write(screen, centre(START_PROMPT), 22, START_PROMPT, WHITE, bright=True,
+    write(screen, centre(START_PROMPT), 23, START_PROMPT, WHITE, bright=True,
           flash=True)
 
 
@@ -314,20 +313,24 @@ def draw_words(screen: Screen) -> None:
 BADGE_LEGEND = (
     (font.WITH_MARK, GREEN, "WITH YOU"),
     (font.DEAD_MARK, RED, "DEAD"),
-    (font.LEFT_MARK, WHITE, "TO FIND"),
+    (font.LEFT_MARK, WHITE, "LEFT"),
+    (font.SAFE_MARK, GREEN, "SAFE"),
 )
-BADGE_LEGEND_ROW = 20
+#: Row 21 since issue #104 (Look and feel 3 row 11): the legend sat hard
+#: against the warning's last line and read as a fourth line of it.
+BADGE_LEGEND_ROW = 21
 
 
 def draw_badge_legend(screen: Screen, row: int = BADGE_LEGEND_ROW) -> None:
-    """One line: each mark in its own colour, its word in white after it."""
-    width = sum(1 + 1 + len(word) + 2 for _m, _i, word in BADGE_LEGEND) - 2
+    """One line: each mark in its own colour, its word in white after it,
+    a cell between entries. Four marks since issue #96, thirty-one cells."""
+    width = sum(1 + 1 + len(word) + 1 for _m, _i, word in BADGE_LEGEND) - 1
     cx = (COLS - width) // 2
     for mark, ink, word in BADGE_LEGEND:
         font.draw_glyph(screen, cx, row, mark)
         screen.set_attr(cx, row, _attr(ink))
         write(screen, cx + 2, row, word, WHITE)
-        cx += 1 + 1 + len(word) + 2
+        cx += 1 + 1 + len(word) + 1
 
 
 def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
@@ -346,9 +349,13 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
     that table rather than changes here.
     """
     screen.clear(_attr(WHITE))
+    # The logo, since issue #104 (Look and feel 3 row 12): it is resident
+    # for the opening anyway, and the ending was the one screen still a
+    # bare table. Everything below it moved down two rows; nothing reworded.
+    draw_logo(screen, top=1)
     first, second = headline
-    write(screen, centre(first), 3, first, WHITE, bright=True)
-    write(screen, centre(second), 5, second, WHITE)
+    write(screen, centre(first), 5, first, WHITE, bright=True)
+    write(screen, centre(second), 7, second, WHITE)
 
     rows = (
         ("GOT OUT ALIVE", f"{rescued} OF {total}", GREEN),
@@ -357,7 +364,7 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
         ("TIME TAKEN", mmss(seconds), WHITE),
     )
     for i, (label, value, ink) in enumerate(rows):
-        row = 9 + i * 2
+        row = 10 + i * 2
         write(screen, 4, row, label, WHITE)
         write(screen, 4 + _VERB_COL, row, value, ink, bright=True)
 

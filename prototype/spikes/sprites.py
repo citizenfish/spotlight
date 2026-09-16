@@ -166,9 +166,14 @@ WORKER = BITMAPS["WORKER"]
 #: `assets/sprites/worker.txt` for why breathing was refused instead.
 WORKER_W = BITMAPS["WORKER_W"]
 
-#: Indexed by whether the worker is shouting this frame: `WORKER_FRAMES[False]`
-#: is calling, `WORKER_FRAMES[True]` is the wave.
-WORKER_FRAMES = (WORKER, WORKER_W)
+#: Indexed by whether the worker is shouting this frame. **Swapped by issue
+#: #100** (Look and feel 3 row 3): silent, the arms-out frame `WORKER_W`;
+#: shouting, the hands-beside-the-crown frame `WORKER`. At 1:1 the hands
+#: beside the crown were the fly's silhouette, and a room of waiting workers
+#: read as a room of flies for all but the shout's twenty frames; arms out
+#: is the shape nothing else in the room has. The assets and their names are
+#: untouched -- the drawings did not change, only which state draws which.
+WORKER_FRAMES = (WORKER_W, WORKER)
 
 #: The same person, freed and walking behind you, neutral: hands at the
 #: sides below the shoulders, no lamp, and a head disc four wide where the
@@ -355,25 +360,24 @@ def extent(sprite) -> tuple[int, int]:
     return (rows[0], rows[-1]) if rows else (0, -1)
 
 
-#: The magnet's tell (issue #84): four corner brackets round the figure --
-#: the machine's own word for *locked on* -- this far outside its drawn
-#: pixels, with arms this long. Shape and not colour, which is the rule every
-#: entity lives by; twenty pixels set by OR, no attribute touched.
-BRACKET_GAP = 2
-BRACKET_ARM = 3
+#: The magnet's tell (issue #100, Look and feel 3 row 4; the brackets of #84
+#: before it): a closed one-pixel box round the figure's drawn extent, this
+#: far clear of it, with a one-pixel margin either side of the line cleared
+#: first so it reads on a stipple pool. Shape and not colour; nothing inside
+#: the margin is touched, so the figure and its halo survive.
+BOX_GAP = 2
 
 
-def draw_brackets(screen, sprite, x: int, y: int,
-                  clip_bottom: int = PLAY_BOTTOM_PX, gap: int = BRACKET_GAP,
-                  arm: int = BRACKET_ARM) -> None:
-    """Four corner brackets round a sprite's drawn extent, set by OR.
+def draw_box(screen, sprite, x: int, y: int,
+             clip_bottom: int = PLAY_BOTTOM_PX, gap: int = BOX_GAP) -> None:
+    """A closed box round a sprite's drawn extent, its margin cleared.
 
     Round the pixels the figure actually has rather than round its box: a
-    player's box has clear rows under the toes, and brackets at the box's
-    corners would float. Clipped to the screen and to the play area as a
-    sprite is; nothing is cleared, so the floor's stipple and the figure
-    survive underneath, and on the port it is twenty ORs into bytes the
-    figure's draw has just touched.
+    player's box has clear rows under the toes, and a box at the box's edges
+    would float. The margin is what the brackets of #84 lacked: on a lit
+    stipple pool a one-pixel line in the pool's own ink was the pool's own
+    noise, and clearing a pixel either side of it is what makes it a line.
+    Clipped to the screen and to the play area as a sprite is.
     """
     top, bottom = extent(sprite)
     if bottom < top:
@@ -382,15 +386,24 @@ def draw_brackets(screen, sprite, x: int, y: int,
     top, bottom = y + top - gap - 1, y + bottom + gap + 1
     limit = min(SCREEN_H, clip_bottom)
 
-    def put(px, py):
+    def put(px, py, on):
         if 0 <= px < SCREEN_W and 0 <= py < limit:
-            screen.pixels[py * SCREEN_W + px] = 1
+            screen.pixels[py * SCREEN_W + px] = on
 
-    for cx, dx in ((left, 1), (right, -1)):
-        for cy, dy in ((top, 1), (bottom, -1)):
-            for i in range(arm):
-                put(cx + dx * i, cy)
-                put(cx, cy + dy * i)
+    # The margin first, a pixel either side of every edge, then the line.
+    for d in (-1, 1):
+        for px in range(left - 1, right + 2):
+            put(px, top + d, 0)
+            put(px, bottom + d, 0)
+        for py in range(top - 1, bottom + 2):
+            put(left + d, py, 0)
+            put(right + d, py, 0)
+    for px in range(left, right + 1):
+        put(px, top, 1)
+        put(px, bottom, 1)
+    for py in range(top, bottom + 1):
+        put(left, py, 1)
+        put(right, py, 1)
 
 
 def row_bytes(row) -> tuple:

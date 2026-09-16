@@ -1,58 +1,28 @@
 ; wall_dim.txt
 ;
-; A remembered wall: the outline, with the courses of the brick still faintly
-; in it. Same sixteen masks, same edge rule, the same two mortar courses as the
-; lit tile -- dotted, and with no joints.
+; A remembered wall: the outline, and nothing else. Same sixteen masks, same
+; edge rule as wall_lit.txt, over an empty interior.
 ;
 ;   Pattern is a property of light. Shape is a property of the building.
 ;
+; RULED 2026-09-16 (Look and feel 3, row 7, issue #101): OUTLINE ONLY. This
+; is the 2026-09-10 set again, byte for byte. The dotted courses issue #62
+; put here on 2026-09-11 were ruled for a player whose torch was off for 80
+; to 95 per cent of a run and who saw walls "with no texture" -- but that
+; player was looking at a remembered room, lit once by the opening flash and
+; held by the trail. Both are gone (issues #79, #92): what the torch leaves
+; behind now is one- and two-cell fragments, and with courses in them they
+; read as small crates, indistinguishable from the furniture sheet. A line
+; on a plan is what a fragment should be.
+;
+; Mask 15 -- a cell deep inside a wall mass, with no outline to remember --
+; draws nothing, as it did before #62. A remembered mass is a hole in the
+; plan, and the lit tiles are where the texture is.
+;
 ; Derived exactly as wall_lit.txt is -- the same four edge elements, the same
-; two-pixel end-cap rule -- over a dim interior of
-;
-;   interior     0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0x00
-;                the two mortar courses of the lit tile, at the same rows,
-;                as a dotted line; no joints
-;
-; Ruled 2026-09-11 (After look-1, item 3, issue #62). The outline-only set
-; this replaces was seen by a player whose torch is off for 80 to 95 per cent
-; of a run, and to that player the walls had "no texture". It was not a render
-; fault -- zero mismatches in 890,471 cell checks -- it was the rule that a
-; remembered wall is a line alone. Keeping the courses makes the flip between
-; lit masonry and remembered outline under the cone a smaller one: a lit
-; interior is 22 pixels, the old dim interior was 0, and this one is 8.
-;
-; THE COURSES ARE DOTTED AND THEY SIT AT ROWS 1 AND 5. DO NOT CENTRE THEM AND
-; DO NOT FILL THEM IN.
-;
-;   * Solid courses (0xFF at rows 1 and 5) were drawn first and the user ruled
-;     on that mock. On a north-south run a solid course between the two side
-;     lines reads as a ladder rung, and the mock said so; a dotted course reads
-;     as a coarse fill of the same brick -- the Knight Lore rule taken
-;     literally, the dim variant as a coarser dither of the same pattern. The
-;     solid table is kept in the vault (Screen Layout, "WALL, dim") as the
-;     two-byte alternative if the user wants the fuller texture and accepts
-;     the rungs.
-;   * Rows 1 and 5 are where the lit tile's courses are, so when the cone
-;     moves off a wall cell nothing jumps: the course stays put and only its
-;     density changes. Centring them at rows 2 and 5, or 3 and 4, would make
-;     every wall cell twitch on every crossing of the cone's edge.
-;
-; Mask 15 -- a cell deep inside a wall mass, with no outline to remember -- now
-; draws eight pixels where it drew none. That is the point, not a bug: the
-; courses are what a remembered wall keeps of having been masonry.
-;
-; The fade is untouched. A longer hold for wall cells was a different option of
-; the same ruling and was not chosen; if the courses are ever felt to be too
-; little, that is the option to reopen, not this file's rows.
-;
-; What it costs, so the next reader can check whether the reason still holds:
-; a remembered wall is 8 to 34 pixels (was 8 to 28, and nothing at all for
-; mask 15) against a follower's 36, a worker's 42 and the player's 76. The
-; follower is the one that is close.
-; Over every wall cell of both rooms, remembered walls are 1.6x lighter than
-; lit ones (was 2.7x). The isolated pillar, mask 0, is 50 against 52 lit and
-; still cannot be told lit from remembered; that is an authoring warning in the
-; vault and neither room authors one.
+; two-pixel end-cap rule -- over an interior of eight zero bytes. Authored
+; here and generated into prototype/spikes/bitmaps_gen.py and
+; spectrum/src/bitmaps.asm by tools/bitmaps.py.
 
 name: WALL_DIM_00
 size: 8x8
@@ -61,40 +31,40 @@ size: 8x8
 ##....##
 ##....##
 ##....##
-###.#.##
+##....##
 ########
 ########
 
 name: WALL_DIM_01
 size: 8x8
 #......#   mask  1, N
-#.#.#.##
 #......#
 #......#
 #......#
-#.#.#.##
+#......#
+#......#
 ########
 ########
 
 name: WALL_DIM_02
 size: 8x8
 ########   mask  2, E
-###.#.#.
 ##......
 ##......
 ##......
-###.#.#.
+##......
+##......
 ##......
 ########
 
 name: WALL_DIM_03
 size: 8x8
 #.......   mask  3, NE
-#.#.#.#.
 #.......
 #.......
 #.......
-#.#.#.#.
+#.......
+#.......
 #.......
 ########
 
@@ -105,127 +75,127 @@ size: 8x8
 #......#
 #......#
 #......#
-#.#.#.##
+#......#
 #......#
 #......#
 
 name: WALL_DIM_05
 size: 8x8
 #......#   mask  5, NS
-#.#.#.##
 #......#
 #......#
 #......#
-#.#.#.##
+#......#
+#......#
 #......#
 #......#
 
 name: WALL_DIM_06
 size: 8x8
 ########   mask  6, ES
-#.#.#.#.
 #.......
 #.......
 #.......
-#.#.#.#.
+#.......
+#.......
 #.......
 #.......
 
 name: WALL_DIM_07
 size: 8x8
 #.......   mask  7, NES
-#.#.#.#.
 #.......
 #.......
 #.......
-#.#.#.#.
+#.......
+#.......
 #.......
 #.......
 
 name: WALL_DIM_08
 size: 8x8
 ########   mask  8, W
-#.#.#.##
 ......##
 ......##
 ......##
-#.#.#.##
+......##
+......##
 ......##
 ########
 
 name: WALL_DIM_09
 size: 8x8
 .......#   mask  9, NW
-#.#.#.##
 .......#
 .......#
 .......#
-#.#.#.##
+.......#
+.......#
 .......#
 ########
 
 name: WALL_DIM_10
 size: 8x8
 ########   mask 10, EW
-#.#.#.#.
 ........
 ........
 ........
-#.#.#.#.
+........
+........
 ........
 ########
 
 name: WALL_DIM_11
 size: 8x8
 ........   mask 11, NEW
-#.#.#.#.
 ........
 ........
 ........
-#.#.#.#.
+........
+........
 ........
 ########
 
 name: WALL_DIM_12
 size: 8x8
 ########   mask 12, SW
-#.#.#.##
 .......#
 .......#
 .......#
-#.#.#.##
+.......#
+.......#
 .......#
 .......#
 
 name: WALL_DIM_13
 size: 8x8
 .......#   mask 13, NSW
-#.#.#.##
 .......#
 .......#
 .......#
-#.#.#.##
+.......#
+.......#
 .......#
 .......#
 
 name: WALL_DIM_14
 size: 8x8
 ########   mask 14, ESW
-#.#.#.#.
 ........
 ........
 ........
-#.#.#.#.
+........
+........
 ........
 ........
 
 name: WALL_DIM_15
 size: 8x8
 ........   mask 15, NESW
-#.#.#.#.
 ........
 ........
 ........
-#.#.#.#.
+........
+........
 ........
 ........

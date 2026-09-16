@@ -47,6 +47,14 @@ INTERIOR = (0x10, 0xFF, 0x01, 0x01, 0x01, 0xFF, 0x10, 0x10)
 #: ladder rungs. The vault keeps the solid table as the two-byte alternative.
 DIM_INTERIOR = (0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0x00)
 
+#: The three thin north-south tiles laid as a running bond (issue #101, Look
+#: and feel 3 row 5): not the derivation's product, so pinned as bytes.
+BOND_LIT = {
+    5: (0x89, 0xF9, 0x89, 0x8F, 0x89, 0xF9, 0x89, 0x8F),
+    1: (0x89, 0xF9, 0x89, 0x8F, 0x89, 0xF9, 0xFF, 0xFF),
+    4: (0xFF, 0xFF, 0x89, 0x8F, 0x89, 0xF9, 0x89, 0x8F),
+}
+
 #: What the dim interior was before issue #62: nothing. Kept so the derivation
 #: can be shown to reproduce the superseded set too, which is how the coursed
 #: set was checked when it was authored.
@@ -56,8 +64,11 @@ OUTLINE_ONLY_INTERIOR = (0,) * 8
 #: pinned here because they are the numbers the design argues from -- "8 to 34
 #: pixels against a follower's 36" is the whole claim of the slice -- and a
 #: table quoted in one place and drawn in another is a table that can drift.
-LIT_INK = (52, 41, 44, 34, 36, 31, 34, 28, 41, 31, 36, 29, 31, 25, 29, 22)
-DIM_INK = (50, 34, 34, 21, 31, 22, 21, 14, 34, 23, 24, 16, 23, 16, 16, 8)
+LIT_INK = (52, 42, 44, 34, 41, 34, 34, 28, 41, 31, 36, 29, 31, 25, 29, 22)
+#: The remembered set is the outline-only set again since issue #101 (Look
+#: and feel 3 row 7); the coursed counts of #62 were
+#: (50, 34, 34, 21, 31, 22, 21, 14, 34, 23, 24, 16, 23, 16, 16, 8).
+DIM_INK = (48, 28, 28, 15, 28, 16, 15, 8, 28, 15, 16, 8, 15, 8, 8, 0)
 OUTLINE_ONLY_INK = (48, 28, 28, 15, 28, 16, 15, 8, 28, 15, 16, 8, 15, 8, 8, 0)
 
 
@@ -154,66 +165,37 @@ def test_the_ink_counts_are_the_ones_the_vault_publishes():
         assert tiles.ink_of(tiles.WALL_DIM[mask]) == DIM_INK[mask], mask
 
 
-def test_a_wall_deep_inside_a_mass_remembers_its_courses():
-    """Mask 15 has no outline, so what it remembers is the courses and nothing
-    else: eight pixels, where before issue #62 it drew none.
-
-    **That it draws something is the rule and not a bug.** The outline-only set
-    made a remembered wall mass a hole in the plan, and the user saw a room
-    whose walls had no texture for most of every run. If this ever goes back to
-    `(0,) * 8` the courses have been tidied away.
+def test_a_wall_deep_inside_a_mass_remembers_nothing():
+    """Mask 15 has no outline, so remembered it is a hole in the plan: the
+    2026-09-10 rule, back by the user's ruling of 2026-09-16 (issue #101).
+    Issue #62 had it draw its two courses dotted, for a player looking at a
+    room lit whole by the opening flash and held by the trail; both are gone,
+    and what the torch leaves behind is fragments, which with courses read as
+    crates. The lit tile is pure masonry as it always was.
     """
-    assert tiles.WALL_DIM[15] == DIM_INTERIOR
-    assert tiles.ink_of(tiles.WALL_DIM[15]) == 8
+    assert tiles.WALL_DIM[15] == (0,) * 8
     assert tiles.WALL_LIT[15] == INTERIOR, "lit, it is pure masonry"
 
 
-def test_the_dim_courses_are_dotted_and_sit_where_the_lit_courses_do():
-    """**The two things a tidy-up would do to these tiles, and must not.**
-
-    The courses are at rows 1 and 5 because that is where the lit tile's are:
-    under a moving cone a wall cell flips between the two sets, and a course
-    that moved rows would make every wall twitch on every crossing of the
-    cone's edge. Centring them -- rows 2 and 5, or 3 and 4 -- is the obvious
-    tidy-up and it is wrong.
-
-    They are dotted, `0xAA`, and not solid, because solid courses were drawn
-    first and on a north-south run a solid line between the two side lines
-    reads as a ladder rung; the user ruled on that mock and the designer took
-    the rungs out. Filling them in is the other obvious tidy-up.
-    """
-    lit_courses = [r for r, bits in enumerate(INTERIOR) if bits == 0xFF]
-    dim_courses = [r for r, bits in enumerate(DIM_INTERIOR) if bits]
-    assert lit_courses == dim_courses == [1, 5]
+def test_a_remembered_wall_is_a_line_alone_and_the_lit_courses_stay():
+    """**Row 7 of Look and feel 3.** Every dim tile's rows 1 and 5 hold nothing
+    that is not a side line or a face -- the dotted courses of #62 are gone --
+    and the dim furniture tiles are untouched. The lit east-west tiles keep
+    their courses at rows 1 and 5 where they were; the three thin north-south
+    tiles are the running bond, pinned as bytes."""
     for mask in range(tiles.MASKS):
-        dim, lit = tiles.WALL_DIM[mask], tiles.WALL_LIT[mask]
-        # A two-deep end cap covers row 1 (masks 0 and 4) or row 6 (0 and 1),
-        # and that is the edge rule, not the course; those rows are solid in
-        # both sets and say nothing about the interior.
-        sides_open = not mask & (tiles.EAST | tiles.WEST)
-        capped = set()
-        if sides_open and not mask & tiles.NORTH:
-            capped |= {0, 1}
-        if sides_open and not mask & tiles.SOUTH:
-            capped |= {6, 7}
+        dim = tiles.WALL_DIM[mask]
+        for row in (1, 5):
+            assert dim[row] in (0x00, 0x80, 0x01, 0x81, 0xC0, 0x03, 0xC3, 0xFF, 0xC1, 0x83), \
+                f"mask {mask} row {row} carries a course: {dim[row]:#04x}"
+    for mask, rows in BOND_LIT.items():
+        assert tiles.WALL_LIT[mask] == rows, f"mask {mask} is not the bond"
+    for mask in range(tiles.MASKS):
+        if mask in BOND_LIT:
+            continue
+        lit = tiles.WALL_LIT[mask]
         for row in (1, 5):
             assert lit[row] == 0xFF, f"mask {mask}: the lit course moved"
-            if row in capped:
-                continue
-            # The dotted course, plus whatever the open faces add at the
-            # ends. Between the faces it is alternate pixels and never solid.
-            assert dim[row] & 0x3C == 0x28, \
-                f"mask {mask} row {row}: the dim course is not dotted"
-        # No joints: the rows between and below the courses carry side faces
-        # and nothing else. Rows 0 and 7 are the north and south faces when
-        # those are open, so they are not asked.
-        for row in (2, 3, 4, 6):
-            if row in capped:
-                continue
-            assert dim[row] & 0x3C == 0, \
-                f"mask {mask} row {row}: something other than a face"
-
-
 def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     """**The Atic Atac property the build was missing.**
 
@@ -236,11 +218,13 @@ def test_a_remembered_wall_is_a_line_and_a_person_is_not():
     pinned so a change to either side is seen.
     """
     inks = [tiles.ink_of(rows) for rows in tiles.WALL_DIM]
-    assert min(inks) == 8 and max(inks) == 50, "mask 0 is a free-standing cell"
-    # Every tile that is a wall *run* rather than a lone block: 8 to 34.
-    runs = [ink for mask, ink in enumerate(inks) if mask not in (0,)]
-    assert max(runs) <= 34
-    assert [tiles.ink_of(f) for f in sprites.WORKER_FRAMES] == [32, 34]
+    # Outline only since issue #101: nothing for a buried cell, 48 for the
+    # free-standing block, and every run between 8 and 28.
+    assert min(inks) == 0 and max(inks) == 48, "mask 0 is a free-standing cell"
+    runs = [ink for mask, ink in enumerate(inks) if mask not in (0, 15)]
+    assert 8 <= min(runs) and max(runs) <= 28
+    # Silent is arms-out (34) and shouting is hands-up (32) since #100.
+    assert [tiles.ink_of(f) for f in sprites.WORKER_FRAMES] == [34, 32]
     assert [tiles.ink_of(f) for f in sprites.STANDING["follower"]] == [28, 34, 34]
     assert [tiles.ink_of(f) for f in sprites.STANDING["player"]] == [38, 46, 46]
     assert min(tiles.ink_of(f) for f in sprites.STANDING["player"]) > max(runs)
@@ -289,8 +273,9 @@ def test_the_derivation_reproduces_every_tile():
         return tuple(rows)
 
     for mask in range(tiles.MASKS):
-        assert wall(mask, INTERIOR) == tiles.WALL_LIT[mask], mask
-        assert wall(mask, DIM_INTERIOR) == tiles.WALL_DIM[mask], mask
+        if mask not in BOND_LIT:
+            assert wall(mask, INTERIOR) == tiles.WALL_LIT[mask], mask
+        assert wall(mask, OUTLINE_ONLY_INTERIOR) == tiles.WALL_DIM[mask], mask
         assert returns(mask) == tiles.DOORWAY[mask], mask
         # ...and the same rule over an empty interior is the outline-only set
         # issue #62 replaced, which is how the coursed one was checked when it
@@ -437,9 +422,13 @@ def test_a_lit_wall_is_drawn_as_the_tile_its_own_mask_chooses():
     room = run.place.room
     painted = set(run.place.sign_cells) | set(run.call_cells)
     checked = 0
+    from spikes import building
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
-            if not room.is_wall(cx, cy) or (cx, cy) in painted:
+            if not room.is_wall(cx, cy) or (cx, cy) in painted \
+                    or room.rows[cy][cx] in building.FURNITURE:
+                # Furniture is solid and is wall to its neighbours' masks,
+                # but draws its own tile (issues #74, #102).
                 continue
             mask = tiles.mask_at(room.is_wall, cx, cy)
             assert _cell_bytes(screen, cx, cy) == tiles.WALL_LIT[mask], \
@@ -547,8 +536,10 @@ def test_a_sign_is_painted_on_the_wall_and_does_not_punch_through_it():
     # the routine is exercised here directly, on the three row-15 wall cells
     # the docstring's numbers were taken from. The property is the routine's,
     # not the placement's.
-    painted = [(cx, 15) for cx in (11, 12, 13)]
-    assert all(room.is_wall(*c) for c in painted), "row 15 is not the wall it was"
+    # Row 15 is a pipe run since the furniture was placed (issue #102); the
+    # box above the start is still brick.
+    painted = [(cx, 3) for cx in (13, 14, 15)]
+    assert all(room.rows[3][cx] == "#" for cx, _cy in painted), "row 3 is not the wall it was"
     for i, (cx, cy) in enumerate(painted):
         font.paint_glyph(screen, cx, cy, font.GLYPHS["HEL"[i]])
 

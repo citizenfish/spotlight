@@ -475,8 +475,11 @@ def test_the_same_route_is_comparable_lit_and_dark():
     lit, _ = _cross(seed=3, light=True)
     dark, _ = _cross(seed=3, light=False)
     assert lit.summary()["route"] == dark.summary()["route"]
+    # Within a few crossings: the walk is the same, and what differs is how
+    # often it is bitten on the way, which slows it. Two until issue #93
+    # made the swarm livelier; three on this seed since.
     assert abs(lit.summary()["all"]["crossings"]
-               - dark.summary()["all"]["crossings"]) <= 2
+               - dark.summary()["all"]["crossings"]) <= 4
 
 
 def test_the_crossing_walker_is_selectable_from_the_driver():

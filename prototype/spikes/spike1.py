@@ -263,11 +263,14 @@ class Shell:
     def __init__(self, screen: Screen, speaker=None,
                  debug: bool = False,
                  seed: int = session_mod.DEFAULT_SEED,
-                 luminous: bool = True, trail: bool = False) -> None:
+                 luminous: bool = True, trail: bool = False,
+                 strobe: bool = True) -> None:
         self.screen = screen
         #: The two look flags (issue #91), kept for the sitting so a restart
         #: keeps them.
         self.luminous, self.trail = luminous, trail
+        #: The opening strobe (issue #94); a test about play can ask for none.
+        self.strobe = strobe
         self.state = TITLE
         self.run: Session | None = None
         #: The seed the next run starts on. The game's own is the default and
@@ -356,7 +359,7 @@ class Shell:
         now. The tune is still in `tune.py` for the day it comes back.
         """
         self.run = Session(seed=self.seed, luminous=self.luminous,
-                           trail=self.trail)
+                           trail=self.trail, strobe=self.strobe)
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False

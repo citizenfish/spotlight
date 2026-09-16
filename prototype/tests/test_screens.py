@@ -303,7 +303,9 @@ def test_the_logo_sits_on_rows_one_and_two_and_the_prose_moved_down_one(title):
     """The one layout change the slice is allowed: everything below shifts by a
     row. Nothing is re-wrapped, re-centred or given a new column."""
     text = rows(title)
-    assert text[0] == ""
+    # Row 0 holds only the searchlight's housing, in the corner (issue #104):
+    # the reader shows a glyph it has no letter for as '?', and one of them.
+    assert text[0].strip("? ") == "" and text[0].count("?") == 1
     assert screens.LOGO_TOP == 1
     for i, line in enumerate(screens.STORY):
         assert text[5 + i] == line
@@ -311,7 +313,10 @@ def test_the_logo_sits_on_rows_one_and_two_and_the_prose_moved_down_one(title):
         assert text[12 + i] == f"{key}{' ' * (screens._VERB_COL - 2 - len(key))}{verb}"
     for i, line in enumerate(screens.WARNING):
         assert text[17 + i] == line
-    assert text[22] == screens.START_PROMPT
+    # Row 23 since issue #104, with the legend on 21 and 20 and 22 empty.
+    assert text[23] == screens.START_PROMPT
+    assert text[20] == "" and text[22] == ""
+    assert screens.BADGE_LEGEND_ROW == 21
 
 
 def test_the_start_prompt_still_flashes(title):
@@ -322,7 +327,7 @@ def test_the_start_prompt_still_flashes(title):
 
     cx = screens.centre(screens.START_PROMPT)
     for i in range(len(screens.START_PROMPT)):
-        _ink, _paper, _bright, flash = unpack_attr(title.get_attr(cx + i, 22))
+        _ink, _paper, _bright, flash = unpack_attr(title.get_attr(cx + i, 23))
         assert flash is True
 
 
@@ -383,11 +388,11 @@ def test_the_words_on_the_screen_are_the_words_in_the_constants(title):
     assert screens.START_PROMPT in text
 
 
-# --- the beam across the title (issue #76) ----------------------------------
+# --- the pool in the title's corner (issue #104; the beam of #76 before it) ---
 
 @pytest.fixture
 def words():
-    """The title without its beam: what `draw_title` drew before issue #76."""
+    """The title without its pool: the words alone."""
     screen = Screen()
     screens.draw_words(screen)
     return screen
@@ -400,51 +405,35 @@ def text_cells(screen) -> set[tuple[int, int]]:
             if any(glyph_at(screen, cx, cy))}
 
 
-def test_the_beam_is_the_disc_walked_down_the_diagonal(words):
-    """The set the issue specifies, recomputed here from its own numbers.
-
-    Radius 3 by squared distance -- `Roaming.emit`'s test -- with the centre at
-    `(34 - step, -4 + step // 2)` for forty steps, clipped, minus every cell
-    the words set a pixel in. Written out in full rather than through
-    `screens`' constants so that a change to the walk has to change this test
-    too. The count is derived, not chosen: the words are pinned character for
-    character, so the cells they leave to the beam are pinned with them.
-    """
-    from spotlight.core.constants import ROWS
-
-    expected = set()
-    for step in range(40):
-        x, y = 34 - step, -4 + step // 2
-        for dy in range(-3, 4):
-            for dx in range(-3, 4):
-                if dx * dx + dy * dy <= 9 and 0 <= x + dx < COLS \
-                        and 0 <= y + dy < ROWS:
-                    expected.add((x + dx, y + dy))
-    expected -= text_cells(words)
-    assert screens.beam_cells(words) == expected
-    assert len(expected) == 113
+def test_the_pool_is_one_disc_in_the_corner_with_the_housing_above_it(words, title):
+    """Issue #104, replacing the walked beam of #76: one disc of radius three
+    centred on (28, 2), clipped to the screen, minus the housing's cell and
+    minus every cell that holds text; the housing itself at (30, 0), bright
+    white, drawn as the room draws it."""
+    from spikes import sprites
+    from spotlight.core.constants import BLACK, WHITE
+    from spotlight.core.screen import unpack_attr
+    pool = screens.pool_cells(words)
+    cx0, cy0 = screens.POOL_CENTRE
+    for cx, cy in pool:
+        assert (cx - cx0) ** 2 + (cy - cy0) ** 2 <= 9
+        assert (cx, cy) != screens.HOUSING_CELL
+    assert 20 <= len(pool) <= 29, len(pool)
+    hx, hy = screens.HOUSING_CELL
+    assert unpack_attr(title.get_attr(hx, hy)) == (WHITE, BLACK, True, False)
+    assert glyph_at(title, hx, hy) == list(sprites.HOUSING) \
+        or tuple(glyph_at(title, hx, hy)) == tuple(sprites.HOUSING)
+    assert not hasattr(screens, "draw_beam") and not hasattr(screens, "beam_cells")
 
 
-def test_the_beam_enters_off_the_top_right_and_leaves_off_the_left(words):
-    """A light passing, not one switched on: both ends of the walk are off
-    the screen, so the beam is cut by the screen's edge at the top right and
-    at the left. Measured: rows 0 to 16, so the bargain on 17-19 and the
-    prompt on 22 are never in its path -- a fact of the geometry, not a rule."""
-    beam = screens.beam_cells(words)
-    assert any(cy == 0 for _cx, cy in beam)
-    assert any(cx == COLS - 1 for cx, _cy in beam)
-    assert any(cx == 0 for cx, _cy in beam)
-    assert max(cy for _cx, cy in beam) == 16
-
-
-def test_no_beam_cell_holds_text(words):
+def test_no_pool_cell_holds_text(words):
     """The one-ink rule, stated as sets: the beam and the words are disjoint,
     so no cell is ever asked to be white, cyan or bright yellow and also
     the beam's yellow."""
-    assert not screens.beam_cells(words) & text_cells(words)
+    assert not screens.pool_cells(words) & text_cells(words)
 
 
-def test_the_words_are_not_touched_by_the_beam(words, title):
+def test_the_words_are_not_touched_by_the_pool(words, title):
     """**Every text cell: the same pixels and the same attribute byte with the
     beam as without it.** This is the acceptance criterion the issue leads
     with, and it is the pin that lets the beam be added at all: the words
@@ -457,13 +446,13 @@ def test_the_words_are_not_touched_by_the_beam(words, title):
         assert title.get_attr(cx, cy) == words.get_attr(cx, cy), (cx, cy)
 
 
-def test_the_beam_changes_nothing_but_its_own_cells(words, title):
+def test_the_pool_changes_nothing_but_its_own_cells_and_the_housing(words, title):
     """The stronger form: outside the beam set the two screens are identical,
     pixels and attributes, text or not. A beam that stippled a spare cell or
     recoloured one it did not dot would fail here and nowhere else."""
     from spotlight.core.constants import ROWS
 
-    beam = screens.beam_cells(words)
+    beam = screens.pool_cells(words) | {screens.HOUSING_CELL}
     for cy in range(ROWS):
         for cx in range(COLS):
             if (cx, cy) in beam:
@@ -472,13 +461,13 @@ def test_the_beam_changes_nothing_but_its_own_cells(words, title):
             assert title.get_attr(cx, cy) == words.get_attr(cx, cy), (cx, cy)
 
 
-def test_every_beam_cell_is_non_bright_yellow_on_black(words, title):
+def test_every_pool_cell_is_non_bright_yellow_on_black(words, title):
     """The same hue as the logo and the keys, a step dimmer, so it reads as
     light and not as more words. Not bright, not flashing."""
     from spotlight.core.constants import BLACK, YELLOW
     from spotlight.core.screen import unpack_attr
 
-    beam = screens.beam_cells(words)
+    beam = screens.pool_cells(words)
     assert beam
     for cx, cy in beam:
         assert unpack_attr(title.get_attr(cx, cy)) == \
@@ -488,20 +477,20 @@ def test_every_beam_cell_is_non_bright_yellow_on_black(words, title):
         "the beam is not the logo's bright yellow"
 
 
-def test_the_beam_wears_the_lit_floor_tile_for_its_position(words, title):
+def test_the_pool_wears_the_lit_floor_tile_for_its_position(words, title):
     """The floor's own noise (issue #71), block by position: a beam cell at
     (cx, cy) wears `FLOOR_LIT[(cy & 3) * 4 + (cx & 3)]`, so the beam is the
     same gravel the play area's light falls on and not a private pattern.
     Both spellings of the index are checked against each other on purpose."""
     from spikes import floor
 
-    for cx, cy in screens.beam_cells(words):
+    for cx, cy in screens.pool_cells(words):
         glyph = glyph_at(title, cx, cy)
         assert glyph == floor.FLOOR_LIT[floor.tile_index(cx, cy)], (cx, cy)
         assert glyph == floor.FLOOR_LIT[(cy & 3) * 4 + (cx & 3)], (cx, cy)
 
 
-def test_the_beam_is_found_before_it_is_drawn(title):
+def test_the_pool_is_found_before_it_is_drawn(title):
     """`beam_cells` is a set computed before a dot goes down, and drawing the
     beam again on a title that has one draws nothing more. The hazard it
     guards is specific: the beam is pixels, and a routine that tested cells as
@@ -513,7 +502,7 @@ def test_the_beam_is_found_before_it_is_drawn(title):
     again = Screen()
     again.pixels[:] = title.pixels
     again.attrs[:] = title.attrs
-    screens.draw_beam(again)
+    screens.draw_pool(again)
     assert bytes(again.pixels) == bytes(title.pixels)
     assert bytes(again.attrs) == bytes(title.attrs)
 
@@ -530,21 +519,20 @@ def test_the_beam_is_found_before_it_is_drawn(title):
 #: right trade for a test whose job is to catch a slice wandering into a screen
 #: it was told to leave alone.
 ENDING_BEFORE = {
-    "ALL_OUT": ("124ba92534bfb871", "e05ff76b0b3b0c70"),
-    "NOBODY_LEFT": ("474f8ce5c57043ba", "25b7bafb86b42a1d"),
-    "NO_LIVES": ("1d3f05e78ccbbefe", "f7bc79fea899d97c"),
+    "ALL_OUT": ("746fe4030fb39827", "0858a6d8d12cb9f5"),
+    "NOBODY_LEFT": ("f4f87834bec2f559", "69ac6f67a959edf9"),
+    "NO_LIVES": ("027ac18327a92a43", "66eed8a575771ad6"),
 }
 
 
 @pytest.mark.parametrize("name", sorted(ENDING_BEFORE))
 def test_the_ending_screen_is_untouched_to_the_pixel(name):
-    """Issue #56 redraws the title and **nothing else**.
-
-    The ending screen was reviewed and the verdict was that the values carry the
-    colour and the labels do not -- the only place in this build where colour is
-    doing semantic work by itself. A look round is exactly when a screen like
-    that gets a logo bolted onto it out of symmetry, so this test says no: same
-    pixels, same attribute bytes, same everything.
+    """Issue #56 redrew the title and **nothing else**, and this pin held the
+    ending to the pixel through two rounds; issue #104 (Look and feel 3 row
+    12) put the logo on it deliberately -- the user's ruling, not symmetry --
+    and moved everything below down two rows, and these digests were re-taken
+    in that commit. The values still carry the colour and the labels are
+    still white; the table is the same table under a logo.
     """
     import hashlib
 
@@ -589,8 +577,14 @@ def test_the_play_path_does_not_import_the_logo():
 
     The positive half matters as much: if `screens` stopped importing it the
     negative half would pass with the logo deleted.
+
+    **Since issue #97 the session reaches it too**, on purpose: the opening
+    holds two seconds of black with the logo centred on it, so a run draws
+    the logo once before its first frame. That is a ruling and not a leak,
+    and what the rule still keeps is that nothing that draws the *room* --
+    the sprites, the tiles, the floor -- knows the logo exists.
     """
     assert _imports_logo("import spikes.screens")
+    assert _imports_logo("import spikes.session"), "the opening draws the logo"
     assert not _imports_logo("import spikes.scene")
-    assert not _imports_logo("import spikes.session")
     assert not _imports_logo("import spikes.sprites, spikes.tiles, spikes.floor")

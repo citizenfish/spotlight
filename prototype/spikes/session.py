@@ -36,11 +36,11 @@ from spotlight.core.screen import Screen, attr_byte
 from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
     moments as moments_mod, player as player_mod, rescue as rescue_mod,
-    scene, sounds, sources, spray as spray_mod, sprites,
+    scene, screens, sounds, sources, spray as spray_mod, sprites,
     tally as tally_mod, tiles, tune as tune_mod,
 )
 from .building import EAST
-from .layout import PLAY_BOTTOM, PLAY_TOP, PLAY_ROWS
+from .layout import PLAY_BOTTOM, PLAY_TOP, PLAY_ROWS, STRIP_BOTTOM, STRIP_TOP
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
 from .player import Player
@@ -76,9 +76,28 @@ LEAVE_FRAMES = 25
 #: to it, so the ten seconds run from the last sighting.
 MAGNET_FRAMES = 500
 
-#: The magnet's tell, in frames on and then off (issue #84): the brackets
-#: round the player's figure are drawn for this many frames in every twice
-#: this many. Eight is a pulse three times a second -- slow enough to read as
+#: The strobe a level opens on (issue #94): the whole room lit for `STROBE_ON`
+#: frames, dark for `STROBE_OFF`, `STROBE_FLASHES` times, with the game held.
+#: One frame is the briefest flash the machine has -- twenty milliseconds --
+#: and the user asked for five, so it is one. Nothing the flash shows is
+#: remembered: its light has a memory of nought.
+STROBE_ON = 1
+STROBE_OFF = 5
+STROBE_FLASHES = 3
+STROBE_FRAMES = (STROBE_ON + STROBE_OFF) * STROBE_FLASHES
+#: Two seconds of the play area completely black on either side of the
+#: strobe (issue #95): built from no source at all, so not even the things
+#: that never fade are there. The whole opening is held, frame counter at
+#: nought.
+OPENING_BLACK = 100
+OPENING_FRAMES = OPENING_BLACK + STROBE_FRAMES + OPENING_BLACK
+#: Where the logo sits on the opening's black (issue #97): its two cell rows
+#: centred in the twenty-two of the play area.
+OPENING_LOGO_TOP = (PLAY_ROWS - 2) // 2
+
+#: The magnet's tell, in frames on and then off (issue #84, the box since
+#: #100): the mark round the player's figure is drawn for this many frames
+#: in every twice this many. Eight is a pulse three times a second -- slow enough to read as
 #: a thing being tracked, fast enough not to be missed.
 MAGNET_PULSE = 8
 
@@ -313,6 +332,10 @@ class Place:
         #: entry; the user ruled that no room is ever shown whole, so nothing
         #: in play switches it on.
         self.floodlight = sources.Floodlight()
+        #: The strobe's light (issue #94): the room whole, for one frame at a
+        #: time, remembered not at all. Held on and off by `Session.step`
+        #: while the strobe runs and never otherwise.
+        self.strobe = sources.Floodlight(memory=0)
         self.seen = False
 
     @property
@@ -338,7 +361,7 @@ class Place:
     @property
     def fixed(self) -> tuple:
         """The lights that belong to this room, wherever the player is."""
-        lit = [self.floodlight, *self.room_lights]
+        lit = [self.floodlight, self.strobe, *self.room_lights]
         if self.roaming is not None:
             lit.insert(0, self.roaming)
         return tuple(lit)
@@ -368,7 +391,8 @@ class Session:
                  blood: int = BLOOD_FULL, lives: int = LIVES,
                  metrics: bool = False,
                  sound: bool = True, magnet: bool = True,
-                 luminous: bool = True, trail: bool = False) -> None:
+                 luminous: bool = True, trail: bool = False,
+                 strobe: bool = False) -> None:
         self.seed = seed
         #: Two looks the user tried and ruled on (issue #91, then #92), both
         #: now the default. `luminous`: Clegs are drawn wherever they are,
@@ -548,6 +572,10 @@ class Session:
 
         self.panel = Panel()
         self.panel.set_total("rescued", len(self.rescue.workers))
+        # The badges before the first stepped frame (issue #97): the opening
+        # holds the game for four seconds with the strip showing, and "?0"
+        # to find on it was a lie for the length of it.
+        self.panel.set("left", len(self.rescue.alive_waiting()))
         # The light bar's opening value is computed, not authored. It was the
         # literal 4 -- which was right only for the old building-wide scale,
         # and was the number a player actually saw before their first keypress
@@ -582,6 +610,16 @@ class Session:
         #: `MAGNET_FRAMES` by a hit, counted down one per stepped frame,
         #: cleared by a death and kept through a doorway.
         self.magnet = 0
+        #: Frames of the opening strobe still to run (issue #94). While it
+        #: runs the game is held: `step` reads no intent and advances no
+        #: frame, so the log cannot see it. **Off unless asked for**: the
+        #: strobe is the window's opening, and the shell and the demo ask;
+        #: a session driven directly -- the driver, the gallery, every test
+        #: -- starts at frame one, as it always did.
+        self.strobe = OPENING_FRAMES if strobe else 0
+        #: Whether the held frame being drawn is a flash (issue #97): the room
+        #: without its flies, rather than black with the logo.
+        self._flashing = False
         self.over: str | None = None
         self.calls_on = True
         self.log: list[Event] = []
@@ -957,6 +995,51 @@ class Session:
         """
         if self.over is not None:
             return []
+        if self.strobe:
+            # **The opening** (issues #94, #95): two seconds of black, three
+            # one-frame flashes of the whole room five dark frames apart,
+            # two seconds of black, then play -- the game held throughout.
+            # The frame counter does not move, no intent is read, no fly
+            # steps and nobody bleeds; the light is rebuilt for the phase and
+            # that is the frame. Black is the field built from no source at
+            # all; a flash is the strobe's light and a crack of noise.
+            self.strobe -= 1
+            gone = OPENING_FRAMES - self.strobe - 1
+            self.frame_events = []
+            self.moments.begin()
+            flashing = False
+            if OPENING_BLACK <= gone < OPENING_BLACK + STROBE_FRAMES:
+                within = gone - OPENING_BLACK
+                flashing = within % (STROBE_ON + STROBE_OFF) < STROBE_ON
+                if flashing:
+                    self._moment(moments_mod.M_STROBE)
+            self.place.strobe.hold(flashing)
+            self._flashing = flashing
+            # Black between the flashes too: the strobe is three frames of
+            # the room on black, not three frames of the room on the glow.
+            self._light(held=True, black=not flashing)
+            if self.voice is not None:
+                self.voice.update(False, False, self.moments.sounds(),
+                                  self.sonar.interval, self.ticker.interval,
+                                  clegs=len(self.place.swarm.clegs))
+                self.click = self.tick = False
+            if not self.strobe:
+                # The last held frame: put the building back exactly as frame
+                # nought left it -- the strobe off, and every field's display
+                # rebuilt from its untouched charge with nothing shining -- so
+                # that the first stepped frame is the first stepped frame, and
+                # a bot reading the light on it reads what it always read.
+                self.place.strobe.hold(False)
+                for place in self.places:
+                    place.field.begin()
+                    place.field.commit(decay=False)
+                # And nothing a held frame worked out is left lying about:
+                # a shout list read by a bot on the first stepped frame moved
+                # its first decision by a frame.
+                self.shouting, self.door_calls = [], []
+                self.call_cells, self.shout_runs = [], []
+                self._flashing = False
+            return self.frame_events
         self.frame += 1
         self.frame_events = []
         # Before anything can raise one, so a moment raised on this frame gets
@@ -1790,7 +1873,7 @@ class Session:
                      if field.level_at(cell[0], cell[1]) != lighting.DARK)
         return cells
 
-    def _light(self) -> None:
+    def _light(self, held: bool = False, black: bool = False) -> None:
         """Sources contribute, brightest wins, then everything decays.
 
         Run for **every** room, because the fade keeps running while you are out
@@ -1809,6 +1892,13 @@ class Session:
             here = place.index == self.here
             field = place.field
             field.begin()
+            if black:
+                # The opening's black (issue #95): no source at all, not
+                # even the ones that never fade. The field is committed
+                # from its untouched charge below, so nothing is remembered
+                # of it either.
+                field.commit(decay=not held)
+                continue
             for src in place.fixed:
                 src.apply(field)
             if here:
@@ -1876,7 +1966,7 @@ class Session:
             if housing is not None:
                 field.add(*housing, level=lighting.LIT, memory=1,
                           reveals=False)
-            field.commit()
+            field.commit(decay=not held)
 
     def _people_cells(self, place) -> set:
         """Every cell a figure is drawn in, in one room (issue #59).
@@ -1992,17 +2082,38 @@ class Session:
 
     def draw(self, screen: Screen) -> None:
         """The whole frame: the room, the people, and the status strip."""
-        if not self._painted_strip:
+        if self.strobe:
+            # **The opening is black to the bottom of the screen** (issue
+            # #105, Look and feel 3 row 13): on every held frame the strip's
+            # sixty-four attributes are black on black, its pixels left as
+            # they are under them, and the strip is painted fresh with the
+            # first played frame. "Completely black" was a lit strip under a
+            # logo until the user said so.
+            screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
+            black = attr_byte(ink=BLACK, paper=BLACK, bright=False)
+            for cy in range(STRIP_TOP, STRIP_BOTTOM):
+                for cx in range(COLS):
+                    screen.set_attr(cx, cy, black)
+            self._painted_strip = False
+            if not self._flashing:
+                # **The black, with the logo on it** (issue #97): the play
+                # area is nothing but SPOTLIGHT, centred. Not the sign, not
+                # the housing, not a fixture -- black means black.
+                screens.draw_logo(screen, top=OPENING_LOGO_TOP)
+                return
+        elif not self._painted_strip:
             # Painted once and thereafter only where it changes. On a restart
             # this runs again, because the session is new and the strip on
-            # screen belongs to the run before it.
+            # screen belongs to the run before it -- and after the opening,
+            # whose held frames hid it.
             blank_strip(screen)
             self.panel.draw_labels(screen)
             self.panel.draw(screen, force=True)
             self._painted_strip = True
 
         # The play area is cleared every frame; the strip is not touched.
-        screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
+        if not self.strobe:
+            screen.clear_rows(PLAY_TOP, PLAY_BOTTOM, PLAY_ATTR)
 
         # **One room, and only one.** This is the whole of the screen
         # transition: everything below asks the room the player is standing in,
@@ -2141,7 +2252,10 @@ class Session:
         # drawing only reads the phase, so a paused game is a still picture. See
         # `clegs.Cleg.wing` for the cost argument and its two exceptions;
         # since issue #60 the people follow the movement rule.
-        for cleg in place.swarm.clegs:
+        # **Not during a flash of the opening** (issue #97): the flash shows
+        # the room and the people and not the flies, so a glimpse hands over
+        # where the people are and nothing about what is hunting them.
+        for cleg in place.swarm.clegs if not self.strobe else ():
             sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
                          cleg.cx * CELL, cleg.cy * CELL,
                          # Luminous (issue #91): drawn wherever they are.
@@ -2149,14 +2263,15 @@ class Session:
         figure = sprites.PLAYER_FRAMES[self.player.stride]
         sprites.draw(screen, figure, self.player.x, self.player.y)
         if self.magnet and (self.frame // MAGNET_PULSE) % 2 == 0:
-            # **You, while the room knows where you are** (issue #84): four
-            # corner brackets round the figure -- locked on -- eight frames
-            # in every sixteen for as long as the magnet runs. Shape, not
-            # colour: the FLASH bit was two yellow blocks with the figure cut
-            # out, and a filled halo was tried and made a compact figure into
-            # a blob. Drawing state on the frame counter, like the wingbeat;
-            # no attribute moves and the log cannot see it.
-            sprites.draw_brackets(screen, figure, self.player.x, self.player.y)
+            # **You, while the room knows where you are** (issue #100): a
+            # closed box round the figure with its margin cleared -- locked
+            # on -- eight frames in every sixteen for as long as the magnet
+            # runs. Shape, not colour: the FLASH bit was two yellow blocks
+            # with the figure cut out, a filled halo made a compact figure a
+            # blob, and the brackets of #84 were the pool's own noise on a
+            # lit pool. Drawing state on the frame counter, like the
+            # wingbeat; no attribute moves and the log cannot see it.
+            sprites.draw_box(screen, figure, self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
         # clears none, so the wall tile under the word survives. On floor the
@@ -2223,10 +2338,17 @@ class Session:
         # attribute writes on cells the sprites have just been drawn into;
         # the clash a red fly makes of a lit cell it stands in is accepted
         # for now.
-        if self.luminous:
+        if self.luminous and not self.strobe:
+            # **Red only where the cell is dark** (issue #98, Look and feel 3
+            # row 1). A lit or remembered cell already shows the fly by its
+            # shape, and the red there recoloured whatever it stood on -- a
+            # person's figure, a floor's stipple, HELP's L -- on every other
+            # frame, the tester counted. So the write is gated on the cell
+            # being DARK, the same test the tail's cells use below.
             red = attr_byte(ink=RED, paper=BLACK, bright=True)
             for cleg in place.swarm.clegs:
-                if 0 <= cleg.cx < COLS and 0 <= cleg.cy < PLAY_ROWS:
+                if 0 <= cleg.cx < COLS and 0 <= cleg.cy < PLAY_ROWS \
+                        and field.level_at(cleg.cx, cleg.cy) == lighting.DARK:
                     screen.set_attr(cleg.cx, cleg.cy, red)
         for worker in self.rescue.tail:
             if worker.room != self.here:
@@ -2237,8 +2359,26 @@ class Session:
                     screen.set_attr(cx, cy, attr_byte(
                         ink=frame_inks[cy * COLS + cx], paper=BLACK,
                         bright=False))
+        # **You are white** (issue #99, Look and feel 3 row 2). In a tail
+        # of seven in the room's hue the user's reviewers picked the wrong
+        # figure; one attribute a frame on his cells says which one is you,
+        # in both rooms, and the tail keeps the room's hue. Written after
+        # the Cleg's red so a fly on you does not turn you red, and before
+        # the moments' flash so the bit rides on it. Overturns *colour never
+        # tells an entity apart* -- #92 broke that first with the red fly --
+        # and the vault says so.
+        if not self.strobe:
+            white = attr_byte(ink=WHITE, paper=BLACK, bright=True)
+            for cx, cy in sprites.cells_spanned(self.player.x, self.player.y,
+                                                len(figure)):
+                if 0 <= cx < COLS and 0 <= cy < PLAY_ROWS:
+                    screen.set_attr(cx, cy, white)
         for cx, cy in self.flash_cells():
             screen.set_attr(cx, cy,
                             screen.get_attr(cx, cy) | moments_mod.FLASH_BIT)
-        self.panel.draw(screen)
+        if not self.strobe:
+            # Held frames leave the strip black (issue #105); the readouts
+            # that changed stay dirty and are painted with the first played
+            # frame, which repaints everything anyway.
+            self.panel.draw(screen)
 

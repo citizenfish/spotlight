@@ -202,14 +202,15 @@ def test_the_housing_cell_is_lit_on_every_frame_and_never_moves():
 def test_the_housing_is_not_in_the_rooms_list_of_lights():
     """**The trap this issue flagged, pinned.**
 
-    The room's lights are `Place.fixed` -- the held debug view, the authored room
-    lights, and the searchlight. Nothing was added to that list, and nothing
-    may be: a `Source` at the mount corner is a permanent lure at the corner
-    the beam is bolted to, and the swarm would gather there for the rest of the
-    run.
+    The room's lights are `Place.fixed` -- the held debug view, the opening
+    strobe's light (issue #94, off but for eighteen held frames a run), the
+    authored room lights, and the searchlight. Nothing else was added to
+    that list, and nothing may be: a `Source` at the mount corner is a
+    permanent lure at the corner the beam is bolted to, and the swarm would
+    gather there for the rest of the run.
     """
     for place in Session(seed=1).places:
-        expected = 1 + len(place.room_lights) + (place.roaming is not None)
+        expected = 2 + len(place.room_lights) + (place.roaming is not None)
         assert len(place.fixed) == expected, \
             "something was added to a room's list of lights"
         if place.housing is None:

@@ -230,7 +230,7 @@ def test_getting_everybody_out_is_its_own_ending():
     both when everyone is safe and when everyone is dead, so the best possible
     run and the worst possible run ended with the same words.
     """
-    run = Session()
+    run = Session(strobe=False)          # play from the first step (#94)
     for worker in list(run.rescue.workers):
         touch(run, worker)
         run.step()
@@ -249,7 +249,7 @@ def test_delivering_the_last_but_one_does_not_end_the_run():
     """The walk-out rule still stands while anybody is inside: a brush past
     the door delivers and ends nothing, because the decision -- do you go
     back in? -- is still there to be made."""
-    run = Session()
+    run = Session(strobe=False)          # play from the first step (#94)
     workers = list(run.rescue.workers)
     for worker in workers[:-1]:
         touch(run, worker)
@@ -1245,14 +1245,18 @@ def test_a_weak_light_picked_up_reads_full_and_that_is_the_price():
     assert run.panel.values["light"] == 6
 
 
-def test_the_strip_says_in_words_how_many_are_safe():
-    """Issue #31: `*3/7` left the reader to guess what was being counted."""
+def test_the_strip_says_with_a_taught_mark_how_many_are_safe():
+    """Issue #31: `*3/7` left the reader to guess what was being counted, and
+    the word SAFE replaced the badge. Issue #96 laid the strip out again
+    with air round every readout and the word became a tick -- a mark, but
+    one the title now teaches beside the other three, which is what #31's
+    objection to a badge was about."""
     run = Session()
     screen = Screen()
     run.draw(screen)
     region = panel.REGIONS["rescued"]
     assert screenreader.read(screen, region.label_col, region.row,
-                             len(region.label)) == "SAFE"
+                             len(region.label)) == "√"
     assert screenreader.read(screen, region.col, region.row,
                              region.width).rstrip() == "0/7"
 
@@ -1678,7 +1682,7 @@ def test_a_worker_is_drawn_by_state_and_a_follower_strides_by_counter():
             screen = Screen()
             run.draw(screen)
             want = (sprites.FOLLOWER_FRAMES[stride] if state == R.FOLLOWING
-                    else sprites.WORKER)
+                    else sprites.WORKER_FRAMES[False])     # silent (#100)
             assert len(_pixels_at(screen, x, y, want)) == \
                 sum(bin(b).count("1") for b in want), (state, stride)
 
@@ -1746,7 +1750,7 @@ def test_the_wave_is_silenced_with_the_word():
         run.place.floodlight.hold(True)
         assert not run.shouting and not run.shout_runs
         if not _a_fly_is_on(run, worker):
-            assert _waiting_drawn_as(run, worker, sprites.WORKER)
+            assert _waiting_drawn_as(run, worker, sprites.WORKER_FRAMES[False])
 
 
 def _meddled_run(seed: int, frames: int, meddle: bool):

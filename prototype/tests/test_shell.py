@@ -17,7 +17,9 @@ from screenreader import rows
 
 @pytest.fixture
 def shell():
-    return spike1.Shell(Screen())
+    # No opening strobe (issue #94): what is tested here is play and what
+    # follows it; the strobe has its own tests.
+    return spike1.Shell(Screen(), strobe=False)
 
 
 def test_the_title_is_what_a_player_sees_first(shell):
@@ -205,7 +207,7 @@ def test_a_pause_does_not_extend_an_effects_ownership():
     from spikes import sounds
     from spikes import moments as M
 
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), strobe=False)
     voice = _dead_but_not_out(shell)
     frames = sounds.EFFECTS[M.SFX_PLAYER_DIED].frames
     assert voice.sound == M.SFX_PLAYER_DIED and voice.index == 0
@@ -244,7 +246,7 @@ def test_the_two_fixes_do_not_cover_for_each_other():
     """
     from spikes import sounds
 
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), strobe=False)
     voice = _dead_but_not_out(shell)
     for _ in range(shell.held):
         shell.frame()
@@ -259,7 +261,7 @@ def test_the_two_fixes_do_not_cover_for_each_other():
 
 def test_a_whole_session_prints_nothing(capsys):
     """Start to finish with no debug key touched: stdout stays empty."""
-    shell = spike1.Shell(Screen())
+    shell = spike1.Shell(Screen(), strobe=False)
     shell.key(pygame.K_s)
     shell.run.lives = 1
     for _ in range(100):
