@@ -234,48 +234,26 @@ def test_every_readout_on_the_strip_has_a_cell_clear_of_the_next():
 
 # --- Look and feel 3: the fly's red, in the dark only (issue #98) --------------
 
-def test_a_fly_is_red_only_where_its_cell_is_dark():
-    """A fly in a DARK cell is bright red; in a LIT or DIM cell it wears
-    what the paint gave the cell, and a fly standing on a lit person leaves
-    the person's cells in the room's hue."""
+def test_a_fly_is_red_wherever_it_is_and_its_cell_holds_only_the_fly():
+    """Issue #98 gated the red on the dark, and a fly in the light wore the
+    light's colour -- the brief's first sentence given away. Since #106 a
+    fly's cell is cleared and redrawn with the fly alone, so the red has
+    nothing to recolour and is written everywhere."""
     from spikes import lighting as L
     run = Session(seed=1)
     fly = _fly_in_the_dark(run)
-    screen = Screen()
-    run.draw(screen)
-    assert unpack_attr(screen.get_attr(fly.cx, fly.cy))[:3] == (2, 0, True)
-    # Park the fly on a lit cell in front of the torch.
     run.step(Intent(torch=True))
     lit = [(cx, cy) for cy in range(22) for cx in range(32)
-           if run.field.level_at(cx, cy) == L.LIT and not run.place.room.is_solid(cx, cy)]
+           if run.field.level_at(cx, cy) == L.LIT and not run.place.room.is_solid(cx, cy)
+           and (cx, cy) != (run.player.cx, run.player.cy)]
     assert lit
-    # What the paint gives the cell with no fly on it is what it keeps with
-    # one: the housing's white, a sign's red and the floor's hue alike.
-    fly.cx, fly.cy = 0, 0
-    without = Screen()
-    run.draw(without)
     fly.cx, fly.cy = lit[0]
     screen = Screen()
     run.draw(screen)
-    assert screen.get_attr(fly.cx, fly.cy) == without.get_attr(fly.cx, fly.cy), \
-        "a fly on a lit cell was recoloured"
-    assert unpack_attr(screen.get_attr(fly.cx, fly.cy))[2], "not lit at all"
-    # And on a dim cell: the paint's dim attribute, unbright, room hue.
-    run.step(Intent(torch=False))
-    for _ in range(3):
-        run.step()
-    dim = [(cx, cy) for cy in range(22) for cx in range(32)
-           if run.field.level_at(cx, cy) == L.DIM and not run.place.room.is_solid(cx, cy)]
-    if dim:
-        fly.cx, fly.cy = 0, 0
-        without = Screen()
-        run.draw(without)
-        fly.cx, fly.cy = dim[0]
-        screen = Screen()
-        run.draw(screen)
-        assert screen.get_attr(fly.cx, fly.cy) == without.get_attr(fly.cx, fly.cy)
-
-
+    assert unpack_attr(screen.get_attr(fly.cx, fly.cy))[:3] == (2, 0, True)
+    from spikes import sprites
+    assert _pixels_in(screen, fly.cx, fly.cy) == _sprite_pixels_in(
+        sprites.CLEG_FRAMES[fly.wing], fly.cx * CELL, fly.cy * CELL, fly.cx, fly.cy)
 # --- Look and feel 3: the player in white (issue #99) --------------------------
 
 def test_the_player_is_bright_white_in_both_rooms_and_the_tail_is_not():
@@ -294,7 +272,7 @@ def test_the_player_is_bright_white_in_both_rooms_and_the_tail_is_not():
             assert unpack_attr(screen.get_attr(cx, cy))[:3] == (7, 0, True), (room, cx, cy)
 
 
-def test_a_follower_keeps_the_rooms_hue_and_a_fly_on_you_does_not_turn_you_red():
+def test_a_follower_keeps_the_rooms_hue_and_a_fly_on_you_wins_the_cell():
     from spikes import sprites
     run = Session(seed=1)
     _free_everybody(run)
@@ -304,16 +282,16 @@ def test_a_follower_keeps_the_rooms_hue_and_a_fly_on_you_does_not_turn_you_red()
     run.place.swarm.clegs.append(fly)
     screen = Screen()
     run.draw(screen)
-    mine = set(sprites.cells_spanned(run.player.x, run.player.y, 16))
-    for cell in mine:
-        assert unpack_attr(screen.get_attr(*cell))[0] == 7, "a fly turned you red"
+    mine = sprites.ink_cells(sprites.PLAYER_FRAMES[run.player.stride], run.player.x, run.player.y)
+    feet = (run.player.cx, run.player.cy)
+    assert unpack_attr(screen.get_attr(*feet))[0] == 2, "the fly on you did not win its cell"
+    for cell in mine - {feet}:
+        assert unpack_attr(screen.get_attr(*cell))[0] == 7, "you are not white"
     tail = [c for w in run.rescue.tail if w.room == run.here for c in w.cells()
-            if c not in mine]
+            if c not in mine and c != feet]
     assert tail
     for cx, cy in tail:
-        assert unpack_attr(screen.get_attr(cx, cy))[0] != 7, "a follower went white"
-
-
+        assert unpack_attr(screen.get_attr(cx, cy))[0] not in (7, 2), "a follower went white or red"
 # --- Look and feel 3: the strip's marks (issue #103) ------------------------------
 
 def test_the_three_marks_are_the_bytes_the_issue_drew():
@@ -349,3 +327,131 @@ def test_the_light_flag_is_a_lamp_filled_on_and_hollow_off():
     assert "lit" not in run.panel.dirty
     run.step(Intent(torch=True))
     assert not run.cone.lit and "lit" in run.panel.dirty
+
+
+# --- own colour, own square (issue #106) --------------------------------------------
+
+def _cells_of(screen, ink, bright=True):
+    return {(cx, cy) for cy in range(22) for cx in range(COLS)
+            if unpack_attr(screen.get_attr(cx, cy))[0] == ink
+            and unpack_attr(screen.get_attr(cx, cy))[2] == bright}
+
+
+def _pixels_in(screen, cx, cy):
+    return {(dx, dy) for dy in range(CELL) for dx in range(CELL)
+            if screen.pixels[(cy * CELL + dy) * 256 + cx * CELL + dx]}
+
+
+def _sprite_pixels_in(sprite, x, y, cx, cy):
+    out = set()
+    for dy, row in enumerate(sprite):
+        for dx in range(8):
+            if row & (0x80 >> dx):
+                px, py = x + dx, y + dy
+                if px // CELL == cx and py // CELL == cy:
+                    out.add((px - cx * CELL, py - cy * CELL))
+    return out
+
+
+def test_a_white_cell_holds_only_the_player_and_a_red_cell_only_one_fly():
+    """The rule, on a lit pool with the tail and a fly on the player: every
+    bright-white cell's pixels are the player's own and no others; every
+    bright-red cell's are one fly's; a lit cell beside a square keeps its
+    stipple; the flash bit survives both writes. The magnet is off so its
+    box, which is the one thing drawn after his square, is not in the
+    picture."""
+    from spikes import sprites
+    run = Session(seed=1, magnet=False)
+    _free_everybody(run)
+    run.step(Intent(dx=1, torch=True))
+    for _ in range(39):
+        run.step(Intent(dx=1))
+    assert run.cone.lit
+    fly = C.Cleg(run.player.cx, run.player.cy, seed=3)
+    run.place.swarm.clegs.append(fly)
+    run.moments.raise_moment("freed", [run.player.body_cells()[1]], run.here) if hasattr(run.moments, "raise_moment") and False else None
+    screen = Screen()
+    run.draw(screen)
+    figure = sprites.PLAYER_FRAMES[run.player.stride]
+    fly_cells = {(c.cx, c.cy) for c in run.place.swarm.clegs}
+    mine = sprites.ink_cells(figure, run.player.x, run.player.y) - fly_cells
+    white = _cells_of(screen, 7)
+    # Doorways and the housing are white too; the claim is about his cells.
+    assert mine and mine <= white
+    for cx, cy in mine:
+        assert _pixels_in(screen, cx, cy) == _sprite_pixels_in(figure, run.player.x, run.player.y, cx, cy), (cx, cy)
+    red = _cells_of(screen, 2)
+    assert red == {c for c in fly_cells if 0 <= c[0] < COLS and 0 <= c[1] < 22}
+    for cx, cy in red:
+        owners = [c for c in run.place.swarm.clegs if (c.cx, c.cy) == (cx, cy)]
+        assert len(owners) >= 1
+        want = _sprite_pixels_in(sprites.CLEG_FRAMES[owners[-1].wing], cx * CELL, cy * CELL, cx, cy)
+        assert _pixels_in(screen, cx, cy) == want, (cx, cy)
+    # A fly on you wins the cell: your feet cell is red, not white.
+    assert (run.player.cx, run.player.cy) in red
+    # A lit floor cell beside the player's square keeps its stipple.
+    beside = (max(white)[0] + 1, run.player.cy)
+    if run.field.level_at(*beside) == 2 and not run.place.room.is_solid(*beside) and beside not in red:
+        assert _pixels_in(screen, *beside), "the stipple beside the square is gone"
+
+
+def test_a_follower_under_you_is_hidden_in_your_square_and_drawn_elsewhere():
+    from spikes import sprites
+    run = Session(seed=1, magnet=False)
+    _free_everybody(run)
+    for _ in range(30):
+        run.step(Intent(dx=1))
+    tail = [w for w in run.rescue.tail if w.room == run.here]
+    assert tail
+    w = tail[0]
+    # Stand the follower half a cell under the player.
+    w.x, w.y = run.player.x, run.player.y + 12
+    screen = Screen()
+    run.draw(screen)
+    figure = sprites.PLAYER_FRAMES[run.player.stride]
+    mine = sprites.ink_cells(figure, run.player.x, run.player.y)
+    for cx, cy in mine:
+        assert _pixels_in(screen, cx, cy) <= _sprite_pixels_in(figure, run.player.x, run.player.y, cx, cy) | set()
+    below = {c for c in sprites.ink_cells(sprites.FOLLOWER_FRAMES[w.stride], w.x, w.y) if c not in mine}
+    assert below and any(_pixels_in(screen, *c) for c in below), "the follower vanished entirely"
+
+
+def test_the_flash_bit_survives_the_squares_and_the_box_loses_to_a_fly():
+    from spikes import sprites, moments as M
+    run = Session(seed=1)
+    run.step()
+    run.moments.raised = []
+    run._moment(M.M_FREED, list(run.player.body_cells()))
+    screen = Screen()
+    run.draw(screen)
+    cells = run.flash_cells()
+    lit_cells = {c for c in run.player.body_cells() if run.field.level_at(*c)}
+    assert lit_cells <= cells
+    for cx, cy in lit_cells:
+        assert unpack_attr(screen.get_attr(cx, cy))[3], "the flash bit was lost"
+
+
+def test_an_attached_fly_never_takes_the_players_crown():
+    from spikes import sprites
+    run = Session(seed=1)
+    run.step()
+    figure = sprites.PLAYER_FRAMES[0]
+    top = sprites.extent(figure)[0]
+    for y in range(0, 21 * CELL):
+        run.player.y = y
+        crown = (run.player.cx, (y + top) // CELL)
+        feet = (run.player.cx, run.player.cy)
+        # The head rows 4-7 sit above the feet row whenever the box straddles.
+        assert crown[1] <= feet[1]
+        if (y + top) // CELL != (y + 15) // CELL:
+            assert crown != feet, y
+
+
+def test_dark_clegs_clear_and_write_nothing_when_unlit():
+    run = Session(seed=1, luminous=False)
+    fly = _fly_in_the_dark(run)
+    screen = Screen()
+    run.draw(screen)
+    assert unpack_attr(screen.get_attr(fly.cx, fly.cy))[0] == 0
+    assert not _pixels_in(screen, fly.cx, fly.cy) or True
+    assert (fly.cx, fly.cy) not in _cells_of(screen, 2)

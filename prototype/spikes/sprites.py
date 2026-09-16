@@ -360,6 +360,74 @@ def extent(sprite) -> tuple[int, int]:
     return (rows[0], rows[-1]) if rows else (0, -1)
 
 
+def ink_bounds(sprite) -> tuple[int, int, int, int]:
+    """The sprite's ink as a box: (left, top, right, bottom), inclusive, in
+    pixels of its own frame; (0, 0, -1, -1) for none. An 8-wide sprite's
+    columns are its bits; a 16-wide one's are its two bytes."""
+    top, bottom = extent(sprite)
+    if bottom < top:
+        return 0, 0, -1, -1
+    left, right = None, None
+    for row in sprite:
+        for octet, bits in enumerate(row_bytes(row)):
+            for dx in range(WIDTH):
+                if bits & (0x80 >> dx):
+                    px = octet * WIDTH + dx
+                    left = px if left is None else min(left, px)
+                    right = px if right is None else max(right, px)
+    return left, top, right, bottom
+
+
+def ink_cells(sprite, x: int, y: int) -> set[tuple[int, int]]:
+    """The cells the sprite's ink lands in when drawn at pixel (x, y): the
+    cells its ink bounds span, which is the ink's cells and never an empty
+    corner of the box (issue #106)."""
+    left, top, right, bottom = ink_bounds(sprite)
+    if bottom < top:
+        return set()
+    return cells_spanned(x + left, y + top, bottom - top + 1,
+                         right - left + 1)
+
+
+def draw_square(screen, sprite, x: int, y: int, cells,
+                clip_bottom: int = PLAY_BOTTOM_PX) -> None:
+    """Own colour, own square (issue #106, *Colour clash, resolved*).
+
+    The cells are cleared to black -- every pixel -- and the sprite is
+    drawn into them and them alone, by OR, with no mask, so a cell that is
+    about to wear this thing's own colour holds this thing's pixels and
+    nothing else: not the pool's stipple, not a follower under it, not a
+    word. The attribute is the caller's, written after the light's paint.
+    One routine for the Cleg (its one whole cell) and the player (the cells
+    his ink lands in); the fly wins a cell both want by being drawn last.
+    On the port: clear eight bytes a cell, OR the sprite's rows in, one
+    attribute write -- less than the masked draw it replaces.
+    """
+    limit = min(SCREEN_H, clip_bottom)
+    wanted = set(cells)
+    for cx, cy in wanted:
+        for dy in range(CELL):
+            py = cy * CELL + dy
+            if not 0 <= py < limit:
+                continue
+            base = py * SCREEN_W + cx * CELL
+            for dx in range(CELL):
+                if 0 <= cx * CELL + dx < SCREEN_W:
+                    screen.pixels[base + dx] = 0
+    for dy, row in enumerate(sprite):
+        py = y + dy
+        if not 0 <= py < limit:
+            continue
+        cy = py // CELL
+        for octet, bits in enumerate(row_bytes(row)):
+            for dx in range(WIDTH):
+                if not bits & (0x80 >> dx):
+                    continue
+                px = x + octet * WIDTH + dx
+                if 0 <= px < SCREEN_W and (px // CELL, cy) in wanted:
+                    screen.pixels[py * SCREEN_W + px] = 1
+
+
 #: The magnet's tell (issue #100, Look and feel 3 row 4; the brackets of #84
 #: before it): a closed one-pixel box round the figure's drawn extent, this
 #: far clear of it, with a one-pixel margin either side of the line cleared

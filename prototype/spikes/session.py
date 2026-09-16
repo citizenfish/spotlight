@@ -2255,23 +2255,16 @@ class Session:
         # **Not during a flash of the opening** (issue #97): the flash shows
         # the room and the people and not the flies, so a glimpse hands over
         # where the people are and nothing about what is hunting them.
-        for cleg in place.swarm.clegs if not self.strobe else ():
-            sprites.draw(screen, sprites.CLEG_FRAMES[cleg.wing],
-                         cleg.cx * CELL, cleg.cy * CELL,
-                         # Luminous (issue #91): drawn wherever they are.
-                         visible=None if self.luminous else field.reveals_at)
+        # **Own colour, own square** (issue #106, *Colour clash, resolved*):
+        # the player and the flies are the two things that carry a colour of
+        # their own, and they are drawn last, each into cells cleared to
+        # black first -- his the cells his ink lands in, a fly's its own
+        # whole cell -- so a white cell holds only him and a red cell only
+        # the fly. The squares go on after the words below, and the fly's
+        # after his, because the fly wins a cell both want. The box is drawn
+        # here, before them, and loses pixels to a fly's square as
+        # everything else does.
         figure = sprites.PLAYER_FRAMES[self.player.stride]
-        sprites.draw(screen, figure, self.player.x, self.player.y)
-        if self.magnet and (self.frame // MAGNET_PULSE) % 2 == 0:
-            # **You, while the room knows where you are** (issue #100): a
-            # closed box round the figure with its margin cleared -- locked
-            # on -- eight frames in every sixteen for as long as the magnet
-            # runs. Shape, not colour: the FLASH bit was two yellow blocks
-            # with the figure cut out, a filled halo made a compact figure a
-            # blob, and the brackets of #84 were the pool's own noise on a
-            # lit pool. Drawing state on the frame counter, like the
-            # wingbeat; no attribute moves and the log cannot see it.
-            sprites.draw_box(screen, figure, self.player.x, self.player.y)
 
         # **Painted, not punched** (issue #48). `paint_glyph` sets pixels and
         # clears none, so the wall tile under the word survives. On floor the
@@ -2300,8 +2293,50 @@ class Session:
                                  font.GLYPHS[rescue_mod.CALL[i]])
 
         # Sprayed ground gets its own droplet pattern and its own hue. Hue is
-        # per-cell, so this does not disturb the clash guarantee.
+        # per-cell, so this does not disturb the clash guarantee. Drawn
+        # before the squares (issue #106): it is ground, and a square on it
+        # clears it for the frame.
         frame_inks = bytearray(place.inks)
+        for cx, cy in self.spray.cells_in(self.here):
+            for dy, bits in enumerate(spray_mod.STIPPLE):
+                for dx in range(CELL):
+                    if bits & (0x80 >> dx):
+                        screen.plot(cx * CELL + dx, cy * CELL + dy)
+
+        # The squares (issue #106): the player's, then every fly's.
+        player_cells = set()
+        if not self.strobe:
+            player_cells = {c for c in sprites.ink_cells(figure, self.player.x,
+                                                          self.player.y)
+                            if 0 <= c[0] < COLS and 0 <= c[1] < PLAY_ROWS}
+            sprites.draw_square(screen, figure, self.player.x, self.player.y,
+                                player_cells)
+        if self.magnet and (self.frame // MAGNET_PULSE) % 2 == 0 \
+                and not self.strobe:
+            # **You, while the room knows where you are** (issue #100): a
+            # closed box round the figure with its margin cleared -- locked
+            # on -- eight frames in every sixteen for as long as the magnet
+            # runs. Shape, not colour: the FLASH bit was two yellow blocks
+            # with the figure cut out, a filled halo made a compact figure a
+            # blob, and the brackets of #84 were the pool's own noise on a
+            # lit pool. Drawing state on the frame counter, like the
+            # wingbeat; no attribute moves and the log cannot see it.
+            # Drawn after his own square, which would otherwise clear the
+            # line where it falls inside his ink's cells, and before the
+            # flies', which it loses pixels to as everything does (#106).
+            sprites.draw_box(screen, figure, self.player.x, self.player.y)
+        fly_cells = []
+        for cleg in place.swarm.clegs if not self.strobe else ():
+            if not (0 <= cleg.cx < COLS and 0 <= cleg.cy < PLAY_ROWS):
+                continue
+            # `--dark-clegs` (issue #91) keeps its meaning: an unlit fly
+            # clears nothing and writes nothing.
+            if not self.luminous and not field.reveals_at(cleg.cx, cleg.cy):
+                continue
+            cell = (cleg.cx, cleg.cy)
+            sprites.draw_square(screen, sprites.CLEG_FRAMES[cleg.wing],
+                                cleg.cx * CELL, cleg.cy * CELL, {cell})
+            fly_cells.append(cell)
         for cx, cy in self.call_cells:
             frame_inks[cy * COLS + cx] = GREEN
         for cx, cy in place.sign_cells:
@@ -2313,10 +2348,6 @@ class Session:
         if housing is not None:
             frame_inks[housing[1] * COLS + housing[0]] = WHITE
         for cx, cy in self.spray.cells_in(self.here):
-            for dy, bits in enumerate(spray_mod.STIPPLE):
-                for dx in range(CELL):
-                    if bits & (0x80 >> dx):
-                        screen.plot(cx * CELL + dx, cy * CELL + dy)
             frame_inks[cy * COLS + cx] = CYAN
 
         # Light decides brightness, contents decide hue. This overwrites every
@@ -2338,18 +2369,6 @@ class Session:
         # attribute writes on cells the sprites have just been drawn into;
         # the clash a red fly makes of a lit cell it stands in is accepted
         # for now.
-        if self.luminous and not self.strobe:
-            # **Red only where the cell is dark** (issue #98, Look and feel 3
-            # row 1). A lit or remembered cell already shows the fly by its
-            # shape, and the red there recoloured whatever it stood on -- a
-            # person's figure, a floor's stipple, HELP's L -- on every other
-            # frame, the tester counted. So the write is gated on the cell
-            # being DARK, the same test the tail's cells use below.
-            red = attr_byte(ink=RED, paper=BLACK, bright=True)
-            for cleg in place.swarm.clegs:
-                if 0 <= cleg.cx < COLS and 0 <= cleg.cy < PLAY_ROWS \
-                        and field.level_at(cleg.cx, cleg.cy) == lighting.DARK:
-                    screen.set_attr(cleg.cx, cleg.cy, red)
         for worker in self.rescue.tail:
             if worker.room != self.here:
                 continue
@@ -2367,12 +2386,16 @@ class Session:
         # the moments' flash so the bit rides on it. Overturns *colour never
         # tells an entity apart* -- #92 broke that first with the red fly --
         # and the vault says so.
-        if not self.strobe:
-            white = attr_byte(ink=WHITE, paper=BLACK, bright=True)
-            for cx, cy in sprites.cells_spanned(self.player.x, self.player.y,
-                                                len(figure)):
-                if 0 <= cx < COLS and 0 <= cy < PLAY_ROWS:
-                    screen.set_attr(cx, cy, white)
+        white = attr_byte(ink=WHITE, paper=BLACK, bright=True)
+        for cx, cy in player_cells:
+            screen.set_attr(cx, cy, white)
+        # **And the fly's red, everywhere, last** (issue #106): the #98 gate
+        # on the dark gave a fly in the light the light's colour, which was
+        # the brief's first sentence given away; its square holds only its
+        # own pixels now, so there is nothing for the red to recolour.
+        red = attr_byte(ink=RED, paper=BLACK, bright=True)
+        for cx, cy in fly_cells:
+            screen.set_attr(cx, cy, red)
         for cx, cy in self.flash_cells():
             screen.set_attr(cx, cy,
                             screen.get_attr(cx, cy) | moments_mod.FLASH_BIT)
