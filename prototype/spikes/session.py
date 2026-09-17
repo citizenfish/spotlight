@@ -388,11 +388,12 @@ class Session:
     """A run: the building, the people in it, the swarm, and how it ended."""
 
     def __init__(self, seed: int = DEFAULT_SEED,
-                 blood: int = BLOOD_FULL, lives: int = LIVES,
+                 blood: int | None = None, lives: int | None = None,
                  metrics: bool = False,
                  sound: bool = True, magnet: bool = True,
                  luminous: bool = True, trail: bool = False,
-                 strobe: bool = False) -> None:
+                 strobe: bool = False, building=None,
+                 start_room: int | None = None) -> None:
         self.seed = seed
         #: Two looks the user tried and ruled on (issue #91, then #92), both
         #: now the default. `luminous`: Clegs are drawn wherever they are,
@@ -406,8 +407,19 @@ class Session:
         #: the old looks back for comparison.
         self.luminous = luminous
         self.trail = trail
-        scene.validate()
-        self.building = scene.BUILDING
+        #: **A run takes a building** (issue #108). Left out, it is the one
+        #: `scene` shows, which is Level 3; given, it is whatever the driver
+        #: loaded -- another level, or one room of one on its own
+        #: (`Building.solo`). `start_room` starts the player in that room at
+        #: *its* start, so a room deep in a level can be played from its own
+        #: door. Everything below reads `self.building` and nothing reads
+        #: `scene`, and the same goes for the bots.
+        if building is None:
+            scene.validate()
+            building = scene.BUILDING
+        else:
+            building.validate()
+        self.building = building
 
         # Every random thing in the run is derived from the one seed, so a seed
         # names a run. The Clegs' temperaments and the searchlight's tour are
@@ -419,15 +431,36 @@ class Session:
         #: transition**: `draw` paints this room and no other, so stepping
         #: through a doorway flicks the view. Nothing else about a room change
         #: is special-cased anywhere in the game.
-        self.here, self.start_room = self.building.start[0], self.building.start[0]
-        self.player = Player(*self.building.start[1])
+        if start_room is None:
+            start_room = self.building.start[0]
+        elif self.building.rooms[start_room].player_start is None:
+            raise ValueError(
+                f"{self.building.rooms[start_room].name} has no start")
+        self.here = self.start_room = start_room
+        self.player = Player(*self.building.rooms[start_room].player_start)
+        #: **Where this run is**, for the ending screen and the report (issue
+        #: #109): "Level 3 Rescue", and the room after it when the run began
+        #: somewhere other than the level's own start room, or is one room
+        #: on its own. Empty for a building built by hand, which has no level
+        #: to name.
+        self.where = ""
+        if self.building.level is not None:
+            self.where = f"Level {self.building.level} {self.building.title}"
+            if start_room != self.building.start[0] or len(self.building) == 1:
+                self.where += f", {self.building.rooms[start_room].name}"
         # No trail: a memory of nought, so the cell shows the light's level
         # while the light is on it and is not topped up at all -- the frame
         # after, it is whatever the fade already had there.
         self.glow = sources.Glow() if trail else sources.Glow(memory=0)
         self.glow.x, self.glow.y = self.player.cx, self.player.cy
-        self.cone = (sources.Cone(reach=7) if trail
-                     else sources.Cone(reach=7, memory=0))
+        #: **The level authors the budget** (issue #115): starting blood,
+        #: spray charges, the torch's power and lives are the building's
+        #: `Budget`, and `blood` and `lives` given to the constructor override
+        #: it (a test that wants ninety-nine lives still gets them). Level 3's
+        #: budget is the constants, so nothing measured moves.
+        budget = self.building.budget
+        self.cone = (sources.Cone(reach=7, power=budget.torch) if trail
+                     else sources.Cone(reach=7, power=budget.torch, memory=0))
         self.cone.x = self.player.cx
         self.cone.y = self.player.cy
         self.cone.facing = self.player.facing
@@ -453,7 +486,7 @@ class Session:
         #: 0 across every run of both playtest agents. If swaps ever start
         #: happening, this is the decision to revisit.
         self.cone_full = self.cone.power
-        self.spray = spray_mod.Spray(charges=5)
+        self.spray = spray_mod.Spray(charges=budget.spray)
 
         # One `Place` per room. Cleg seeds run on across the building rather
         # than restarting per room, so no two flies in the building share a
@@ -475,9 +508,9 @@ class Session:
         #: the point of room B.
         self.searchlights = [p.roaming for p in self.places
                              if p.roaming is not None]
-        self.blood = blood
-        self.blood_full = blood
-        self.lives = lives
+        self.blood = blood if blood is not None else budget.blood
+        self.blood_full = self.blood
+        self.lives = lives if lives is not None else budget.lives
         self.sonar = buzz.Sonar()
         #: **What the speaker actually did this frame, not what was wanted**
         #: (issue #54). It used to mean *the sonar's counter came due*, and the

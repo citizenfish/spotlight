@@ -57,7 +57,7 @@ import time
 
 from spotlight.core.screen import Screen
 
-from . import bots, report, session as session_mod, sounds
+from . import bots, levels, report, session as session_mod, sounds
 
 #: Frames a run is allowed before the driver stops it. 9000 is three minutes at
 #: 50Hz, comfortably past the 144 seconds it currently takes for the last
@@ -73,7 +73,8 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           frames: int = DEFAULT_FRAMES, draw: bool = False,
           screen: Screen | None = None, on_frame=None,
           metrics: bool = True, on_sound=None,
-          magnet: bool = True) -> session_mod.Session:
+          magnet: bool = True, building=None,
+          start_room: int | None = None) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -108,7 +109,8 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     # is played, not measured, and carries none of it; this is the thing that
     # measures, so every run it drives is priced. It costs a 704-byte compare
     # a frame, which three frames in four settle on the first instruction.
-    run = session_mod.Session(seed=seed, metrics=metrics, magnet=magnet)
+    run = session_mod.Session(seed=seed, metrics=metrics, magnet=magnet,
+                              building=building, start_room=start_room)
     if draw and screen is None:
         screen = Screen()
     if draw:
@@ -375,17 +377,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gallery", default=None,
                         help="write the look-and-feel sheets into this "
                              "directory and stop; runs no seeds")
+    levels.add_flags(parser)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     try:
         scales = numbers(args.scales, "--scales") if args.scales else None
         snap_at = numbers(args.snap, "--snap") if args.snap else []
+        building, start_room = levels.pick(args.level, args.room, args.solo)
     except ValueError as bad:
         print(bad, file=sys.stderr)
         return 2
 
     if args.gallery is not None:
-        return gallery(args.gallery, scales)
+        return gallery(args.gallery, scales, args.level)
 
     if args.bank is not None:
         return bank(args.bank)
@@ -406,10 +410,12 @@ def main(argv: list[str] | None = None) -> int:
         recorder = _recorder() if args.wav else None
         run = drive(bot, seed=seed, frames=args.frames, draw=draw,
                     magnet=args.magnet,
-                    on_frame=snapper, on_sound=recorder)
+                    on_frame=snapper, on_sound=recorder,
+                    building=building, start_room=start_room)
         extra = measured(bot)
         if args.repeat:
-            again = drive(_bot(args, seed), seed=seed, frames=args.frames)
+            again = drive(_bot(args, seed), seed=seed, frames=args.frames,
+                          building=building, start_room=start_room)
             if report.results(again, name)["metrics"] != \
                     report.results(run, name)["metrics"]:
                 print(f"seed {seed} did not reproduce", file=sys.stderr)
@@ -494,7 +500,8 @@ def bank(out_dir: str) -> int:
     return 0
 
 
-def gallery(out_dir: str, scales=None) -> int:
+def gallery(out_dir: str, scales=None,
+            level: int = levels.DEFAULT_LEVEL) -> int:
     """Write the look-and-feel sheets and print where they went.
 
     It runs no seeds and writes no report: the gallery is not a measurement of
@@ -506,7 +513,8 @@ def gallery(out_dir: str, scales=None) -> int:
     """
     from . import spike_gallery
 
-    paths = spike_gallery.write(out_dir, scales or spike_snap_scales())
+    paths = spike_gallery.write(out_dir, scales or spike_snap_scales(),
+                                level=level)
     print(f"\ngallery: {len(paths)} files in {out_dir}")
     for path in paths:
         print(f"  -> {path}")

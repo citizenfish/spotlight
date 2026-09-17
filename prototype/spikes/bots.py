@@ -33,10 +33,12 @@ Everything is integer and every random choice comes from the same xorshift the
 Z80 would use, so a seed names a run.
 """
 
+import functools
+
 from spotlight.core.constants import CELL, COLS
 
 from . import (
-    building, lighting, rescue as rescue_mod, scene, sources,
+    building, lighting, rescue as rescue_mod, sources,
     spray as spray_mod,
 )
 from .layout import PLAY_ROWS
@@ -50,8 +52,12 @@ from .session import Intent
 STUCK_FRAMES = 25
 
 
-def standable(room: int, cx: int, cy: int) -> bool:
+def standable(building, room: int, cx: int, cy: int) -> bool:
     """Can a person stand with their feet in this cell of this room?
+
+    `building` is the one the run is in (issue #108): a bot reads it from the
+    run and never from `scene`, so the same bot plays any level the driver
+    hands it, and a room on its own as readily as the building it came from.
 
     A person is 8x16, so they occupy this cell **and the one above it**, and a
     route that ignores the head walks the bot into a lintel. `cy` is the feet
@@ -66,11 +72,12 @@ def standable(room: int, cx: int, cy: int) -> bool:
     """
     if not (0 <= cx < COLS and 1 <= cy < PLAY_ROWS):
         return False
-    solid = scene.BUILDING[room].is_solid
+    solid = building[room].is_solid
     return not solid(cx, cy) and not solid(cx, cy - 1)
 
 
-def stand_cells(room: int, cx: int, cy: int) -> list[tuple[int, int, int]]:
+def stand_cells(building, room: int, cx: int, cy: int
+                ) -> list[tuple[int, int, int]]:
     """Where to stand so that the sprite overlaps the cell (room, cx, cy).
 
     The exit is a door in a wall and the workers are 8x16 like the player, so
@@ -78,10 +85,10 @@ def stand_cells(room: int, cx: int, cy: int) -> list[tuple[int, int, int]]:
     and the router takes whichever is nearer.
     """
     return [(room, x, y) for x, y in ((cx, cy), (cx, cy + 1))
-            if standable(room, x, y)]
+            if standable(building, room, x, y)]
 
 
-def neighbours(place, passable=standable):
+def neighbours(building, place, passable=None):
     """The cells a person can step to from here, doorways included.
 
     **Bots may path; the game may not.** This is harness. Clegs must never gain
@@ -94,6 +101,8 @@ def neighbours(place, passable=standable):
     routes over. The Scout passes its own map instead, so that it can only walk
     where it has been able to see (issue #24).
     """
+    if passable is None:
+        passable = functools.partial(standable, building)
     room, cx, cy = place
     out = []
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -101,13 +110,13 @@ def neighbours(place, passable=standable):
         if passable(room, nx, ny):
             out.append((room, nx, ny))
             continue
-        step = scene.BUILDING.step_across(room, nx, ny)
+        step = building.step_across(room, nx, ny)
         if step is not None and passable(*step):
             out.append(step)
     return out
 
 
-def route(start, goals, passable=standable) -> list:
+def route(building, start, goals, passable=None) -> list:
     """Breadth-first from `start` to the nearest goal. Cells, not pixels.
 
     Plain BFS over `(room, cx, cy)`, four-connected, crossing doorways. A room
@@ -122,7 +131,7 @@ def route(start, goals, passable=standable) -> list:
     while queue:
         nxt = []
         for cell in queue:
-            for nb in neighbours(cell, passable):
+            for nb in neighbours(building, cell, passable):
                 if nb in seen:
                     continue
                 seen[nb] = cell
@@ -255,11 +264,6 @@ class Wanderer(Bot):
 class Walker(Bot):
     """Shared machinery for the bots that go somewhere on purpose."""
 
-    #: What this bot treats as open ground. The room's real geometry for a bot
-    #: that has been told what the building looks like; the Scout's own map for
-    #: one that has to see it first.
-    _passable = staticmethod(standable)
-
     def __init__(self, seed: int = 1, light: bool = False) -> None:
         super().__init__(seed)
         self.light = light
@@ -267,23 +271,53 @@ class Walker(Bot):
         self._goals: tuple = ()
         self._stuck = 0
         self._was = (0, 0)
+        #: Where the figure was the frame before last, with the path it had
+        #: then, and how many frames running it has been back there (issue
+        #: #112): a figure a nudge carries one pixel away and back again on
+        #: the same path is wedged, whatever `_stuck` says. The path is part
+        #: of it so that a bot which turns round because its route changed --
+        #: the Scout does, as its map grows -- is not mistaken for one.
+        self._last = self._before = ((0, 0), ())
+        self._bounces = 0
+        #: The building the run is in, taken from the run each frame (issue
+        #: #108) so that nothing here reads `scene`.
+        self.building = None
+
+    def _passable(self, room: int, cx: int, cy: int) -> bool:
+        """What this bot treats as open ground. The room's real geometry for a
+        bot that has been told what the building looks like; the Scout's own
+        map for one that has to see it first."""
+        return standable(self.building, room, cx, cy)
+
+    def _route(self, start, goals) -> list:
+        return route(self.building, start, goals, self._passable)
 
     def _walk(self, run, goals) -> Intent:
         """Head for the nearest of `goals`, as cells. Returns keys, not moves."""
+        self.building = run.building
         goals = tuple(sorted(goals))
         here = (run.here, run.player.cx, run.player.cy)
         if goals != self._goals:
-            self._goals, self._path = goals, route(here, goals, self._passable)
+            self._goals, self._path = goals, self._route(here, goals)
         if not goals:
             return Intent()
 
         at = (run.here, run.player.x, run.player.y)
         self._stuck = self._stuck + 1 if at == self._was else 0
-        self._was = at
+        # Back where it was two frames ago on the same path, having been
+        # somewhere else in between; and once it is, standing still keeps
+        # the count going, so the other key gets its turn. A figure that
+        # merely stood still for two frames -- a Scout with nothing to walk
+        # to -- is not bouncing, and `_stuck` is the count for that.
+        now = (at, tuple(self._path))
+        bouncing = (now == self._before
+                    and (at != self._was or self._bounces > 0))
+        self._bounces = self._bounces + 1 if bouncing else 0
+        self._was, self._before, self._last = at, self._last, now
         if self._stuck > STUCK_FRAMES:
             # Wedged. Re-route from where we actually are, and if that is the
             # same answer, take a random step to shake loose.
-            self._path = route(here, goals, self._passable)
+            self._path = self._route(here, goals)
             self._stuck = 0
             if not self._path:
                 r = self._random()
@@ -298,9 +332,9 @@ class Walker(Bot):
             # line up with the gap, and the room changes underneath you once
             # you have cleared the threshold. There is no "go through the door"
             # action, here or anywhere else.
-            door = scene.BUILDING[run.here].doorway_to(self._path[0][0])
+            door = run.building[run.here].doorway_to(self._path[0][0])
             if door is None:
-                self._path = route(here, goals, self._passable)
+                self._path = self._route(here, goals)
             else:
                 want = self._path[0][2]
                 dy = (want > run.player.cy) - (want < run.player.cy)
@@ -308,18 +342,36 @@ class Walker(Bot):
                               dy=dy,
                               torch=self._torch(run))
         if not self._path:
-            self._path = route(here, goals, self._passable)
+            self._path = self._route(here, goals)
         if not self._path or self._path[0][0] != run.here:
             return Intent(torch=self._torch(run))
 
         tx, ty = stand_pixel(*self._path[0][1:])
         dx = (tx > run.player.x) - (tx < run.player.x)
         dy = (ty > run.player.y) - (ty < run.player.y)
+        if dx and dy and self._bounces:
+            # **Wedged on a diagonal: let go of one key** (issue #112). The
+            # listener could arrive at an exit door one pixel off its rows
+            # pressing up-and-left, and stand there to the frame limit: the
+            # horizontal step is refused by the wall under the door and
+            # nudged a pixel up, the vertical step is refused and nudged a
+            # pixel back, and `Player.move` resolves both inside one frame,
+            # so the figure is back where it was two frames ago, with the
+            # same path, for ever. `_stuck` never sees it -- the figure moves
+            # every frame. A person lets go of one key; so does this. The
+            # axis with the further to go first, the other one the frame
+            # after, alternating until something moves. Keys only, as ever,
+            # and no change to the game's own movement.
+            far_x = abs(tx - run.player.x) >= abs(ty - run.player.y)
+            if (self._bounces % 2 == 1) == far_x:
+                dy = 0
+            else:
+                dx = 0
         return Intent(dx=dx, dy=dy, torch=self._torch(run))
 
-    def _exit_cells(self) -> list[tuple[int, int, int]]:
-        room, cell = scene.BUILDING.exit
-        return stand_cells(room, *cell)
+    def _exit_cells(self, run) -> list[tuple[int, int, int]]:
+        room, cell = run.building.exit
+        return stand_cells(run.building, room, *cell)
 
     def _leave(self, run) -> Intent:
         """Walk to the door, and then keep walking into it until it lets go.
@@ -336,7 +388,7 @@ class Walker(Bot):
             dx, dy = run.exit_facing
             return Intent(dx=dx, dy=dy,
                           torch=self._torch(run))
-        return self._walk(run, self._exit_cells())
+        return self._walk(run, self._exit_cells(run))
 
 
 class Listener(Walker):
@@ -388,7 +440,7 @@ class Listener(Walker):
         # what makes this bot the measure of whether the door is findable at
         # all -- take the rule away and it never leaves the near room.
         if not run.shouting and run.door_calls and self._heard is None:
-            for door in scene.BUILDING[run.here].doorways:
+            for door in run.building[run.here].doorways:
                 if run.rescue.calling(run.frame, door.to):
                     self._doorway = (door.to, door.landing, door.middle)
                     break
@@ -396,7 +448,7 @@ class Listener(Walker):
         if self._target is not None and self._target.state != rescue_mod.WAITING:
             self._target, self._heard = None, None
         if self._heard is not None:
-            return self._walk(run, stand_cells(*self._heard))
+            return self._walk(run, stand_cells(run.building, *self._heard))
 
         # **The doorway comes before the way out**, and the order is the whole
         # of what this bot measures. A call over a doorway is the only bearing a
@@ -409,7 +461,8 @@ class Listener(Walker):
             if self._doorway[0] == run.here:
                 self._doorway = None
             else:
-                return self._walk(run, stand_cells(*self._doorway))
+                return self._walk(run, stand_cells(run.building,
+                                                   *self._doorway))
 
         if self._nobody_left(run):
             # Nobody living is still in there. Walk out -- which hands over
@@ -419,7 +472,7 @@ class Listener(Walker):
             # Nothing left to hear from here, so take who you have to the door.
             # Touching it banks them and the run carries on, so this is a trip
             # rather than an ending, and the next shout brings it back in.
-            return self._walk(run, self._exit_cells())
+            return self._walk(run, self._exit_cells(run))
         # Nobody has called yet, or the last caller is accounted for. Stand
         # still rather than wander: this bot's whole point is that it acts only
         # on what the room told it.
@@ -481,6 +534,7 @@ class Scout(Listener):
         shows, so this is exactly the ground a player could have drawn a map of.
         """
         field = run.place.field
+        self.building = run.building
         here = run.here
         for cy in range(PLAY_ROWS):
             for cx in range(COLS):
@@ -493,7 +547,7 @@ class Scout(Listener):
         a route through."""
         return ((room, cx, cy) in self.seen
                 and (room, cx, cy - 1) in self.seen
-                and standable(room, cx, cy))
+                and standable(self.building, room, cx, cy))
 
     def _unknown_from(self, place) -> tuple[int, int] | None:
         """Which way the map runs out from here, if it does.
@@ -508,9 +562,9 @@ class Scout(Listener):
         room, cx, cy = place
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nb = (room, cx + dx, cy + dy)
-            if not standable(*nb):
-                step = scene.BUILDING.step_across(room, cx + dx, cy + dy)
-                if step is None or not standable(*step):
+            if not standable(self.building, *nb):
+                step = self.building.step_across(room, cx + dx, cy + dy)
+                if step is None or not standable(self.building, *step):
                     continue
                 nb = step
             if nb not in self.seen:
@@ -532,7 +586,8 @@ class Scout(Listener):
         """Head for the goal if the map reaches it, and for the edge of the map
         if it does not."""
         here = (run.here, run.player.cx, run.player.cy)
-        reachable = bool(goals) and bool(route(here, goals, self._passable))
+        self.building = run.building
+        reachable = bool(goals) and bool(self._route(here, goals))
         self.exploring = not reachable
         if reachable:
             return super()._walk(run, goals)
@@ -593,7 +648,8 @@ class Oracle(Walker):
     def intent(self, run) -> Intent:
         waiting = run.rescue.alive_waiting()
         if waiting:
-            goals = [c for w in waiting for c in stand_cells(*worker_cell(w))]
+            goals = [c for w in waiting
+                     for c in stand_cells(run.building, *worker_cell(w))]
             return self._walk(run, goals)
         return self._leave(run)
 
@@ -627,7 +683,8 @@ class Undertaker(Oracle):
         if body is not None and not run.spray.empty:
             if self._would_cover(run, body):
                 return Intent(spray=True, torch=self._torch(run))
-            return self._walk(run, stand_cells(body.room, *body.cell()))
+            return self._walk(run, stand_cells(run.building, body.room,
+                                               *body.cell()))
         return super().intent(run)
 
     @staticmethod
@@ -704,8 +761,9 @@ class Crosser(Walker):
     #: that arriving is not the same thing as being stopped by a wall. Twenty-
     #: seven cells is 216 pixels, which at one pixel a frame is 4.3 seconds:
     #: about the five the target asks for, and well short of anything that
-    #: could saturate.
-    ROUTE = ((scene.NEAR, 2, 14), (scene.NEAR, 29, 14))
+    #: could saturate. Room 0 is the near room of Level 3; the route is a
+    #: measurement of that room and means nothing in another, so pass one.
+    ROUTE = ((0, 2, 14), (0, 29, 14))
 
     def __init__(self, seed: int = 1, light: bool = False, route=None) -> None:
         super().__init__(seed, light)
@@ -756,7 +814,7 @@ class Crosser(Walker):
             # The first leg does not count: it starts wherever the player
             # happens to begin rather than at an end of the route.
             self._start(run.frame, bites)
-        return self._walk(run, stand_cells(*self._target()))
+        return self._walk(run, stand_cells(run.building, *self._target()))
 
     def _start(self, frame: int, bites: int) -> None:
         self._started, self._at_start = max(1, frame), bites

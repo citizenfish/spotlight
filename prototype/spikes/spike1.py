@@ -80,8 +80,8 @@ from spotlight.frontend import display as display_mod
 from spotlight.frontend.display import Display
 
 from . import (
-    lighting, session as session_mod, screens, sounds, sources, spike_sound,
-    tune,
+    levels, lighting, session as session_mod, screens, sounds, sources,
+    spike_sound, tune,
 )
 from .session import Intent, Session
 
@@ -264,8 +264,13 @@ class Shell:
                  debug: bool = False,
                  seed: int = session_mod.DEFAULT_SEED,
                  luminous: bool = True, trail: bool = False,
-                 strobe: bool = True) -> None:
+                 strobe: bool = True, building=None,
+                 start_room: int | None = None) -> None:
         self.screen = screen
+        #: `--level` and `--room` (issue #109): the building every run in this
+        #: sitting plays and the room it starts in. None is the scene's.
+        self.building = building
+        self.start_room = start_room
         #: The two look flags (issue #91), kept for the sitting so a restart
         #: keeps them.
         self.luminous, self.trail = luminous, trail
@@ -359,7 +364,8 @@ class Shell:
         now. The tune is still in `tune.py` for the day it comes back.
         """
         self.run = Session(seed=self.seed, luminous=self.luminous,
-                           trail=self.trail, strobe=self.strobe)
+                           trail=self.trail, strobe=self.strobe,
+                           building=self.building, start_room=self.start_room)
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
         self._torch = self._spray = False
@@ -463,7 +469,7 @@ class Shell:
         run = self.run
         screens.draw_ending(self.screen, session_mod.ENDING_TEXT[run.over],
                             run.rescued, run.lost, run.inside, run.total,
-                            run.seconds)
+                            run.seconds, where=run.where)
 
 
 #: `--border COLOUR` (issue #75): the Spectrum's BORDER, as a margin round the
@@ -501,6 +507,7 @@ def main(argv: list[str] | None = None) -> int:
     trail = TRAIL_FLAG in argv
     try:
         border = border_from(argv)
+        building, start_room = levels.picked(argv)
     except ValueError as err:
         print(err, file=sys.stderr)
         return 2
@@ -513,7 +520,8 @@ def main(argv: list[str] | None = None) -> int:
         speaker = spike_sound.Speaker()
         speaker.open()
         shell = Shell(screen, speaker=speaker, debug=debug,
-                      luminous=luminous, trail=trail)
+                      luminous=luminous, trail=trail,
+                      building=building, start_room=start_room)
 
         running = True
         while running:

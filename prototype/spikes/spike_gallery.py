@@ -68,7 +68,9 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, attr_byte
 
-from . import bots, floor, lighting, moments, player as player_mod, sources
+from . import (
+    bots, floor, levels, lighting, moments, player as player_mod, sources,
+)
 from . import screens, scene, sprites
 from . import session as session_mod, tiles, walk
 from . import spike_snap
@@ -649,29 +651,54 @@ def enter(run, index: int):
     stood in the doorway -- which is the same convenience the doorway tests use
     -- and then *walks*, and every rule about arriving somewhere runs.
 
-    Only rooms with a door straight from the one the run starts in can be
-    reached this way. The playtest building is two rooms and that is enough;
-    a third room reached only through a second would need a route, and the day
-    that exists is the day to write one.
+    A room reached only through another is reached through it (issue #109,
+    for the three-room levels): the rooms are searched for the shortest chain
+    of doorways and the player is walked through each in turn.
     """
     if run.here == index:
         return run
-    door = scene.BUILDING[run.here].doorway_to(index)
-    if door is None:
+    building = run.building
+    # Breadth-first over rooms, the way the bots go over cells.
+    came = {run.here: None}
+    queue = [run.here]
+    while queue and index not in came:
+        nxt = []
+        for room in queue:
+            for door in building[room].doorways:
+                if door.to not in came:
+                    came[door.to] = room
+                    nxt.append(door.to)
+        queue = nxt
+    if index not in came:
         raise ValueError(
-            f"no doorway from room {run.here} to room {index}; "
+            f"no doorway leads from room {run.here} to room {index}; "
             "the gallery cannot walk somewhere it cannot walk")
-    run.player.x = door.column * CELL
-    run.player.y = (door.middle - 1) * CELL
-    facing = 1 if door.side == EAST else -1
-    for _ in range(32):
-        run.step(session_mod.Intent(dx=facing))
-        if run.here == index:
-            return run
-    raise RuntimeError(f"the player would not walk into room {index}")
+    chain = [index]
+    while came[chain[-1]] is not None:
+        chain.append(came[chain[-1]])
+    for step in reversed(chain[:-1]):
+        door = building[run.here].doorway_to(step)
+        run.player.x = door.column * CELL
+        run.player.y = (door.middle - 1) * CELL
+        facing = 1 if door.side == EAST else -1
+        for _ in range(32):
+            run.step(session_mod.Intent(dx=facing))
+            if run.here == step:
+                break
+        else:
+            raise RuntimeError(f"the player would not walk into room {step}")
+    return run
 
 
-def lit_room(index: int) -> tuple:
+def gallery_session(level: int = levels.DEFAULT_LEVEL) -> session_mod.Session:
+    """The run every room picture is taken from: the gallery seed, on `level`
+    (issue #109). Level 3's building is the scene's own, so the default is the
+    session the gallery always took."""
+    return session_mod.Session(seed=GALLERY_SEED,
+                               building=scene.building(level))
+
+
+def lit_room(index: int, level: int = levels.DEFAULT_LEVEL) -> tuple:
     """One room fully revealed, as `(run, screen)`.
 
     The run comes back as well as the picture because what is *painted* on a
@@ -680,7 +707,7 @@ def lit_room(index: int) -> tuple:
     cells were painted over. Nothing else needs it, which is why `room_screen`
     keeps the simpler signature.
     """
-    run = session_mod.Session(seed=GALLERY_SEED)
+    run = gallery_session(level)
     enter(run, index)
     screen = Screen()
     # The debug reveal, held: the room and everybody in it, which is what a
@@ -692,7 +719,8 @@ def lit_room(index: int) -> tuple:
 
 
 def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
-                stride: int | None = None, torch: bool = True) -> Screen:
+                stride: int | None = None, torch: bool = True,
+                level: int = levels.DEFAULT_LEVEL) -> Screen:
     """One room, drawn: fully revealed, or as it looks after `frames` of play.
 
     A fresh session each time. Sharing one would mean the second picture was of
@@ -719,8 +747,8 @@ def room_screen(index: int, lit: bool, frames: int = PLAYED_FRAMES,
     the time and a lit one is what they see under the cone for a moment.
     """
     if lit:
-        return lit_room(index)[1]
-    run = session_mod.Session(seed=GALLERY_SEED)
+        return lit_room(index, level)[1]
+    run = gallery_session(level)
     enter(run, index)
     screen = Screen()
 
@@ -786,7 +814,8 @@ SWAP_STEPS = 24
 SWAP_SETTLE = 200
 
 
-def swapped_room(index: int = scene.NEAR) -> Screen:
+def swapped_room(index: int = scene.NEAR,
+                 level: int = levels.DEFAULT_LEVEL) -> Screen:
     """A spotlight **burning on the floor**, which no bot has ever produced.
 
     `LAMP_ON` cannot be photographed from a played run and that is a fact about
@@ -810,7 +839,7 @@ def swapped_room(index: int = scene.NEAR) -> Screen:
     than no sheet at all -- it is the one image on it nobody can check against
     a run.
     """
-    run = session_mod.Session(seed=GALLERY_SEED)
+    run = gallery_session(level)
     enter(run, index)
     lights = [l for l in run.kit.floor if l.room == index]
     if not lights:
@@ -847,7 +876,8 @@ FREE_SETTLE = 20
 FREE_WALK = 10
 
 
-def freed_room(index: int = scene.NEAR) -> Screen:
+def freed_room(index: int = scene.NEAR,
+               level: int = levels.DEFAULT_LEVEL) -> Screen:
     """A moment's flash, on a played frame, set up the way a swap is.
 
     Issue #52. A flash is the one thing on screen that a still cannot show by
@@ -867,7 +897,7 @@ def freed_room(index: int = scene.NEAR) -> Screen:
     happen, for the same reason `swapped_room` does: a sheet that quietly showed
     an ordinary frame would be the one image on it nobody could check.
     """
-    run = session_mod.Session(seed=GALLERY_SEED)
+    run = gallery_session(level)
     enter(run, index)
     for _ in range(FREE_SETTLE):
         run.step()
@@ -914,7 +944,8 @@ BODY_LIMIT = 6000
 BODY_GAP = 2
 
 
-def body_room(index: int = scene.NEAR) -> Screen:
+def body_room(index: int = scene.NEAR,
+              level: int = levels.DEFAULT_LEVEL) -> Screen:
     """**A body in a played room, beside somebody standing up** (issue #59).
 
     The sheet is not evidence, and this picture exists because it was not. BODY
@@ -942,7 +973,7 @@ def body_room(index: int = scene.NEAR) -> Screen:
     `swapped_room` does: a sheet that quietly showed an ordinary frame would be
     the one image on it nobody could check.
     """
-    run = session_mod.Session(seed=GALLERY_SEED)
+    run = gallery_session(level)
     enter(run, index)
     # The statue, and with the torch off: it saves nobody, so the deaths happen
     # on the level's own clock, and it spends no light before the frame that
@@ -960,7 +991,7 @@ def body_room(index: int = scene.NEAR) -> Screen:
             f"nobody died in {BODY_LIMIT} frames of the gallery run, so the "
             f"body would be photographed by being drawn on an empty room")
     body = bodies[0]
-    room = scene.BUILDING[index]
+    room = run.building[index]
     cells = sprites.body_cells(*body.cell(), room.is_solid)
     stand = _standing_room(room, cells)
     if stand is None:
@@ -1023,12 +1054,112 @@ def slug(name: str) -> str:
 
 # --- the whole gallery ------------------------------------------------------
 
-def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
+# --- a level's rooms, three ways (issue #114) ---------------------------------
+
+def level_session(level: int, index: int,
+                  strobe: bool = False) -> session_mod.Session:
+    """A fresh run of `level` started in room `index`, at its own start.
+
+    Started there rather than walked there (`enter`): a room three doors from
+    the exit costs nothing, and the picture is of the room as a player who
+    began there would find it, which is what the level pictures are for.
+    """
+    return session_mod.Session(seed=GALLERY_SEED, sound=False, strobe=strobe,
+                               building=scene.building(level),
+                               start_room=index)
+
+
+def level_lit(level: int, index: int) -> Screen:
+    """The room whole, under the held floodlight: everybody shown."""
+    run = level_session(level, index)
+    run.place.floodlight.hold(True)
+    run.step()
+    screen = Screen()
+    run.draw(screen)
+    return screen
+
+
+def level_flash(level: int, index: int) -> Screen:
+    """The opening strobe's one lit frame: the people, not the flies, and
+    the strip black -- what a player is given to memorise."""
+    run = level_session(level, index, strobe=True)
+    for _ in range(session_mod.OPENING_BLACK + 1):
+        run.step()
+    assert run._flashing, "not on a flash frame"
+    screen = Screen()
+    run.draw(screen)
+    return screen
+
+
+def level_seen(level: int, index: int) -> Screen:
+    """Frame one as the player has it: the glow, the fixed lights, the sign,
+    the housing. The picture that shows where a room's light falls."""
+    run = level_session(level, index)
+    run.step()
+    screen = Screen()
+    run.draw(screen)
+    return screen
+
+
+LEVEL_WAYS = (("lit", level_lit), ("flash", level_flash), ("seen", level_seen))
+
+
+def write_level(out_dir: str, level: int,
+                scales=spike_snap.DEFAULT_SCALES) -> list[str]:
+    """Every room of `level` three ways, and the level as a plan strip.
+
+    `N-M-lit`, `N-M-flash` and `N-M-seen` at each scale, rooms numbered from
+    one in chain order as the vault numbers them; then `N-plan_x2.png`, the
+    lit rooms side by side with a one-pixel gutter. Returns the paths.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    paths: list[str] = []
+    lit_rooms: list[Screen] = []
+    for index in range(len(scene.building(level))):
+        for kind, draw in LEVEL_WAYS:
+            screen = draw(level, index)
+            paths += spike_snap.save_scales(
+                screen, os.path.join(out_dir, f"{level}-{index + 1}-{kind}"),
+                scales)
+            if kind == "lit":
+                lit_rooms.append(screen)
+    paths.append(spike_snap.save_strip(
+        lit_rooms, os.path.join(out_dir, f"{level}-plan_x2.png")))
+    return paths
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m spikes.spike_gallery --level N [--out DIR]`: the level's
+    rooms three ways. The whole gallery is still the driver's `--gallery`."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Draw every room of a level: lit, the strobe's flash, "
+                    "and frame one as the player sees it, plus a plan strip.")
+    parser.add_argument("--level", type=int, default=levels.DEFAULT_LEVEL)
+    parser.add_argument("--out", default="gallery")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        levels.pick(args.level)
+    except ValueError as bad:
+        print(bad, file=sys.stderr)
+        return 2
+    for path in write_level(args.out, args.level):
+        print(f"  -> {path}")
+    return 0
+
+
+def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES,
+          level: int = levels.DEFAULT_LEVEL) -> list[str]:
     """Write every sheet into `out_dir`. Returns the paths, in order written.
 
     The order is the order somebody should look at them in: the screen the
     player sees first, the screen they see last, the cast, then the rooms.
+    The rooms are `level`'s (issue #109); the cast is the same on every level.
     """
+    building = scene.building(level)
+    near = building.start[0]
     os.makedirs(out_dir, exist_ok=True)
     paths: list[str] = []
 
@@ -1070,8 +1201,9 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
     draw_furniture_sheet(furniture_screen)
     sheet("furniture", furniture_screen)
 
-    for index, room in enumerate(scene.BUILDING.rooms):
-        sheet(f"room-{slug(room.name)}-lit", room_screen(index, lit=True))
+    for index, room in enumerate(building.rooms):
+        sheet(f"room-{slug(room.name)}-lit",
+              room_screen(index, lit=True, level=level))
         # **The same played instant four times, with every walker on each
         # stride of the cycle in turn** (issues #60 and #72), so the walk can
         # be judged where a figure is actually seen -- on the stipple, at the
@@ -1080,26 +1212,36 @@ def write(out_dir: str, scales=spike_snap.DEFAULT_SCALES) -> list[str]:
         # are the walk.
         for stride in range(walk.STRIDES):
             sheet(f"room-{slug(room.name)}-played-{stride}",
-                  room_screen(index, lit=False, stride=stride))
+                  room_screen(index, lit=False, stride=stride, level=level))
     # **The frame the game is played in** (issue #62): the near room at the
     # same played instant with the torch off, which is where the remembered
     # walls are seen and where they were never photographed before. Feet as
     # the game had them -- the walk is judged on the pair above, not here.
-    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-torch-off",
-          room_screen(scene.NEAR, lit=False, torch=False))
+    sheet(f"room-{slug(building[near].name)}-torch-off",
+          room_screen(near, lit=False, torch=False, level=level))
     # The one thing on the sprite sheet that a played frame cannot otherwise
     # show: a spotlight burning where somebody put it down.
-    sheet(f"room-{slug(scene.BUILDING[scene.NEAR].name)}-swapped",
-          swapped_room(scene.NEAR))
+    sheet(f"room-{slug(building[near].name)}-swapped",
+          swapped_room(near, level))
     # A moment's flash, in both halves of the cycle (issue #52). A still can
     # only ever show one half, and a reviewer given one half of a flash reads it
     # as a cell that is simply the wrong colour.
-    freed = freed_room(scene.NEAR)
-    near = slug(scene.BUILDING[scene.NEAR].name)
-    sheet(f"room-{near}-freed", freed)
-    sheet(f"room-{near}-freed-flashed", freed, flashing=True)
+    freed = freed_room(near, level)
+    near_slug = slug(building[near].name)
+    sheet(f"room-{near_slug}-freed", freed)
+    sheet(f"room-{near_slug}-freed-flashed", freed, flashing=True)
     # **A body, in a played room, beside somebody standing up** (issue #59).
     # The sprite sheet said the body read for three rounds and the played
     # screen said otherwise, so this is the picture a redraw is judged on.
-    sheet(f"room-{near}-body", body_room(scene.NEAR))
+    sheet(f"room-{near_slug}-body", body_room(near, level))
+    # **Every level's rooms, three ways** (issue #114): lit, the strobe's
+    # flash, and frame one as the player has it, then the plan strip. All
+    # the levels there are, not only the one the rooms above were taken
+    # from, because this is the one command a reviewer runs.
+    for number in levels.levels():
+        paths += write_level(out_dir, number, scales)
     return paths
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

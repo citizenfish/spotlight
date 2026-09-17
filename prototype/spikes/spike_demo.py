@@ -11,7 +11,9 @@ same `Shell.key` and `Shell.frame` -- so what is on screen is the game and
 not a rendering of it. On the title it presses `S` after a few seconds; on an
 ending screen it reads the tally for a few seconds and presses `SPACE`, with
 the next seed, so the loop never shows the same run twice. `ESC` or closing
-the window stops it.
+the window stops it. With no `--level` the runs cycle through every level
+there is, in order (issue #109), so a recording of the loop shows the whole
+game; `--level N` pins it to one.
 
 Host-side scaffolding, like the driver and the gallery: pygame, argparse and
 a clock. The loop itself is a class with no window in it, so a test can run
@@ -27,7 +29,7 @@ from spotlight.core.screen import Screen
 from spotlight.frontend.display import Display
 
 from . import bots, spike1, spike_sound
-from . import session as session_mod
+from . import levels, session as session_mod
 
 FRAME_RATE = 50
 
@@ -42,10 +44,14 @@ class Demo:
 
     def __init__(self, shell: spike1.Shell, bot: str = "listener",
                  runs: int = 0, title_seconds: int = TITLE_SECONDS,
-                 ending_seconds: int = ENDING_SECONDS) -> None:
+                 ending_seconds: int = ENDING_SECONDS,
+                 cycle: tuple[int, ...] = ()) -> None:
         self.shell = shell
         self.bot_name = bot
         self.bot = None
+        #: The levels the runs cycle through, or none to leave the shell's
+        #: building alone. Each start hands the shell the next one.
+        self.cycle = tuple(cycle)
         #: Runs still to play; zero means for ever.
         self.runs_left = runs
         self.forever = runs == 0
@@ -86,6 +92,9 @@ class Demo:
         shell.frame(intent.dx, intent.dy)
 
     def _start(self, key: int = pygame.K_s) -> None:
+        if self.cycle:
+            number = self.cycle[self.played % len(self.cycle)]
+            self.shell.building, self.shell.start_room = levels.pick(number)
         self.shell.key(key)
         self.bot = bots.make(self.bot_name, seed=self.shell.seed)
         self.waited = 0
@@ -111,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="a Spectrum colour name for the window's margin")
     parser.add_argument("--dark-clegs", dest="luminous", action="store_false",
                         help="the old look: Clegs drawn only where lit (#92)")
+    parser.add_argument("--level", type=int, default=None,
+                        help="play this level only (default: cycle through "
+                             "every level there is)")
     parser.add_argument("--trail", dest="trail", action="store_true",
                         help="the old look: the player's lights leave a memory")
     args = parser.parse_args(argv)
@@ -118,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     border_argv = ["--border", args.border] if args.border else []
     try:
         border = spike1.border_from(border_argv)
+        cycle = () if args.level is not None else tuple(levels.levels())
+        building, _ = levels.pick(args.level if args.level is not None
+                                  else levels.DEFAULT_LEVEL)
     except ValueError as err:
         print(err, file=sys.stderr)
         return 2
@@ -131,10 +146,11 @@ def main(argv: list[str] | None = None) -> int:
         speaker = spike_sound.Speaker()
         speaker.open()
         shell = spike1.Shell(screen, speaker=speaker, seed=args.seed,
-                             luminous=args.luminous, trail=args.trail)
+                             luminous=args.luminous, trail=args.trail,
+                             building=building)
         demo = Demo(shell, bot=args.bot, runs=args.runs,
                     title_seconds=args.title_seconds,
-                    ending_seconds=args.ending_seconds)
+                    ending_seconds=args.ending_seconds, cycle=cycle)
         running = True
         while running:
             for event in pygame.event.get():

@@ -355,6 +355,7 @@ def results(run, bot: str = "", label: str = "", extra: dict | None = None) -> d
         "seed": run.seed,
         "bot": bot,
         "label": label,
+        "where": run.where,
         "room": run.room,
         "ending": run.over,
         "tally_adds_up": run.tally_adds_up(),
@@ -774,8 +775,9 @@ def human(run, bot: str = "", label: str = "",
     lines = []
     out = sorted((r for r in records if r["outcome"] == OUT),
                  key=lambda r: r["out_at"])
-    header = (f"Seed {run.seed}, played by {who}, "
-              f"{clock(run.seconds)}.")
+    header = (f"Seed {run.seed}, played by {who}"
+              + (f" on {run.where}" if run.where else "")
+              + f", {clock(run.seconds)}.")
     if out:
         lines.append(header)
         lines += _wrap(_sentence("Got out", out, rooms, "out_at", run.total))

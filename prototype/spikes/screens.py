@@ -334,7 +334,8 @@ def draw_badge_legend(screen: Screen, row: int = BADGE_LEGEND_ROW) -> None:
 
 
 def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
-                lost: int, inside: int, total: int, seconds: int) -> None:
+                lost: int, inside: int, total: int, seconds: int,
+                where: str = "") -> None:
     """How the run went, on the screen, in words and numbers that add up.
 
     Three counts and a time. The three counts are deliberately everybody --
@@ -347,6 +348,11 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
     `headline` is the two lines from `session.ENDING_TEXT`. Issue #20 changes
     which endings can happen and issue #21 adds a room; both are new entries in
     that table rather than changes here.
+
+    `where` names the level, and the room the run began in when that was not
+    the level's own (issue #109): a run of one room on its own has to say so,
+    or its count reads as the level's. Empty, the row is left blank, which is
+    what every ending drew before there was more than one level.
     """
     screen.clear(_attr(WHITE))
     # The logo, since issue #104 (Look and feel 3 row 12): it is resident
@@ -356,6 +362,8 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
     first, second = headline
     write(screen, centre(first), 5, first, WHITE, bright=True)
     write(screen, centre(second), 7, second, WHITE)
+    if where:
+        write(screen, centre(where), 9, where.upper(), CYAN)
 
     rows = (
         ("GOT OUT ALIVE", f"{rescued} OF {total}", GREEN),

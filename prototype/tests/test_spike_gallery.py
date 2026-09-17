@@ -80,9 +80,20 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     freed = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
     assert f"{freed}_x1.png" in names and f"{freed}_x3.png" in names
     assert f"{freed}-flashed_x1.png" in names
-    # No surge sheet and no flash sheet (issue #79): neither is in the game.
+    # No surge sheet and no room-flash sheet (issue #79): neither is in the
+    # game. The `N-M-flash` sheets below are the opening strobe's (issue
+    # #94), which is.
     assert not any(name.startswith("surge") for name in names)
-    assert not any("-flash_" in name for name in names)
+    assert not any(name.startswith("room-") and "-flash_" in name
+                   for name in names)
+    # **Every level's rooms, three ways, and a plan strip** (issue #114).
+    from spikes import levels
+    for number in levels.levels():
+        for index in range(len(levels.level(number))):
+            for kind in ("lit", "flash", "seen"):
+                assert f"{number}-{index + 1}-{kind}_x1.png" in names
+                assert f"{number}-{index + 1}-{kind}_x3.png" in names
+        assert f"{number}-plan_x2.png" in names
     # **A body in a played room** (issue #59). The sprite sheet is where a
     # sprite is named and the played screen is where it is judged, and the body
     # is the drawing that proved it: sprawled and obvious on the sheet for three
@@ -97,13 +108,17 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # Seven sheets (the people since issue #72, the furniture since #74) and
     # five set-up frames at two scales, and a lit shot plus four strides
     # per room. The flash frame and the surge's two went with issue #79.
-    assert len(paths) == len(names) == 24 + 10 * len(scene.BUILDING.rooms)
+    per_level = sum(6 * len(levels.level(n)) + 1 for n in levels.levels())
+    assert len(paths) == len(names) == \
+        24 + 10 * len(scene.BUILDING.rooms) + per_level
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
     """1:1 is the honest view of the pixels and x3 is the one a person can
     look at. A gallery of one or the other loses an argument it should not."""
     for path in gallery.write(str(tmp_path)):
+        if path.endswith("-plan_x2.png"):
+            continue                    # a level's rooms side by side, at x2
         size = pygame.image.load(path).get_size()
         expect = (SCREEN_W, SCREEN_H) if path.endswith("_x1.png") else \
             (SCREEN_W * 3, SCREEN_H * 3)
@@ -728,3 +743,70 @@ def test_the_gallery_is_the_same_pictures_every_time(tmp_path):
     second = gallery.write(str(tmp_path / "two"))
     for a, b in zip(first, second):
         assert open(a, "rb").read() == open(b, "rb").read(), a
+
+
+# --- a level's rooms, three ways (issue #114) --------------------------------
+
+def test_a_room_is_drawn_three_ways_and_they_differ():
+    """Lit is everything under the floodlight; the flash is the strobe's one
+    lit frame with the strip black and no fly in it; seen is frame one as
+    the player has it, which shows less than either."""
+    from spikes import levels
+    lit = gallery.level_lit(1, 2)
+    flash = gallery.level_flash(1, 2)
+    seen = gallery.level_seen(1, 2)
+    assert lit_cells(seen) < lit_cells(lit)
+    assert lit_cells(seen) < lit_cells(flash)
+    # The strip is black on the flash frame and drawn on the other two.
+    strip = range(PLAY_ROWS * CELL * SCREEN_W, SCREEN_H * SCREEN_W)
+    assert not any(flash.pixels[i] for i in strip)
+    assert any(lit.pixels[i] for i in strip)
+    assert any(seen.pixels[i] for i in strip)
+    # The flash shows the room's worker but not its fly: Level 1's second
+    # room has one of each.
+    room = levels.level(1)[1]
+    assert room.clegs and room.workers
+    from spotlight.core.constants import BLACK, RED
+    from spotlight.core.screen import attr_byte
+    red = attr_byte(RED, BLACK, bright=True)
+    assert not any(flash.attrs[cy * COLS + cx] == red
+                   for cy in range(PLAY_ROWS) for cx in range(COLS)), \
+        "a fly is in the flash"
+
+
+def test_a_room_started_in_is_not_walked_to():
+    """A room three doors from the exit costs nothing: the session starts
+    there (issue #108) and no crossing is logged."""
+    run = gallery.level_session(1, 2)
+    assert run.here == 2 and run.crossings == 0
+
+
+def test_the_level_sheets_go_through_spike_snap(tmp_path, monkeypatch):
+    """Every PNG the level sheets write is one `spike_snap` wrote."""
+    from spikes import spike_snap
+    written = []
+    real_save = spike_snap.save
+    real_strip = spike_snap.save_strip
+    monkeypatch.setattr(spike_snap, "save",
+                        lambda *a, **k: written.append(real_save(*a, **k))
+                        or written[-1])
+    monkeypatch.setattr(spike_snap, "save_strip",
+                        lambda *a, **k: written.append(real_strip(*a, **k))
+                        or written[-1])
+    paths = gallery.write_level(str(tmp_path), 3)
+    assert sorted(paths) == sorted(written)
+    names = {p.rsplit("/", 1)[-1] for p in paths}
+    assert names == {f"3-{i}-{k}_x{s}.png" for i in (1, 2)
+                     for k in ("lit", "flash", "seen") for s in (1, 3)} \
+        | {"3-plan_x2.png"}
+    # The strip is the two rooms side by side with a one-pixel gutter, at x2.
+    import pygame
+    strip = pygame.image.load(str(tmp_path / "3-plan_x2.png"))
+    assert strip.get_size() == ((SCREEN_W * 2 + 1) * 2, SCREEN_H * 2)
+
+
+def test_the_gallery_command_line_takes_a_level(tmp_path, capsys):
+    assert gallery.main(["--level", "1", "--out", str(tmp_path)]) == 0
+    assert (tmp_path / "1-plan_x2.png").exists()
+    assert gallery.main(["--level", "99", "--out", str(tmp_path)]) == 2
+    assert "no level 99" in capsys.readouterr().err

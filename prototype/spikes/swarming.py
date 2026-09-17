@@ -111,6 +111,13 @@ def unswarmable(room, budget: int = BUDGET) -> list[tuple[int, int]]:
     never assume a fly into a pocket in order to prove the pocket reachable.
     """
     starts = origins(room)
+    if not starts:
+        # No fly is authored here and no doorway lets one in, so there is no
+        # swarm for any cell to be a refuge from. Level 1's first room has no
+        # fly and, played on its own (`Building.solo`, issue #108), no
+        # doorway either; that is a room with nothing in it to hide from, not
+        # a room made entirely of pockets.
+        return []
     reached = _reached(room, starts, budget)
     spread = [cell for i, cell in enumerate(sorted(reached)) if i % SPREAD == 0]
     if spread:

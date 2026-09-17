@@ -179,7 +179,7 @@ def test_routes_keep_the_head_out_of_the_ceiling():
     them into a lintel."""
     for cx in range(32):
         for cy in range(22):
-            if bots.standable(0, cx, cy):
+            if bots.standable(scene.BUILDING, 0, cx, cy):
                 assert not scene.ROOM_NEAR.is_solid(cx, cy)
                 assert not scene.ROOM_NEAR.is_solid(cx, cy - 1)
 
@@ -187,8 +187,10 @@ def test_routes_keep_the_head_out_of_the_ceiling():
 def test_the_exit_is_reachable_by_route():
     start = (scene.NEAR, scene.PLAYER_START[0] // 8,
              (scene.PLAYER_START[1] + 15) // 8)
-    assert bots.route(start, bots.stand_cells(scene.NEAR,
-                                              *scene.ROOM_NEAR.exit_cell()))
+    building = scene.BUILDING
+    assert bots.route(building, start,
+                      bots.stand_cells(building, scene.NEAR,
+                                       *scene.ROOM_NEAR.exit_cell()))
 
 
 def test_a_script_is_one_intent_per_frame():
@@ -570,3 +572,42 @@ def test_a_bot_that_does_not_know_about_bodies_walks_past_them():
     while victim.in_window and run.over is None:
         run.step(bot.intent(run))
     assert not victim.doused, "the Listener went back for a body it cannot hear"
+
+
+def test_a_walker_wedged_on_a_diagonal_lets_go_of_one_key():
+    """Issue #112 (The rooms AP). The listener, started in Level 1's third
+    room, arrived at the exit door one pixel below the door's rows pressing
+    up-and-left and never moved again: the horizontal step was refused by
+    the wall under the door and nudged a pixel up, the vertical step was
+    refused and nudged a pixel back, and `Player.move` resolved both inside
+    one frame, so the figure ended where it began. Four seeds of four.
+
+    The set-up is the note's: the exit at rows 10-11 of the west wall, a
+    wall at (0, 12), the goal the door's feet cell (0, 11), and a Walker one
+    pixel off the door's rows -- at (8, 79), feet in (1, 11), so that its
+    route is the one diagonal step and the first frame carries it to (8, 81),
+    the pixel the note found it stalled on, and the next back again. A
+    person lets go of one key; so does a Walker now.
+    """
+    from spikes import levels
+
+    building = levels.level(1).solo(0)
+    room = building[0]
+    assert room.rows[10][0] == room.rows[11][0] == "D"
+    assert room.rows[12][0] == "#"
+    run = Session(seed=1, building=building)
+    run.player.x, run.player.y = 8, 79
+
+    class ToTheDoor(bots.Walker):
+        def intent(self, run):
+            return self._walk(run, bots.stand_cells(run.building, 0, 0, 10))
+
+    walker = ToTheDoor(seed=1)
+    for frame in range(50):
+        if run.rescue.at_exit(run.here, run.player.occupied_cells()):
+            break
+        run.step(walker.intent(run))
+    else:
+        raise AssertionError(
+            f"still at {(run.player.x, run.player.y)} after 50 frames")
+    assert frame < 50

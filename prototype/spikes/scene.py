@@ -1,8 +1,11 @@
 """The playtest building: two rooms, one doorway, and no key.
 
-Not a level format and not a level editor -- hand-built content, written as
-text because it has to be read by a person rather than parsed quickly. The
-legend lives in `building.py`:
+**Since issue #107 this module is a view.** The building is authored in
+`assets/levels/level3.txt` and loaded by `levels.py`; every name here --
+`ROOM_A`, `WORKERS_A`, `PLAYER_START`, `BUILDING` and the rest -- reads
+the loaded level, so the tests and the bots that grew up on these names go
+on working. The docstrings below explain *why* the rooms are shaped as they
+are, which the file does not repeat. The legend lives in `building.py`:
 
     #  wall        D  the way out of the building (its own hue)
     .  floor       K  key (the hue of the door it opens)
@@ -55,9 +58,21 @@ room you can see all of at once.
 from spotlight.core.constants import CYAN, YELLOW
 
 from .building import (
-    Building, CONSTANT_INK, DOOR, DOORWAY, Doorway, EAST, EXIT, FLOOR, KEY,
-    Room, Searchlight, SOLID, WALL, WEST, palette,
+    CONSTANT_INK, DOOR, DOORWAY, EXIT, FLOOR, KEY, SOLID, WALL, palette,
 )
+from . import levels as levels_mod
+
+#: Level 3, the playtest building, loaded once (issue #107).
+_LEVEL = levels_mod.level(levels_mod.DEFAULT_LEVEL)
+
+
+def building(level: int):
+    """The building of level `level` (issue #109). `BUILDING` is the default
+    level's; every other level is reached through here."""
+    return levels_mod.level(level)
+
+#: Which room is which, as indices. Room A is 0 because the player starts there.
+NEAR, FAR = 0, 1
 
 #: **The floor carries the room and the walls carry the building** (issue #47).
 #:
@@ -134,30 +149,7 @@ DOOR_ROWS = (10, 11, 12)
 #: thin columns are risers -- which is what ends the ladder read three
 #: reviews called -- and its four blocks are desks over cabinets round
 #: crates. The user placed nothing; the retro-gamer's review chose the cells.
-ROOM_A = (
-    "################################",
-    "#......#.......................#",
-    "#......#.......................#",
-    "#......#....########...........#",
-    "#......#....#......#...........#",
-    "#......#....#......#...........#",
-    "#...........#......#...........#",
-    "#...........###d####...........#",
-    "#..............................#",
-    "#####.#####....................#",
-    "D..............................d",
-    "D.........xx[]x................d",
-    "#..............................d",
-    "#..............................#",
-    "#..............................#",
-    "#..........========............#",
-    "#..............................#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "################################",
-)
+ROOM_A = _LEVEL[NEAR].rows
 
 #: Room B's shape: the dark room.
 #:
@@ -186,30 +178,7 @@ ROOM_A = (
 #: measured at 3-9% swarm reach, worse than the bottom-right corner that this
 #: issue exists to remove. As drawn, **no floor cell in B can be arrived at from
 #: fewer than 22% of B's floor**, and none at all is unreachable.
-ROOM_B = (
-    "################################",
-    "#..............................#",
-    "#..............................#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#..............................#",
-    "#..............................#",
-    "#........[][]........[][]......#",
-    "d........[][]........[][]......#",
-    "d..............................#",
-    "d........cxxc........cxxc......#",
-    "#........cxxc........cxxc......#",
-    "#..............................#",
-    "#..............................#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#..............................#",
-    "################################",
-)
+ROOM_B = _LEVEL[FAR].rows
 
 #: Room B's room lights: one, at (left, top, width, height) = (0, 10, 3, 3).
 #:
@@ -246,17 +215,15 @@ ROOM_B = (
 #: **Room A authors none**, which is why there is no `LIGHTS_A`: A is the room
 #: with the searchlight, and the two rooms are opposites on every dial the
 #: author has.
-LIGHTS_B = ((0, 10, 3, 3),)
+LIGHTS_B = _LEVEL[FAR].lights
 
 #: What each room is called when a report has to say where somebody was lost.
 #: Words a person would use, because the user reads them out to a playtester who
 #: is trying to remember: *you lost the one in the far room at about a minute --
 #: did you know they were there?*
-NEAR_NAME = "the main room"
-FAR_NAME = "the far room"
+NEAR_NAME = _LEVEL[NEAR].name
+FAR_NAME = _LEVEL[FAR].name
 
-#: Which room is which, as indices. Room A is 0 because the player starts there.
-NEAR, FAR = 0, 1
 
 #: The inner room in A has a **one-cell doorway** in its bottom wall, at (15, 7).
 #: It was sealed until spike 2 was played -- a box with a worker in it that
@@ -325,21 +292,12 @@ EXIT_SIGN = "EXIT"
 #: seven, which is the top of the target band -- **the near room is worth three
 #: by construction.** All three positions are kept from the seven the one-room
 #: build had, so the room stays recognisably itself.
-WORKERS_A = (
-    (17 * 8 + 5, 16 * 8, 90),       # open floor near the start: no decision
-    (14 * 8 + 3, 4 * 8 + 2, 40),    # through the inner box's one-cell door
-    (29 * 8, 19 * 8, 30),           # the long walk from both start and exit
-)
+WORKERS_A = _LEVEL[NEAR].workers
 
 #: Room B's four, spread away from the doorway. Their clocks are the four
 #: longest, because every one of them is a journey through two rooms and back
 #: and the distance is already the stake.
-WORKERS_B = (
-    (5 * 8, 18 * 8, 50),            # nearest the connecting door
-    (16 * 8 + 3, 5 * 8, 60),        # mid-room
-    (28 * 8, 3 * 8, 70),            # far corner
-    (29 * 8, 19 * 8, 80),           # far corner
-)
+WORKERS_B = _LEVEL[FAR].workers
 
 #: Where the swarm starts, in cells. **Three per room, six in the building**,
 #: which is what the prototype has always had; the nine that appeared in an
@@ -351,8 +309,8 @@ WORKERS_B = (
 #:
 #: Spread wide and none of them near the player, so a swarm has to travel and
 #: you hear it coming long before it arrives.
-CLEGS_A = ((2, 3), (29, 8), (6, 20))
-CLEGS_B = ((16, 2), (28, 11), (10, 19))
+CLEGS_A = _LEVEL[NEAR].clegs
+CLEGS_B = _LEVEL[FAR].clegs
 
 #: Spotlight pickups, as (cx, cy, power). Powers vary deliberately -- picking
 #: one up is a commitment, and a weak one is a trap.
@@ -364,13 +322,8 @@ CLEGS_B = ((16, 2), (28, 11), (10, 19))
 #: you dropped it if it was lit. That is a lure in the far room at exactly the
 #: moment you want the swarm looking somewhere else, made available by placement
 #: rather than by a button.
-SPOTLIGHTS_A = (
-    (4, 16, 900),
-    (26, 3, 150),
-)
-SPOTLIGHTS_B = (
-    (27, 11, 1500),
-)
+SPOTLIGHTS_A = _LEVEL[NEAR].spotlights
+SPOTLIGHTS_B = _LEVEL[FAR].spotlights
 
 #: Where the player starts.
 #:
@@ -388,7 +341,7 @@ SPOTLIGHTS_B = (
 #: box has to clear the walls rather than just the cell the coordinates land in,
 #: and the start should have room in every direction rather than be tucked under
 #: a wall.
-PLAYER_START = (17 * 8 + 4, 9 * 8)
+PLAYER_START = _LEVEL[NEAR].player_start
 
 #: Room A's searchlight.
 #:
@@ -407,28 +360,17 @@ PLAYER_START = (17 * 8 + 4, 9 * 8)
 #: The radius is **not** an authoring choice being made here. Three was settled
 #: by a person at a keyboard -- at twice that the beam was over you before you
 #: could do anything about it -- and it is held.
-SEARCHLIGHT_RADIUS = 3
-SEARCHLIGHT_VARY = False
+SEARCHLIGHT_RADIUS = _LEVEL[NEAR].searchlight.radius
+SEARCHLIGHT_VARY = _LEVEL[NEAR].searchlight.vary
 
 
-def _rooms() -> Building:
-    near = Room(
-        NEAR_NAME, ROOM_A, ink=INK_A,
-        workers=WORKERS_A, clegs=CLEGS_A, spotlights=SPOTLIGHTS_A,
-        searchlight=Searchlight(SEARCHLIGHT_RADIUS, SEARCHLIGHT_VARY),
-        player_start=PLAYER_START,
-        doorways=(Doorway(EAST, DOOR_ROWS, to=FAR),))
-    far = Room(
-        FAR_NAME, ROOM_B, ink=INK_B,
-        workers=WORKERS_B, clegs=CLEGS_B, spotlights=SPOTLIGHTS_B,
-        searchlight=None, lights=LIGHTS_B,
-        doorways=(Doorway(WEST, DOOR_ROWS, to=NEAR),))
-    return Building((near, far))
-
-
-#: The building the game is played in. One instance, built at import, because
-#: the authored data never changes during a run -- on the Z80 it is ROM.
-BUILDING = _rooms()
+#: The building the game is played in: **Level 3, loaded from
+#: `assets/levels/level3.txt`** (issue #107). The file is the source and
+#: every name in this module is a view of it, kept so the tests and the bots
+#: that read `scene.ROOM_A` and its kin go on reading the same tuples. One
+#: instance, loaded at import, because the authored data never changes
+#: during a run -- on the Z80 it is ROM.
+BUILDING = _LEVEL
 
 #: The two rooms by name, for the code and the tests that want to say which.
 ROOM_NEAR = BUILDING[NEAR]
@@ -443,7 +385,8 @@ def validate() -> None:
 
 
 __all__ = [
-    "BUILDING", "CLEGS_A", "CLEGS_B", "CONSTANT_INK", "DOOR_ROWS", "ENTITIES",
+    "BUILDING", "building", "CLEGS_A", "CLEGS_B", "CONSTANT_INK", "DOOR_ROWS",
+    "ENTITIES",
     "EXIT",
     "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",
     "INK_B", "INNER_DOOR", "KEY",

@@ -108,3 +108,30 @@ def save_scales(screen: Screen, base: str, scales=DEFAULT_SCALES,
     """
     return [save(screen, f"{base}_x{scale}.png", scale, flashing)
             for scale in scales]
+
+
+def save_strip(screens, path: str, scale: int = 2, gutter: int = 1) -> str:
+    """Several frames side by side in one PNG, a `gutter` of black between.
+
+    Issue #114: a level's rooms in chain order, so the building can be read
+    as one plan. Each frame goes through `surface` -- the same resolve as
+    the window -- and the whole strip through `enlarge`, so nothing in it is
+    a pixel this module did not draw the ordinary way. Returns the path.
+    """
+    frames = [surface(screen) for screen in screens]
+    if not frames:
+        raise ValueError("a strip needs at least one frame")
+    width = sum(f.get_width() for f in frames) + gutter * (len(frames) - 1)
+    height = max(f.get_height() for f in frames)
+    strip = pygame.Surface((width, height), depth=8)
+    strip.set_palette(SURFACE_PALETTE)
+    strip.fill(0)
+    x = 0
+    for frame in frames:
+        strip.blit(frame, (x, 0))
+        x += frame.get_width() + gutter
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    pygame.image.save(enlarge(strip, scale), path)
+    return path

@@ -1,0 +1,101 @@
+; assets/levels/level3.txt -- Level 3, Rescue: the playtest building.
+;
+; THIS FILE IS THE SOURCE and spikes/scene.py is a view of it (issue #107,
+; The rooms AK). Two rooms, one doorway, no key: the building every phase-2
+; baseline and every look round was measured in, byte for byte. The reasons
+; the rooms are shaped as they are -- the inner box and its one-cell door, the
+; wall turned on its side at column 24, the clock ladder, the doorway in the
+; beam's path -- are in the vault's "The Playtest Building" and are not
+; repeated here.
+;
+; Format: `level:` and `name:` once; then `room:` blocks. `floor:` is yellow
+; or cyan (adjacent rooms never share). `map:` is 22 rows of 32: `#` wall,
+; `.` floor, `D` the exit, `d` a doorway, and the seven furniture characters
+; `= | x [ ] c %` on cells that would otherwise be wall (`%` a grating on
+; floor). `worker: x y blood` in pixels and blood points; `cleg: cx cy`;
+; `spotlight: cx cy power`; `light: left top width height`; `searchlight:
+; radius repeat|vary`; `start: x y` in pixels; `door: side rows-rows room`.
+; The level's budget -- `blood:`, `spray:`, `torch:`, `lives:` -- goes before
+; the first room and defaults to the constants. The building starts in its
+; first room. Blank lines and `;` comments go anywhere.
+
+level: 3
+name: Rescue
+blood: 64
+spray: 5
+torch: 1000
+lives: 3
+
+room: the main room
+floor: yellow
+map:
+################################
+#......#.......................#
+#......#.......................#
+#......#....########...........#
+#......#....#......#...........#
+#......#....#......#...........#
+#...........#......#...........#
+#...........###d####...........#
+#..............................#
+#####.#####....................#
+D..............................d
+D.........xx[]x................d
+#..............................d
+#..............................#
+#..............................#
+#..........========............#
+#..............................#
+#.......................|......#
+#.......................|......#
+#.......................|......#
+#.......................|......#
+################################
+worker: 141 128 90
+worker: 115 34 40
+worker: 232 152 30
+cleg: 2 3
+cleg: 29 8
+cleg: 6 20
+spotlight: 4 16 900
+spotlight: 26 3 150
+searchlight: 3 repeat
+start: 140 72
+door: east 10-12 the far room
+
+room: the far room
+floor: cyan
+map:
+################################
+#..............................#
+#..............................#
+#....|........|........|.......#
+#....|........|........|.......#
+#....|........|........|.......#
+#....|........|........|.......#
+#..............................#
+#..............................#
+#........[][]........[][]......#
+d........[][]........[][]......#
+d..............................#
+d........cxxc........cxxc......#
+#........cxxc........cxxc......#
+#..............................#
+#..............................#
+#.......|........|........|....#
+#.......|........|........|....#
+#.......|........|........|....#
+#.......|........|........|....#
+#..............................#
+################################
+worker: 40 144 50
+worker: 131 40 60
+worker: 224 24 70
+worker: 232 152 80
+cleg: 16 2
+cleg: 28 11
+cleg: 10 19
+spotlight: 27 11 1500
+light: 0 10 3 3
+start: 16 80
+door: west 10-12 the main room

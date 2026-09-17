@@ -93,7 +93,8 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1491 tests, headless-safe
+pytest                     # 1577 tests, headless-safe
+SPOTLIGHT_SLOW=1 pytest    # + 124 room runs (tests/test_rooms.py), ~25 s
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -103,8 +104,8 @@ pyproject and the package is not installed — `prototype/pytest.ini` sets
 ## Current state
 
 A playable prototype with a face and a voice, tagged `look-3` (2026-09-13).
-Two rooms, seven people to walk out, a swarm, and the light bargain the design
-rests on. The look-and-feel round gave it textured walls, a colour per room,
+Three levels and eight rooms (two of them the original playtest building),
+a swarm, and the light bargain the design rests on. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
 music, and the mains surge (since removed).
 
@@ -137,6 +138,17 @@ kept and no bar under the player; and the dotted rule under the play area is
 gone. See *2026-09-13 People are drawn from above, and the rule goes*. Then
 (#79) **the opening flash and the mains surge were removed**: no room is ever
 shown whole and the building plan is never shown. See *2026-09-14 No preview*.
+
+**The rooms** (2026-09-17, #107–#115): three levels, each its own building,
+authored as text under `assets/levels/` and loaded by `spikes/levels.py` —
+`scene.py` is now a view of Level 3. Level 1 *Dark* (three rooms, one fly),
+Level 2 *Infested* (three rooms, six flies), Level 3 *Rescue* (the playtest
+building, untouched). `--level N`, `--room M` and `--solo` on the window, the
+driver, the demo and the gallery; default level 3, so the sixteen baseline
+hashes are unmoved. `Session(building=, start_room=)`, `Building.solo(i)`, the
+bots reading the building from the run, budgets in the level file, and
+`tests/test_rooms.py` (`SPOTLIGHT_SLOW=1`) playing every room alone and in its
+building. See *The rooms* §8 in the vault.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

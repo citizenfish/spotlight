@@ -37,6 +37,8 @@ the first thing this audience reads as broken. One-cell doorways stay legal and
 stay used -- room A's inner box has one.
 """
 
+from typing import NamedTuple
+
 from spotlight.core.constants import CELL, COLS, MAGENTA, WHITE
 
 from .layout import PLAY_ROWS
@@ -667,6 +669,23 @@ class Room:
         return [(left + i, ey) for i in range(len(word))]
 
 
+class Budget(NamedTuple):
+    """What a level hands the player at the door (issue #115).
+
+    *The numbers live in the level* (*Player and Resources*): starting blood,
+    spray charges, the torch's power and lives are the level's to author,
+    not the game's. The defaults are the constants Level 3 was measured
+    with, so a building built by hand plays as every baseline did.
+    """
+    blood: int = 64
+    spray: int = 5
+    torch: int = 1000
+    lives: int = 3
+
+
+DEFAULT_BUDGET = Budget()
+
+
 class Building:
     """Rooms, and what is on the other side of each doorway.
 
@@ -680,6 +699,12 @@ class Building:
         for i, room in enumerate(self.rooms):
             room.building = self
             room.index = i
+        #: Which level this is and what it is called, set by `levels.load`
+        #: (issue #107); None for a building built by hand.
+        self.level: int | None = None
+        self.title: str | None = None
+        #: What the player starts with, set by `levels.load` (issue #115).
+        self.budget: Budget = DEFAULT_BUDGET
 
     def __len__(self) -> int:
         return len(self.rooms)
@@ -854,6 +879,49 @@ class Building:
             if room.has_exit:
                 return room.exit_facing()
         raise ValueError("this building has no way out")
+
+    # --- one room on its own ------------------------------------------------
+
+    def solo(self, index: int) -> "Building":
+        """A one-room building made from room `index` (issue #108).
+
+        **So that every room can be run on its own.** The room is copied and
+        its doorways bricked up: the west one becomes the way out -- its top
+        two cells `D`, the third `#`, the shape the level's own exit has -- and
+        the east one is walled. A room that already has the exit keeps it and
+        only has its doorways walled. A room with no west doorway and no exit
+        gets its east doorway as the way out instead. The player starts at the
+        room's own `start`, so a room that is entered from a doorway in the
+        level starts at that doorway on its own, and the flies, workers and
+        lights are the room's as authored. `validate` runs on the result, so a
+        room that is not playable alone is refused rather than started.
+        """
+        room = self.rooms[index]
+        if room.player_start is None:
+            raise ValueError(f"{room.name}: no start, so it cannot be played "
+                             "on its own")
+        rows = [list(r) for r in room.rows]
+        exit_side = None
+        if not room.has_exit:
+            sides = {d.side for d in room.doorways}
+            exit_side = WEST if WEST in sides else EAST if sides else None
+            if exit_side is None:
+                raise ValueError(f"{room.name}: no doorway and no exit, so "
+                                 "there is no way out of it on its own")
+        for door in room.doorways:
+            for n, cy in enumerate(sorted(door.rows)):
+                rows[cy][door.column] = (DOOR if door.side == exit_side and n < 2
+                                         else WALL)
+        alone = Room(
+            room.name, ("".join(r) for r in rows), ink=room.ink,
+            workers=room.workers, clegs=room.clegs,
+            spotlights=room.spotlights, searchlight=room.searchlight,
+            lights=room.lights, player_start=room.player_start, doorways=())
+        building = Building([alone])
+        building.level, building.title = self.level, self.title
+        building.budget = self.budget
+        building.validate()
+        return building
 
     # --- crossing -----------------------------------------------------------
 
