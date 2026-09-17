@@ -649,7 +649,9 @@ def test_no_run_holds_more_fixtures_than_the_bound_allows():
             got = report.metrics(run)["most_fixtures_at_once"]
             assert got <= bound, f"{name} seed {seed} held {got} of {bound}"
             peak = max(peak, got)
-    assert peak >= 3, "no run held enough fixtures to be testing anything"
+    # Three before the light round; two since the beam is in every room
+    # (issue #118) and no bot lights its own way (issue #119).
+    assert peak >= 2, "no run held enough fixtures to be testing anything"
 
 
 def test_the_worst_case_maximises_over_the_dead_rather_than_assuming_one():

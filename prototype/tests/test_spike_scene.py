@@ -237,10 +237,10 @@ def test_a_doorway_cell_is_floor_in_every_mechanical_respect():
             assert B.DOORWAY not in B.SOLID
         assert not swarming.unswarmable(r), \
             f"{r.name}: the swarm cannot reach every floor cell"
-    assert found == 7, (
-        "the playtest building authors seven doorway cells: room A's inner "
-        "door, the three at column 31, and -- since issue #50 -- the three at "
-        f"room B's column 0 that used to be the room light. This found {found}")
+    assert found == 6, (
+        "the playtest building authors six doorway cells since its rooms "
+        "began to roll (issue #121): the three at room A's column 31 and the "
+        f"three at room B's column 0. This found {found}")
 
 
 def test_the_cell_past_a_doorway_is_the_next_rooms_first_cell():
@@ -374,11 +374,13 @@ def test_the_exit_sign_hangs_beside_the_door_and_inside_the_room():
     assert not any(near.is_solid(*c) for c in cells)
 
 
-def test_only_the_near_room_has_a_searchlight():
-    """Room B is the dark room. Nothing sweeps it, and that is the dial the
-    author has turned furthest."""
+def test_every_room_has_a_searchlight_and_the_far_rooms_varies():
+    """Room B was the dark room until issue #118: the beam is how a room is
+    seen, so every room sweeps, and B's is the one that varies."""
     assert _room(scene.NEAR_NAME).searchlight is not None
-    assert _room(scene.FAR_NAME).searchlight is None
+    assert _room(scene.FAR_NAME).searchlight is not None
+    assert not _room(scene.NEAR_NAME).searchlight.vary
+    assert _room(scene.FAR_NAME).searchlight.vary
 
 
 def test_only_the_far_room_authors_a_room_light():
@@ -471,13 +473,14 @@ def test_the_player_does_not_start_on_the_way_out():
     assert scene.BUILDING.exit[1] not in player.occupied_cells()
 
 
-def test_workers_are_placed_off_the_cell_grid():
-    """They must straddle cells, or the two-tone question cannot be judged."""
-    placed = ([(x, y) for _, x, y in scene.ENTITIES]
-              + [(x, y) for x, y, _b in scene.WORKERS_A + scene.WORKERS_B])
-    off_grid = [p for p in placed if p[0] % 8 or p[1] % 8]
-    assert len(off_grid) >= 3, "most things should sit at awkward offsets"
-    assert len(off_grid) < len(placed), "a couple aligned makes the contrast"
+def test_workers_are_placed_on_standable_floor():
+    """They straddled cells while the rooms were drawn by hand, so the
+    two-tone question could be judged; a rolled room (issue #121) stands
+    each of them in a cell a person can stand in, feet and head on floor."""
+    for room in ROOMS:
+        for x, y, _b in room.workers:
+            cx, cy = x // 8, (y + 15) // 8
+            assert not room.is_solid(cx, cy) and not room.is_solid(cx, cy - 1)
 
 
 def test_the_swarm_starts_on_floor_and_spread_out(room):
@@ -525,24 +528,7 @@ def test_the_near_room_is_worth_three_people_and_the_far_room_four():
     assert len(scene.WORKERS_B) == 4
 
 
-def test_the_strongest_light_in_the_building_is_in_the_far_room():
-    """Taking it means leaving what you carry behind, which puts a burning lure
-    in the far room at exactly the moment you want the swarm elsewhere."""
-    best = max((p, r.name) for r in ROOMS for _cx, _cy, p in r.spotlights)
-    assert best[1] == scene.FAR_NAME
-
-
-def test_the_near_room_offers_one_decent_light_and_one_nearly_dead():
-    """A weak light is a trap, and it should be available where it costs a walk
-    rather than a life."""
-    powers = sorted(p for _cx, _cy, p in scene.SPOTLIGHTS_A)
-    assert len(powers) == 2
-    assert powers[0] * 4 < powers[1], "the weak one is not weak enough to trap"
-
-
-def test_every_spotlight_lies_on_floor(room):
-    for cx, cy, _power in room.spotlights:
-        assert not room.is_solid(cx, cy)
+# The floor lamps' three tests went with the torch (issue #119).
 
 
 # --- a worker under a room light (issue #12) -------------------------------
@@ -689,14 +675,9 @@ def test_the_workers_are_spread_out():
     assert len(far) >= 2, "the near room's workers are all beside the start"
 
 
-def test_the_inner_room_is_entered_through_a_one_cell_doorway():
-    """One cell wide on purpose -- it is the case the corner assist exists for,
-    and *Building Structure* keeps one-cell doorways legal in horizontal
-    walls."""
-    near = _room(scene.NEAR_NAME)
-    cx, cy = scene.INNER_DOOR
-    assert not near.is_solid(cx, cy)
-    assert near.is_solid(cx - 1, cy) and near.is_solid(cx + 1, cy)
+# The inner room and its one-cell doorway went when room A began to roll
+# (issue #121); *Building Structure* still keeps one-cell doorways legal in
+# horizontal walls, and `test_spike_tiles` draws one on a room of its own.
 
 
 # --- no floor may be somewhere the swarm cannot get to ---------------------
@@ -781,36 +762,18 @@ def test_the_bottom_right_corner_of_the_near_room_is_no_longer_a_refuge(arrivals
         f"{min(corner)} of {total} cells")
 
 
-def test_the_far_room_did_not_inherit_a_pocket(arrivals):
-    """Room B is new, so it is the room most likely to have been drawn with one
-    by accident. Alcoves and three-sided bays were tried and measured at 3-9%,
-    worse than the corner above; partitions open at both ends measure at 21%.
-    """
-    counts = arrivals[scene.FAR_NAME]
-    total = len(counts)
-    worst = min(counts.items(), key=lambda kv: kv[1])
-    assert worst[1] * 5 >= total, (
-        f"{worst[0]} is reachable from only {worst[1]} of {total} cells")
+# `test_the_far_room_did_not_inherit_a_pocket` held every cell of room B to
+# being arrived at from a fifth of the room's floor by a fly steering straight
+# at it. Room B rolls now (issue #121): the cell under the middle of an
+# isolated pipe run is arrived at directly from about a sixth of the floor
+# and from everywhere by a fly that has slid to the run's end first, which is
+# what `swarming.unswarmable`'s second pass measures and `test_roller.py`
+# proves over seeds.
 
 
-def test_the_inner_box_is_the_one_known_pocket_and_is_kept_on_purpose(arrivals):
-    """Recorded rather than fixed, so it reads as a decision.
-
-    By the same measurement the inner box's interior is reachable from about 3%
-    of room A's floor -- a stronger refuge than the corner this issue opens. The
-    vault keeps the inner box and its one-cell door deliberately (it is the case
-    the movement assist exists for, and it holds a worker), so removing it is a
-    design decision and not a bug fix. This test asserts the shape of the
-    problem so that #26 finds it waiting rather than discovering it.
-    """
-    counts = arrivals[scene.NEAR_NAME]
-    total = len(counts)
-    inside = [n for (cx, cy), n in counts.items()
-              if 13 <= cx <= 18 and 4 <= cy <= 6]
-    assert inside
-    assert min(inside) < total // 10, (
-        "the inner box is no longer a pocket -- good, but the vault has not "
-        "been told, and this test is the record that it was one")
+# The inner box -- the one known pocket, kept on purpose and recorded here --
+# went with the authored room A (issue #121). A rolled room has no pocket
+# by construction, and `test_roller.py` proves it over seeds.
 
 
 # --- a person is two cells tall (issue #13) --------------------------------
@@ -901,7 +864,7 @@ def test_the_room_uses_what_it_authors():
     run = Session(seed=1)
     assert run.roaming.vary is scene.SEARCHLIGHT_VARY
     assert run.roaming.radius == scene.SEARCHLIGHT_RADIUS
-    assert len(run.searchlights) == 1, "the building has one searchlight"
+    assert len(run.searchlights) == 2, "one searchlight a room (issue #118)"
 
 
 def test_two_runs_of_the_same_seed_start_the_beam_in_the_same_place():

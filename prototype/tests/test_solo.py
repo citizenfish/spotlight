@@ -97,7 +97,6 @@ def test_solo_keeps_the_room_as_authored():
         assert alone.name == room.name
         assert alone.workers == room.workers
         assert alone.clegs == room.clegs
-        assert alone.spotlights == room.spotlights
         assert alone.lights == room.lights
         assert alone.searchlight is room.searchlight
         assert alone.ink == room.ink

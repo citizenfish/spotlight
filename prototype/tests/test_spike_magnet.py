@@ -71,16 +71,14 @@ def test_a_switched_off_searchlight_hits_nobody():
 
 
 def test_no_other_light_is_a_hit():
-    """The cone on, a room light and a floor lamp on the player's own cells,
-    and the beam across the room: nothing gives you away but the beam."""
-    from spikes.session import FloorLight
+    """A room light on the player's own cells and the beam across the room:
+    nothing gives you away but the beam. (The cone and a floor lamp were in
+    this list until the torch went, issue #119.)"""
     run = _fresh()
     _beam_away(run)
     cx, cy = run.player.cx, run.player.cy
     run.place.room_lights.append(sources.RoomLight(cx - 1, cy - 2, 3, 3))
-    run.kit.floor.append(FloorLight(cx, cy, power=9000, lit=True, room=run.here))
-    run.step(Intent(torch=True))
-    assert run.cone.lit
+    run.step(Intent())
     assert run.field.level_at(cx, cy) == lighting.LIT, "the player is not even lit"
     assert not run.beam_on_player()
     assert run.magnet == 0
@@ -264,7 +262,7 @@ def test_the_figure_is_boxed_on_the_on_frames_while_the_counter_runs():
     there on any frame. No attribute changes for it."""
     run = _fresh()
     _beam_at(run, 0, 0)
-    run.step(Intent(torch=True))
+    run.step(Intent())
     assert run.magnet == 500
     seen = {0: [], 1: []}
     for _ in range(2 * S.MAGNET_PULSE):
@@ -272,7 +270,7 @@ def test_the_figure_is_boxed_on_the_on_frames_while_the_counter_runs():
         assert own == own_all, "the figure lost pixels to its box"
         phase = (run.frame // S.MAGNET_PULSE) % 2
         seen[phase].append(on == total if phase == 0 else on < total // 2)
-        run.step(Intent(torch=True))
+        run.step(Intent())
     assert seen[0] and all(seen[0]), seen
     assert seen[1] and all(seen[1]), seen
     assert not (set(run.player.body_cells()) & run.flash_cells())
@@ -341,7 +339,7 @@ def test_a_bite_under_the_magnet_is_billed_to_the_magnet():
     run = _fed_under_magnet()
     assert run.swarm.bites_by_source[sources.LURE_MAGNET] == 1
     assert sources.LURE_NAMES[sources.LURE_MAGNET] == "magnet"
-    assert len(sources.LURE_NAMES) == sources.LURE_KINDS == 7
+    assert len(sources.LURE_NAMES) == sources.LURE_KINDS == 5
 
 
 def test_a_fly_on_a_beam_journey_is_rebilled_to_the_magnet():

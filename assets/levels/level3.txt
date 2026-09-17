@@ -1,101 +1,67 @@
-; assets/levels/level3.txt -- Level 3, Rescue: the playtest building.
+; assets/levels/level3.txt -- Level 3, Rescue: the playtest building, as a
+; pair of templates.
 ;
-; THIS FILE IS THE SOURCE and spikes/scene.py is a view of it (issue #107,
-; The rooms AK). Two rooms, one doorway, no key: the building every phase-2
-; baseline and every look round was measured in, byte for byte. The reasons
-; the rooms are shaped as they are -- the inner box and its one-cell door, the
-; wall turned on its side at column 24, the clock ladder, the doorway in the
-; beam's path -- are in the vault's "The Playtest Building" and are not
-; repeated here.
+; THIS FILE IS THE SOURCE and spikes/scene.py is a view of it (issue #107).
+; Until the light round (issue #121) the two rooms were the same bytes every
+; run -- A's inner box with its one-cell door, the wall turned on its side,
+; B's four desks -- and every number in the vault was measured in them; the
+; vault's "The Playtest Building" is the record. Now each is a shell: A
+; keeps its clocks, its three flies, its exit and its repeating beam; B its
+; four people, its three flies, the light on the doorway home and a beam
+; that varies. The walls, the furniture, the people's cells and the flies'
+; starts roll from the run's seed (issue #120).
 ;
-; Format: `level:` and `name:` once; then `room:` blocks. `floor:` is yellow
-; or cyan (adjacent rooms never share). `map:` is 22 rows of 32: `#` wall,
-; `.` floor, `D` the exit, `d` a doorway, and the seven furniture characters
-; `= | x [ ] c %` on cells that would otherwise be wall (`%` a grating on
-; floor). `worker: x y blood` in pixels and blood points; `cleg: cx cy`;
-; `spotlight: cx cy power`; `light: left top width height`; `searchlight:
-; radius repeat|vary`; `start: x y` in pixels; `door: side rows-rows room`.
-; The level's budget -- `blood:`, `spray:`, `torch:`, `lives:` -- goes before
-; the first room and defaults to the constants. The building starts in its
-; first room. Blank lines and `;` comments go anywhere.
+; Format: `level:` and `name:` once, with the budget -- `blood:`, `spray:`,
+; `lives:`, `magnet:` seconds, `wake: on|off` -- before the first room;
+; then `room:` blocks. `floor:` is yellow or cyan (adjacent rooms never
+; share). A room carries `map:` (22 rows of 32: `#` wall, `.` floor, `D` the
+; exit, `d` a doorway, the seven furniture characters `= | x [ ] c %`) with
+; `worker: x y blood` and `cleg: cx cy`; or `roll:` with `segments:`,
+; `length:`, `pieces:`, `band:` (min max), `away:`, `clegs:` and one
+; `worker: blood` a person. Every room has `searchlight: radius repeat|vary`
+; (with `pace:` and `mount:` beside it) and `start: x y` in pixels;
+; `light: left top width height` and `door: side rows-rows room` as
+; authored. The first room has the exit. Blank lines and `;` comments go
+; anywhere. (`spotlight:` and `torch:` went with the torch, issue #119.)
 
 level: 3
 name: Rescue
 blood: 64
 spray: 5
-torch: 1000
 lives: 3
+magnet: 10
+wake: on
 
 room: the main room
 floor: yellow
-map:
-################################
-#......#.......................#
-#......#.......................#
-#......#....########...........#
-#......#....#......#...........#
-#......#....#......#...........#
-#...........#......#...........#
-#...........###d####...........#
-#..............................#
-#####.#####....................#
-D..............................d
-D.........xx[]x................d
-#..............................d
-#..............................#
-#..............................#
-#..........========............#
-#..............................#
-#.......................|......#
-#.......................|......#
-#.......................|......#
-#.......................|......#
-################################
-worker: 141 128 90
-worker: 115 34 40
-worker: 232 152 30
-cleg: 2 3
-cleg: 29 8
-cleg: 6 20
-spotlight: 4 16 900
-spotlight: 26 3 150
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+worker: 90
+worker: 40
+worker: 30
+clegs: 3
 searchlight: 3 repeat
-start: 140 72
+start: 24 96
 door: east 10-12 the far room
 
 room: the far room
 floor: cyan
-map:
-################################
-#..............................#
-#..............................#
-#....|........|........|.......#
-#....|........|........|.......#
-#....|........|........|.......#
-#....|........|........|.......#
-#..............................#
-#..............................#
-#........[][]........[][]......#
-d........[][]........[][]......#
-d..............................#
-d........cxxc........cxxc......#
-#........cxxc........cxxc......#
-#..............................#
-#..............................#
-#.......|........|........|....#
-#.......|........|........|....#
-#.......|........|........|....#
-#.......|........|........|....#
-#..............................#
-################################
-worker: 40 144 50
-worker: 131 40 60
-worker: 224 24 70
-worker: 232 152 80
-cleg: 16 2
-cleg: 28 11
-cleg: 10 19
-spotlight: 27 11 1500
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+worker: 50
+worker: 60
+worker: 70
+worker: 80
+clegs: 3
 light: 0 10 3 3
+searchlight: 3 vary
 start: 16 80
 door: west 10-12 the main room

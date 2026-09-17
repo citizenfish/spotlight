@@ -10,10 +10,11 @@ is different -- the bot presses the same keys a player would, through the
 same `Shell.key` and `Shell.frame` -- so what is on screen is the game and
 not a rendering of it. On the title it presses `S` after a few seconds; on an
 ending screen it reads the tally for a few seconds and presses `SPACE`, with
-the next seed, so the loop never shows the same run twice. `ESC` or closing
-the window stops it. With no `--level` the runs cycle through every level
-there is, in order (issue #109), so a recording of the loop shows the whole
-game; `--level N` pins it to one.
+the next seed, so the loop never shows the same game twice. `ESC` or
+closing the window stops it. A run of the loop is a whole game (issue
+#123): Level 1, the card, Level 2, and on until the lives are gone; `--level
+N` starts each game at level N instead. The bot sprays (issue #122), which
+is the one button a person has, shown being used.
 
 Host-side scaffolding, like the driver and the gallery: pygame, argparse and
 a clock. The loop itself is a class with no window in it, so a test can run
@@ -45,14 +46,15 @@ class Demo:
     def __init__(self, shell: spike1.Shell, bot: str = "listener",
                  runs: int = 0, title_seconds: int = TITLE_SECONDS,
                  ending_seconds: int = ENDING_SECONDS,
-                 cycle: tuple[int, ...] = ()) -> None:
+                 spray: bool = True) -> None:
         self.shell = shell
         self.bot_name = bot
+        #: The demo's bot presses fire at a fly (issue #122, the user's
+        #: ruling 5): the one button a person has, shown being used.
+        self.spray = spray
         self.bot = None
-        #: The levels the runs cycle through, or none to leave the shell's
-        #: building alone. Each start hands the shell the next one.
-        self.cycle = tuple(cycle)
-        #: Runs still to play; zero means for ever.
+        #: Games still to play; zero means for ever. A game is every level
+        #: the bot gets through until its lives are gone (issue #123).
         self.runs_left = runs
         self.forever = runs == 0
         self.played = 0
@@ -74,29 +76,38 @@ class Demo:
                 self._start()
             shell.frame()
             return
+        if shell.state == spike1.CARD:
+            # The card between buildings (issue #123): read it, then on
+            # into the next level of the same game, no title between.
+            self.waited += 1
+            if self.waited >= self.ending_frames:
+                shell.key(pygame.K_SPACE)
+                self.bot = bots.make(self.bot_name, seed=shell.seed,
+                                     spray=self.spray)
+                self.waited = 0
+            shell.frame()
+            return
         if shell.state == spike1.ENDED:
             self.waited += 1
-            if self.waited >= self.ending_frames and not self.done:
-                shell.seed += 1
-                self._start(pygame.K_SPACE)
+            if self.waited >= self.ending_frames:
+                # Back to the title, which shows the best; the next game
+                # starts from there on the next seed.
+                shell.key(pygame.K_SPACE)
+                self.waited = 0
             shell.frame()
             return
         # In play: the bot's intent, pressed as a player would press it. A
-        # torch or spray in the intent is an edge -- one press -- exactly as
-        # `Intent` says, and `Shell.key` treats it so.
+        # spray in the intent is an edge -- one press -- exactly as `Intent`
+        # says, and `Shell.key` treats it so.
         intent = self.bot.intent(shell.run)
-        if intent.torch:
-            shell.key(pygame.K_t)
         if intent.spray:
             shell.key(pygame.K_SPACE)
         shell.frame(intent.dx, intent.dy)
 
     def _start(self, key: int = pygame.K_s) -> None:
-        if self.cycle:
-            number = self.cycle[self.played % len(self.cycle)]
-            self.shell.building, self.shell.start_room = levels.pick(number)
         self.shell.key(key)
-        self.bot = bots.make(self.bot_name, seed=self.shell.seed)
+        self.bot = bots.make(self.bot_name, seed=self.shell.seed,
+                             spray=self.spray)
         self.waited = 0
         self.played += 1
         if not self.forever:
@@ -120,9 +131,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="a Spectrum colour name for the window's margin")
     parser.add_argument("--dark-clegs", dest="luminous", action="store_false",
                         help="the old look: Clegs drawn only where lit (#92)")
-    parser.add_argument("--level", type=int, default=None,
-                        help="play this level only (default: cycle through "
-                             "every level there is)")
+    parser.add_argument("--dry", dest="spray", action="store_false",
+                        help="the bot never sprays (it does by default, #122)")
+    parser.add_argument("--level", type=int, default=levels.DEFAULT_LEVEL,
+                        help="start every game at this level (default 1)")
     parser.add_argument("--trail", dest="trail", action="store_true",
                         help="the old look: the player's lights leave a memory")
     args = parser.parse_args(argv)
@@ -130,9 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     border_argv = ["--border", args.border] if args.border else []
     try:
         border = spike1.border_from(border_argv)
-        cycle = () if args.level is not None else tuple(levels.levels())
-        building, _ = levels.pick(args.level if args.level is not None
-                                  else levels.DEFAULT_LEVEL)
+        levels.pick(args.level, seed=args.seed)          # refuses a bad level
     except ValueError as err:
         print(err, file=sys.stderr)
         return 2
@@ -147,10 +157,10 @@ def main(argv: list[str] | None = None) -> int:
         speaker.open()
         shell = spike1.Shell(screen, speaker=speaker, seed=args.seed,
                              luminous=args.luminous, trail=args.trail,
-                             building=building)
+                             level=args.level)
         demo = Demo(shell, bot=args.bot, runs=args.runs,
                     title_seconds=args.title_seconds,
-                    ending_seconds=args.ending_seconds, cycle=cycle)
+                    ending_seconds=args.ending_seconds, spray=args.spray)
         running = True
         while running:
             for event in pygame.event.get():
@@ -162,8 +172,8 @@ def main(argv: list[str] | None = None) -> int:
             demo.frame()
             display.render(screen)
             clock.tick(FRAME_RATE)
-            if demo.done and shell.state != spike1.PLAY \
-                    and demo.waited >= demo.ending_frames:
+            if demo.done and shell.state == spike1.TITLE \
+                    and demo.played:
                 running = False
     finally:
         speaker.close()

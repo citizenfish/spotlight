@@ -63,13 +63,14 @@ from .building import (
 from . import levels as levels_mod
 
 #: Level 3, the playtest building, loaded once (issue #107).
-_LEVEL = levels_mod.level(levels_mod.DEFAULT_LEVEL)
+_LEVEL = levels_mod.level(levels_mod.SCENE_LEVEL)
 
 
-def building(level: int):
-    """The building of level `level` (issue #109). `BUILDING` is the default
-    level's; every other level is reached through here."""
-    return levels_mod.level(level)
+def building(level: int, seed: int = levels_mod.DEFAULT_SEED):
+    """The building of level `level` for run `seed` (issues #109, #120).
+    `BUILDING` is the default level's for the default seed; every other
+    level, and every other roll, is reached through here."""
+    return levels_mod.level(level, seed)
 
 #: Which room is which, as indices. Room A is 0 because the player starts there.
 NEAR, FAR = 0, 1
@@ -225,20 +226,10 @@ NEAR_NAME = _LEVEL[NEAR].name
 FAR_NAME = _LEVEL[FAR].name
 
 
-#: The inner room in A has a **one-cell doorway** in its bottom wall, at (15, 7).
-#: It was sealed until spike 2 was played -- a box with a worker in it that
-#: nobody could reach, because while sprites were the question nobody had tried
-#: to walk in.
-#:
-#: One cell wide on purpose: it is exactly the case the corner assist in
-#: `player.NUDGE` exists for, so the room is also the test of it. Kept as it is
-#: by issue #21, deliberately, and with a caveat recorded rather than fixed: by
-#: the Cleg's own steering rule the box interior can be arrived at from only 3%
-#: of room A's floor, which makes it a stronger refuge than the bottom-right
-#: corner this issue opens. The vault keeps the inner box and its one-cell door
-#: on purpose, so changing it is a design decision and not a bug fix. It is
-#: named here so that whoever builds #26's automated check finds it waiting.
-INNER_DOOR = (15, 7)
+# `INNER_DOOR`, the one-cell doorway of room A's inner box at (15, 7), went
+# when the room began to roll (issue #121): a rolled room has no pocket by
+# construction, and `test_spike_tiles` draws a one-cell doorway on a boxed
+# room of its own.
 
 #: Which entity kinds move. Movers are only drawn where a light is on them this
 #: frame; the rest are fixtures the fade is allowed to remember.
@@ -312,18 +303,9 @@ WORKERS_B = _LEVEL[FAR].workers
 CLEGS_A = _LEVEL[NEAR].clegs
 CLEGS_B = _LEVEL[FAR].clegs
 
-#: Spotlight pickups, as (cx, cy, power). Powers vary deliberately -- picking
-#: one up is a commitment, and a weak one is a trap.
-#:
-#: **A is where the trap is available cheaply**: one decent light and one nearly
-#: dead, so a player who grabs the wrong one pays a walk rather than a life.
-#: **B holds the strongest light in the building, deep in it**, which means
-#: taking it costs you whatever you were carrying -- and leaves it burning where
-#: you dropped it if it was lit. That is a lure in the far room at exactly the
-#: moment you want the swarm looking somewhere else, made available by placement
-#: rather than by a button.
-SPOTLIGHTS_A = _LEVEL[NEAR].spotlights
-SPOTLIGHTS_B = _LEVEL[FAR].spotlights
+# `SPOTLIGHTS_A` and `SPOTLIGHTS_B` -- the floor lamps the torch was swapped
+# for, a decent one and a trap in A and the strongest in the building deep in
+# B -- went with the torch (issue #119).
 
 #: Where the player starts.
 #:
@@ -389,11 +371,11 @@ __all__ = [
     "ENTITIES",
     "EXIT",
     "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",
-    "INK_B", "INNER_DOOR", "KEY",
+    "INK_B", "KEY",
     "DOOR", "DOORWAY", "MOVERS", "NEAR", "NEAR_NAME", "PLAYER_START",
     "ROOM_A",
     "ROOM_B",
     "LIGHTS_B", "ROOM_FAR", "ROOM_NEAR", "SEARCHLIGHT_RADIUS",
-    "SEARCHLIGHT_VARY", "SOLID", "SPOTLIGHTS_A", "SPOTLIGHTS_B", "WALL",
+    "SEARCHLIGHT_VARY", "SOLID", "WALL",
     "WORKERS_A", "WORKERS_B", "validate",
 ]

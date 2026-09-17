@@ -88,7 +88,7 @@ def test_the_title_says_what_the_game_is_before_it_says_which_keys(title):
 def test_the_title_states_the_bargain(title):
     """The one thing the playtest is actually asking about."""
     joined = " ".join(rows(title))
-    assert "TORCH SHOWS YOU THE ROOM" in joined
+    assert "SEARCHLIGHT SHOWS YOU THE" in joined
     assert "SHOWS THE BITING FLIES" in joined
 
 
@@ -357,15 +357,17 @@ def test_not_one_word_of_the_screen_has_been_rewritten():
         "THROUGH THE RED EXIT DOOR",
         "BEFORE THEY BLEED TO DEATH.",
     )
+    # Two controls and the searchlight's bargain since the torch went (issue
+    # #119, the user's ruling): the one rewording this test has allowed, and
+    # in the same commit as the words.
     assert screens.CONTROLS == (
         ("ARROW KEYS", "WALK"),
-        ("T", "TORCH ON AND OFF"),
         ("SPACE", "FLYSPRAY"),
     )
     assert screens.WARNING == (
-        "YOUR TORCH SHOWS YOU THE ROOM.",
-        "IT ALSO SHOWS THE BITING FLIES",
-        "WHERE YOU ARE.",
+        "THE SEARCHLIGHT SHOWS YOU THE",
+        "ROOM. IT ALSO SHOWS THE BITING",
+        "FLIES WHERE YOU ARE.",
     )
     # `PRESS ANY KEY TO START` until issue #63: any key is what a tester
     # pressing `T` while reading the controls triggers by accident, and `S`

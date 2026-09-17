@@ -322,7 +322,7 @@ def _run_drawn(seed: int, frames: int, masked: bool, monkeypatch):
         monkeypatch.setattr(SP, "MASK_OF", {})
     run = Session(seed=seed, metrics=True)
     screen = Screen()
-    bot = bots.make("listener", seed=seed, light=True)
+    bot = bots.make("listener", seed=seed)
     frames_seen = []
     for _ in range(frames):
         run.step(bot.intent(run))

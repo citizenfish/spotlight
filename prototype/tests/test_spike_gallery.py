@@ -72,10 +72,10 @@ def test_the_gallery_writes_every_sheet(tmp_path):
         assert f"{stem}-played-a_x1.png" not in names
     # The people sheet (issue #72): every frame labelled, and the walk.
     assert "people_x1.png" in names and "people_x3.png" in names
-    # The one frame that is set up rather than played: a spotlight burning
-    # where somebody put it down. No bot has ever swapped one.
-    swapped = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-swapped"
-    assert f"{swapped}_x1.png" in names and f"{swapped}_x3.png" in names
+    # The swapped-lamp and torch-off sheets went with the torch (issue #119).
+    near_slug = gallery.slug(scene.BUILDING[scene.NEAR].name)
+    assert not any(n.startswith(f"room-{near_slug}-swapped") for n in names)
+    assert not any(n.startswith(f"room-{near_slug}-torch-off") for n in names)
     # A moment's flash, in both halves of the cycle (issue #52).
     freed = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-freed"
     assert f"{freed}_x1.png" in names and f"{freed}_x3.png" in names
@@ -100,17 +100,13 @@ def test_the_gallery_writes_every_sheet(tmp_path):
     # rounds, a person-shaped smudge in a room.
     body = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-body"
     assert f"{body}_x1.png" in names and f"{body}_x3.png" in names
-    # **The frame the game is played in** (issue #62): the torch off. Every
-    # mock before 2026-09-11 was drawn with it on, and the tester's numbers
-    # say it is off for 80 to 95 per cent of a run.
-    dark = f"room-{gallery.slug(scene.BUILDING[scene.NEAR].name)}-torch-off"
-    assert f"{dark}_x1.png" in names and f"{dark}_x3.png" in names
     # Seven sheets (the people since issue #72, the furniture since #74) and
-    # five set-up frames at two scales, and a lit shot plus four strides
-    # per room. The flash frame and the surge's two went with issue #79.
+    # three set-up frames at two scales, and a lit shot plus four strides
+    # per room. The flash frame and the surge's two went with issue #79; the
+    # torch-off frame and the swapped lamp with the torch, issue #119.
     per_level = sum(6 * len(levels.level(n)) + 1 for n in levels.levels())
     assert len(paths) == len(names) == \
-        24 + 10 * len(scene.BUILDING.rooms) + per_level
+        20 + 10 * len(scene.BUILDING.rooms) + per_level
 
 
 def test_every_sheet_is_written_at_both_scales(tmp_path):
@@ -516,37 +512,22 @@ def _drawn_cell(screen: Screen, cx: int, cy: int) -> tuple:
         for dy in range(CELL))
 
 
-def test_the_torch_off_frame_shows_remembered_walls_as_lines():
+def test_the_played_frame_shows_remembered_walls_as_lines():
     """**The picture nobody had taken** (issue #62).
 
     The user said the walls needed more texture and thought it was a render
     fault. It was not: with the torch off -- most of a run -- a wall beside
     you is the *remembered* tile, and the remembered tile was the outline
     alone. Every mock and every gallery frame before 2026-09-11 had the torch
-    on, so the walls were only ever reviewed as masonry. This frame is the
-    Listener's three-hundredth frame in room A with the torch off, which is
-    the frame the designer's mock was drawn in and the frame the ruling was
-    made on.
+    on, so the walls were only ever reviewed as masonry. The torch went
+    (issue #119) and every played frame is that frame now; what remembers a
+    wall is the beam (issue #117).
 
-    Three things are asserted: the torch really is off (the frame is far
-    darker than the torch-on one and is not the same picture); at least one
-    wall cell in it is drawn as the *dim* tile its mask asks for and not the
-    lit one; and that dim tile has its courses in it, which is the change.
+    Two things are asserted: at least one wall cell in the played frame is
+    drawn as the *dim* tile its mask asks for and not the lit one; and that
+    dim tile has its courses out of it, which is the change.
     """
-    # The remembered tile is what is under test, so the trail is on for this
-    # picture: since issue #92 the game itself leaves none behind the player,
-    # and the gallery's own torch-off sheet shows the game as it is.
-    import functools
-    real = gallery.session_mod.Session
-    gallery.session_mod.Session = functools.partial(real, trail=True)
-    try:
-        off = gallery.room_screen(scene.NEAR, lit=False, torch=False)
-        on = gallery.room_screen(scene.NEAR, lit=False, stride=0)
-    finally:
-        gallery.session_mod.Session = real
-    assert bytes(off.pixels) != bytes(on.pixels)
-    assert lit_cells(off) < lit_cells(on)
-
+    off = gallery.room_screen(scene.NEAR, lit=False)
     room = scene.BUILDING[scene.NEAR]
     remembered = []
     for cy in range(PLAY_ROWS):
@@ -557,7 +538,7 @@ def test_the_torch_off_frame_shows_remembered_walls_as_lines():
             drawn = _drawn_cell(off, cx, cy)
             if drawn == tiles.WALL_DIM[mask] and drawn != tiles.WALL_LIT[mask]:
                 remembered.append((cx, cy, mask))
-    assert remembered, "no wall in the torch-off frame is drawn remembered"
+    assert remembered, "no wall in the played frame is drawn remembered"
     # ...and the remembered tile is a line alone again (issue #101, Look and
     # feel 3 row 7): nothing on rows 1 and 5 between the side faces.
     for cx, cy, mask in remembered:
@@ -808,5 +789,22 @@ def test_the_level_sheets_go_through_spike_snap(tmp_path, monkeypatch):
 def test_the_gallery_command_line_takes_a_level(tmp_path, capsys):
     assert gallery.main(["--level", "1", "--out", str(tmp_path)]) == 0
     assert (tmp_path / "1-plan_x2.png").exists()
-    assert gallery.main(["--level", "99", "--out", str(tmp_path)]) == 2
-    assert "no level 99" in capsys.readouterr().err
+    assert gallery.main(["--level", "0", "--out", str(tmp_path)]) == 2
+    assert "no level 0" in capsys.readouterr().err
+
+
+def test_a_rolled_level_is_drawn_for_a_seed(tmp_path):
+    """Issue #125: two seeds give two different lit pictures of a level's
+    first room; the same seed twice gives the same bytes; the seed names
+    the directory."""
+    a = gallery.level_lit(1, 0, seed=1)
+    b = gallery.level_lit(1, 0, seed=1)
+    c = gallery.level_lit(1, 0, seed=2)
+    assert bytes(a.pixels) == bytes(b.pixels)
+    assert bytes(a.pixels) != bytes(c.pixels)
+    assert gallery.main(["--level", "1", "--seed", "2",
+                         "--out", str(tmp_path / "g")]) == 0
+    assert (tmp_path / "g-seed-2" / "1-plan_x2.png").exists()
+    # And Level 4 and on draws the re-rolled Level 3.
+    assert gallery.main(["--level", "5", "--out", str(tmp_path / "h")]) == 0
+    assert (tmp_path / "h" / "5-2-seen_x1.png").exists()

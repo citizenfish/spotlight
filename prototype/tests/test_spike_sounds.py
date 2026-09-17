@@ -84,15 +84,17 @@ def test_there_is_only_one_speaker_class_left():
 #: segments has to be a deliberate change to a number a listener chose.
 TABLE_FRAMES = {
     M.SFX_FREED: 12, M.SFX_DELIVERED: 26, M.SFX_BITE: 5,
-    M.SFX_WORKER_DIED: 18, M.SFX_PLAYER_DIED: 40, M.SFX_TORCH_OUT: 24,
+    M.SFX_WORKER_DIED: 18, M.SFX_PLAYER_DIED: 40,
     M.SFX_DOOR: 2, M.SFX_SPRAY: 6, M.SFX_SPRAY_KILL: 3,
     M.SFX_NEST_TURNED: 24, M.SFX_HATCHED: 30, M.SFX_GAME_OVER: 66,
-    M.SFX_ALL_OUT: 50, M.SFX_PICKUP: 8, M.SFX_MAGNET: 16, M.SFX_STROBE: 2,
+    M.SFX_ALL_OUT: 50, M.SFX_MAGNET: 16, M.SFX_STROBE: 2,
 }
 
 
-def test_all_sixteen_are_here_and_no_seventeenth():
-    assert sorted(sounds.EFFECTS) == list(range(16))
+def test_all_fourteen_are_here_and_no_fifteenth():
+    """Sixteen until the torch went (issue #119) with its dying rattle and
+    the pickup's chirp."""
+    assert sorted(sounds.EFFECTS) == list(range(14))
     assert sorted(sounds.EFFECTS) == [M.MOMENTS[n].sound for n in M.MOMENTS]
 
 
@@ -110,10 +112,10 @@ def test_the_priorities_are_art_directions_and_are_not_copied():
             f"{moment.name} has two different priorities"
     assert {s: e.priority for s, e in sounds.EFFECTS.items()} == {
         M.SFX_FREED: 0, M.SFX_DELIVERED: 0, M.SFX_BITE: 0,
-        M.SFX_WORKER_DIED: 1, M.SFX_PLAYER_DIED: 1, M.SFX_TORCH_OUT: 0,
+        M.SFX_WORKER_DIED: 1, M.SFX_PLAYER_DIED: 1,
         M.SFX_DOOR: 0, M.SFX_SPRAY: 0, M.SFX_SPRAY_KILL: 0,
         M.SFX_NEST_TURNED: 1, M.SFX_HATCHED: 0, M.SFX_GAME_OVER: 1,
-        M.SFX_ALL_OUT: 1, M.SFX_PICKUP: 0, M.SFX_MAGNET: 1, M.SFX_STROBE: 1,
+        M.SFX_ALL_OUT: 1, M.SFX_MAGNET: 1, M.SFX_STROBE: 1,
     }
 
 
@@ -138,7 +140,6 @@ def test_the_pitches_the_note_names_are_the_pitches_that_play():
         M.SFX_FREED: (523, 785),
         M.SFX_DELIVERED: (523, 658, 785, 1048),
         M.SFX_BITE: (900, 260),
-        M.SFX_PICKUP: (880, 1313),
         M.SFX_DOOR: (233, 175),
         M.SFX_ALL_OUT: (440, 658, 880, 785, 880),
         M.SFX_GAME_OVER: (330, 247, 196, 110, 98),
@@ -169,11 +170,11 @@ def test_good_news_rises_and_bad_news_falls():
         segments = sounds.EFFECTS[sound].segments
         return segments[0].start, segments[-1].end
 
-    for sound in (M.SFX_FREED, M.SFX_DELIVERED, M.SFX_PICKUP, M.SFX_ALL_OUT):
+    for sound in (M.SFX_FREED, M.SFX_DELIVERED, M.SFX_ALL_OUT):
         first, last = ends(sound)
         assert last > first, f"{M.SOUND_NAMES[sound]} does not rise"
     for sound in (M.SFX_BITE, M.SFX_WORKER_DIED, M.SFX_PLAYER_DIED,
-                  M.SFX_TORCH_OUT, M.SFX_GAME_OVER, M.SFX_DOOR):
+                  M.SFX_GAME_OVER, M.SFX_DOOR):
         first, last = ends(sound)
         assert last < first, f"{M.SOUND_NAMES[sound]} does not fall"
     first, last = ends(M.SFX_HATCHED)
@@ -184,15 +185,15 @@ def test_only_the_clegs_rasp():
     """A rasp is a jittered delay constant and it means *Cleg*.
 
     Nothing else in the game has an unstable pitch, which is what makes the
-    rasp mean anything at all. The two deaths rasp because a Cleg is in them;
-    the torch's dying rattle is the one non-Cleg rasp and it is a mechanism
-    failing rather than a pitch.
+    rasp mean anything at all. The two deaths rasp because a Cleg is in them.
+    (The torch's dying rattle was the one non-Cleg rasp, a mechanism failing
+    rather than a pitch, until the torch went, issue #119.)
     """
     rasped = {sound for sound, effect in sounds.EFFECTS.items()
               if any(s.jitter for s in effect.segments)}
     assert rasped == {M.SFX_NEST_TURNED, M.SFX_HATCHED, M.SFX_WORKER_DIED,
-                      M.SFX_PLAYER_DIED, M.SFX_TORCH_OUT}
-    for sound in (M.SFX_FREED, M.SFX_DELIVERED, M.SFX_BITE, M.SFX_PICKUP,
+                      M.SFX_PLAYER_DIED}
+    for sound in (M.SFX_FREED, M.SFX_DELIVERED, M.SFX_BITE,
                   M.SFX_ALL_OUT, M.SFX_DOOR, M.SFX_GAME_OVER):
         assert sound not in rasped, f"{M.SOUND_NAMES[sound]} has a wobble"
 
@@ -353,7 +354,7 @@ def test_the_window_is_the_length_of_the_workers_death():
     # ...and the six the acceptance criteria name by hand, so that a table
     # change cannot make the promise true by emptying the list.
     for sound in (M.SFX_BITE, M.SFX_FREED, M.SFX_WORKER_DIED, M.SFX_DOOR,
-                  M.SFX_SPRAY, M.SFX_PICKUP):
+                  M.SFX_SPRAY):
         assert sound in SHORT_SOUNDS
 
 
@@ -513,7 +514,7 @@ def test_the_next_click_lands_exactly_where_it_would_have():
 
 def test_priority_one_cuts_priority_zero():
     """Ownership is against the clicks, not against a louder piece of news."""
-    voice = _voice_playing(M.SFX_TORCH_OUT)         # priority 0, 24 frames
+    voice = _voice_playing(M.SFX_HATCHED)           # priority 0, 30 frames
     voice.update(False, False)
     assert voice.update(False, False, [(M.SFX_WORKER_DIED, 1)]) == sounds.EFFECT
     assert voice.sound == M.SFX_WORKER_DIED
@@ -523,7 +524,7 @@ def test_priority_one_cuts_priority_zero():
 
 
 def test_priority_zero_during_anything_is_dropped():
-    for running in (M.SFX_TORCH_OUT, M.SFX_GAME_OVER):
+    for running in (M.SFX_HATCHED, M.SFX_GAME_OVER):
         voice = _voice_playing(running)
         voice.update(False, False, [(M.SFX_BITE, 0)])
         assert voice.sound == running, "a quiet piece of news cut in"
@@ -551,7 +552,7 @@ def test_nothing_is_ever_queued():
     """A loser is not heard, and the state is one effect and its frames left."""
     voice = sounds.Voice()
     voice.update(False, False, [(M.SFX_BITE, 0), (M.SFX_DOOR, 0),
-                                (M.SFX_PICKUP, 0)])
+                                (M.SFX_SPRAY, 0)])
     for _ in range(sounds.EFFECTS[M.SFX_BITE].frames - 1):
         voice.update(False, False)
     assert voice.update(False, False) == sounds.NOTHING, \

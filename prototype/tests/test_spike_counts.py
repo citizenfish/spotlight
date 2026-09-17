@@ -242,7 +242,7 @@ def test_a_fly_is_red_wherever_it_is_and_its_cell_holds_only_the_fly():
     from spikes import lighting as L
     run = Session(seed=1)
     fly = _fly_in_the_dark(run)
-    run.step(Intent(torch=True))
+    run.step(Intent())
     lit = [(cx, cy) for cy in range(22) for cx in range(32)
            if run.field.level_at(cx, cy) == L.LIT and not run.place.room.is_solid(cx, cy)
            and (cx, cy) != (run.player.cx, run.player.cy)]
@@ -308,25 +308,7 @@ def test_the_three_marks_are_the_bytes_the_issue_drew():
     assert 0x10 not in font.DEAD_MARK and 0x38 not in font.DEAD_MARK
 
 
-def test_the_light_flag_is_a_lamp_filled_on_and_hollow_off():
-    run = Session(seed=1)
-    region = panel.REGIONS["lit"]
-    def cell(screen):
-        return [screen.pixels[(region.row * CELL + dy) * 256 + region.col * CELL + dx]
-                for dy in range(CELL) for dx in range(CELL)]
-    def rows(glyph):
-        return [1 if glyph[dy] & (0x80 >> dx) else 0 for dy in range(CELL) for dx in range(CELL)]
-    run.step()
-    screen = Screen(); run.draw(screen)
-    assert cell(screen) == rows(font.LIT_OFF), "off: not the hollow lamp"
-    run.step(Intent(torch=True))
-    screen = Screen(); run.draw(screen)
-    assert cell(screen) == rows(font.LIT), "on: not the filled lamp"
-    # Repainted on the change and not otherwise.
-    run.step()
-    assert "lit" not in run.panel.dirty
-    run.step(Intent(torch=True))
-    assert not run.cone.lit and "lit" in run.panel.dirty
+# The light flag's test went with the torch (issue #119).
 
 
 # --- own colour, own square (issue #106) --------------------------------------------
@@ -363,10 +345,17 @@ def test_a_white_cell_holds_only_the_player_and_a_red_cell_only_one_fly():
     from spikes import sprites
     run = Session(seed=1, magnet=False)
     _free_everybody(run)
-    run.step(Intent(dx=1, torch=True))
+    run.step(Intent(dx=1))
     for _ in range(39):
         run.step(Intent(dx=1))
-    assert run.cone.lit
+    # The lit pool is the beam's, held on the player (the torch that used to
+    # light this went, issue #119).
+    beam = run.place.roaming
+    beam.mode = beam.DRIFT
+    beam.x, beam.y = run.player.cx, run.player.cy
+    beam.update = lambda: None
+    run.step(Intent())
+    assert run.beam_on_player()
     fly = C.Cleg(run.player.cx, run.player.cy, seed=3)
     run.place.swarm.clegs.append(fly)
     run.moments.raise_moment("freed", [run.player.body_cells()[1]], run.here) if hasattr(run.moments, "raise_moment") and False else None

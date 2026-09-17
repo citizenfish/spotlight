@@ -69,7 +69,7 @@ def _until_event(kind: str, bot: str = "listener", seed: int = 1,
     # of the run is what it raised on the event's frame, whichever seed.
     for try_seed in range(seed, seed + 8):
         run = Session(seed=try_seed, **kw)
-        playing = bots.make(bot, seed=try_seed, light=True)
+        playing = bots.make(bot, seed=try_seed)
         while run.over is None and run.frame < limit:
             run.step(playing.intent(run))
             if any(e.kind == kind for e in run.frame_events):
@@ -142,10 +142,10 @@ def _free_somebody(run):
 
 # --- the table --------------------------------------------------------------
 
-def test_there_are_sixteen_moments_and_these_are_they():
-    """The table, pinned. A seventeenth is a design decision and not a
-    tidy-up; the fifteenth was one (issue #82) and so was the sixteenth
-    (issue #95, the opening strobe's crack).
+def test_there_are_fourteen_moments_and_these_are_they():
+    """The table, pinned. A fifteenth is a design decision and not a
+    tidy-up; the magnet was one (issue #82) and so was the strobe's crack
+    (issue #95); the torch's two went with it (issue #119).
 
     Each row is (moment, sound id, priority, flash frames, pause frames), which
     is *Art Direction*'s table with the flash column dropped -- what flashes is
@@ -159,7 +159,6 @@ def test_there_are_sixteen_moments_and_these_are_they():
         ("bite",        M.SFX_BITE,        0,  0,  0),
         ("worker_died", M.SFX_WORKER_DIED, 1,  0,  0),
         ("player_died", M.SFX_PLAYER_DIED, 1, 16, 25),
-        ("torch_out",   M.SFX_TORCH_OUT,   0, 96,  0),
         ("door",        M.SFX_DOOR,        0,  0,  0),
         ("spray",       M.SFX_SPRAY,       0,  0,  0),
         ("spray_kill",  M.SFX_SPRAY_KILL,  0,  8,  0),
@@ -167,32 +166,32 @@ def test_there_are_sixteen_moments_and_these_are_they():
         ("hatched",     M.SFX_HATCHED,     0, 100, 0),
         ("game_over",   M.SFX_GAME_OVER,   1,  0, 50),
         ("all_out",     M.SFX_ALL_OUT,     1,  0, 50),
-        ("pickup",      M.SFX_PICKUP,      0, 32,  0),
         ("magnet",      M.SFX_MAGNET,      1,  0,  0),
         ("strobe",      M.SFX_STROBE,      1,  0,  0),
     ]
 
 
-def test_the_sixteen_sound_ids_are_the_list_the_next_slice_gets():
+def test_the_fourteen_sound_ids_are_the_list_the_next_slice_gets():
     """No more, no fewer, no renames.
 
     Slice F is entitled to assume this list is the list -- the whole point of
     fixing the ids before the waveforms is that the events could be raised
     before there was a voice. A rename here is a silent breakage there, so it
-    is a failing test here instead.
+    is a failing test here instead. Sixteen until the torch went (issue
+    #119), with its dying rattle and the pickup's chirp.
     """
-    assert len(M.SOUND_NAMES) == 16
+    assert len(M.SOUND_NAMES) == 14
     assert M.SOUND_NAMES == (
         "SFX_FREED", "SFX_DELIVERED", "SFX_BITE", "SFX_WORKER_DIED",
-        "SFX_PLAYER_DIED", "SFX_TORCH_OUT", "SFX_DOOR", "SFX_SPRAY",
+        "SFX_PLAYER_DIED", "SFX_DOOR", "SFX_SPRAY",
         "SFX_SPRAY_KILL", "SFX_NEST_TURNED", "SFX_HATCHED", "SFX_GAME_OVER",
-        "SFX_ALL_OUT", "SFX_PICKUP", "SFX_MAGNET", "SFX_STROBE")
+        "SFX_ALL_OUT", "SFX_MAGNET", "SFX_STROBE")
     # Every name is a real constant, and its value is its index -- a sound id
     # is one byte and an index into the table slice F will write.
     for wanted, name in enumerate(M.SOUND_NAMES):
         assert getattr(M, name) == wanted
     # ...and every moment carries one of them, each exactly once.
-    assert sorted(m.sound for m in M.MOMENTS.values()) == list(range(16))
+    assert sorted(m.sound for m in M.MOMENTS.values()) == list(range(14))
 
 
 def test_the_voice_reads_the_sound_ids_and_the_seam_is_closed():
@@ -290,23 +289,6 @@ def test_the_player_dying_flashes_where_they_died_and_asks_for_a_pause():
     assert run.moments.pause == 25
 
 
-def test_the_torch_going_out_alerts_the_bar_and_its_flag():
-    """Two regions, because the readout is *how much light and whether it is
-    burning* and the flag is the half that says it has gone out.
-
-    It replaced a bare `panel.alert("light")`, which flashed the bar only.
-    """
-    run = _settle(Session(seed=1))
-    run.step(Intent(torch=True))
-    run.cone.power = 1
-    run.step()
-    assert [e for e in run.frame_events if e.kind == S.TORCH_OUT]
-    assert _raised(run, M.M_TORCH_OUT) == [()]
-    assert run.panel.flashing("light") and run.panel.flashing("lit")
-    # The strip is where this flash lives, so nothing in the play area moved.
-    assert not run.moments.flashes
-
-
 def test_crossing_a_doorway_needs_no_flash():
     """The screen has just flicked to a different room, which is already the
     largest visual event in the game."""
@@ -333,7 +315,7 @@ def test_a_spray_kill_flashes_the_cell_the_fly_died_in():
     fly = run.place.swarm.clegs[0]
     run.player.x, run.player.y = (fly.cx - 2) * CELL, (fly.cy - 1) * CELL
     run.player.facing = sources.RIGHT
-    run.step(Intent(spray=True, torch=True))
+    run.step(Intent(spray=True))
     for _ in range(250):
         if [e for e in run.frame_events if e.kind == S.SPRAY_KILL]:
             break
@@ -389,25 +371,6 @@ def test_the_two_endings_pause_and_flash_nothing():
         assert _raised(run, moment) == [()]
         assert run.moments.pause == 50
         assert not run.moments.flashes
-
-
-def test_picking_up_a_spotlight_alerts_the_bar_underneath_the_player():
-    """The one readout whose *value* changes without the player asking, in the
-    same instant as something they did ask for.
-
-    `spotlight_swaps` is 0 in every run any bot has ever made, so this is set
-    up the way the gallery sets it up: the game's own swap rule, fired by the
-    game's own code.
-    """
-    run = _settle(Session(seed=1))
-    light = [l for l in run.kit.floor if l.room == run.here][0]
-    run.player.x = light.cx * CELL
-    run.player.y = (light.cy + 1) * CELL - 16
-    run.step(Intent(torch=True))
-    assert [e for e in run.frame_events if e.kind == S.SWAPPED]
-    assert _raised(run, M.M_PICKUP) == [()]
-    assert run.panel.flashing("light")
-    assert not run.panel.flashing("lit"), "the bar, not the flag"
 
 
 # --- the two rules ----------------------------------------------------------
@@ -583,7 +546,7 @@ def test_the_headless_driver_ignores_pauses_entirely():
     Two things are asserted: the run stepped every frame it was given, and the
     pause it is owed is still sitting there untaken.
     """
-    run = spike_driver.drive(bots.make("listener", seed=1, light=True),
+    run = spike_driver.drive(bots.make("listener", seed=1),
                              seed=1, frames=600)
     assert run.frame == 600, "the driver lost frames to a pause"
     assert run.over == S.FRAME_LIMIT
@@ -597,7 +560,7 @@ def test_no_moment_adds_a_kind_to_the_run_log():
     slice existed. A moment is not an event and must never become one."""
     kinds = {value for name, value in vars(S).items()
              if name.isupper() and isinstance(value, str)}
-    run = spike_driver.drive(bots.make("listener", seed=1, light=True),
+    run = spike_driver.drive(bots.make("listener", seed=1),
                              seed=1, frames=2000)
     logged = {e.kind for e in run.log}
     assert logged <= kinds
@@ -671,10 +634,12 @@ def test_a_body_on_lit_ground_wears_the_flash_bit():
     body = run.rescue.bodies()[0]
     run.here = body.room
     cx, cy = body.cell()
-    # Stand beside them with the torch on, so the ground is lit and the body is
+    # Stand beside them under the held floodlight (the torch that used to
+    # light this went, issue #119), so the ground is lit and the body is
     # inside the light rather than merely remembered.
     run.player.x, run.player.y = (cx + 1) * CELL, (cy - 1) * CELL
-    run.step(Intent(torch=True))
+    run.place.floodlight.hold(True)
+    run.step()
     run.step()
     assert body.ticking, "the body's window closed before the picture"
     assert (cx, cy) in run.flash_cells()

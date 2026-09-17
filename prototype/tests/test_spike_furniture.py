@@ -30,7 +30,7 @@ import pathlib
 
 import pytest
 
-from spikes import building, floor, lighting as L, scene, tiles
+from spikes import building, floor, lighting as L, tiles
 from spikes import spike_gallery as gallery
 from spikes.bitmaps_gen import BITMAPS
 from spikes.layout import PLAY_ROWS
@@ -51,63 +51,11 @@ KINDS = {
     building.GRATING: "GRATING",
 }
 
-#: **The stored copy of each room's solidity**, one character per cell, `#`
-#: where nothing can stand. This is the geometry the difficulty targets and
-#: the byte-identical event log were taken against. A solid piece of
-#: furniture may only replace a `#` here and a grating only a `.`; a level
-#: change that moves a `#` must change this table on purpose, with the
-#: targets re-taken, because it moves collision, steering and the swarm's
-#: reach. See *Building Structure* in the vault.
-STORED_SOLIDITY = {
-    scene.NEAR_NAME: (
-        "################################",
-        "#......#.......................#",
-        "#......#.......................#",
-        "#......#....########...........#",
-        "#......#....#......#...........#",
-        "#......#....#......#...........#",
-        "#...........#......#...........#",
-        "#...........###.####...........#",
-        "#..............................#",
-        "#####.#####....................#",
-        "................................",
-        "..........#####.................",
-        "#...............................",
-        "#..............................#",
-        "#..............................#",
-        "#..........########............#",
-        "#..............................#",
-        "#.......................#......#",
-        "#.......................#......#",
-        "#.......................#......#",
-        "#.......................#......#",
-        "################################",
-    ),
-    scene.FAR_NAME: (
-        "################################",
-        "#..............................#",
-        "#..............................#",
-        "#....#........#........#.......#",
-        "#....#........#........#.......#",
-        "#....#........#........#.......#",
-        "#....#........#........#.......#",
-        "#..............................#",
-        "#..............................#",
-        "#........####........####......#",
-        ".........####........####......#",
-        "...............................#",
-        ".........####........####......#",
-        "#........####........####......#",
-        "#..............................#",
-        "#..............................#",
-        "#.......#........#........#....#",
-        "#.......#........#........#....#",
-        "#.......#........#........#....#",
-        "#.......#........#........#....#",
-        "#..............................#",
-        "################################",
-    ),
-}
+# The stored copy of each room's solidity, and the three tests that held
+# the playtest building's rooms to it, went when the rooms began to roll
+# (issue #121): a rolled room's geometry is the seed's, and the roller's
+# clearance rule -- proved over seeds in `test_roller.py` -- is what stands
+# where the bitmap stood.
 
 
 def _solidity(room) -> tuple:
@@ -536,42 +484,3 @@ def test_the_furniture_plan_has_every_kind_on_a_solid_or_floor_cell():
             elif char == building.GRATING:
                 assert _cell(screen, cx, top + cy) == \
                     tiles.FURNITURE[building.GRATING]
-
-
-# --- the geometry has not moved ---------------------------------------------
-
-@pytest.mark.parametrize("name", list(STORED_SOLIDITY))
-def test_each_rooms_solidity_is_the_stored_copy(name):
-    """**The pin that makes this slice log-identical by construction.** A
-    solid piece re-skins a cell that was already solid, so nothing that
-    consults `is_solid` -- collision, steering, the swarm's reach, the fade
-    -- can tell it was placed. A piece on floor would change this bitmap,
-    and this test, and the difficulty targets with them."""
-    room = scene.BUILDING[scene.BUILDING.index_of(name)]
-    got = _solidity(room)
-    assert got == STORED_SOLIDITY[name], "\n".join(
-        f"{a}   {b}" for a, b in zip(got, STORED_SOLIDITY[name]))
-
-
-def test_every_solid_piece_in_a_room_map_sits_on_a_stored_solid_cell():
-    """The same claim read off the map characters rather than the bitmap,
-    so that a room can be checked against a copy taken before the furniture
-    went in: solid furniture only where the copy has `#`, gratings only where
-    it has `.`."""
-    for room in scene.BUILDING.rooms:
-        stored = STORED_SOLIDITY[room.name]
-        for cy, row in enumerate(room.rows):
-            for cx, char in enumerate(row):
-                if char in building.SOLID_FURNITURE:
-                    assert stored[cy][cx] == "#", (room.name, cx, cy, char)
-                elif char == building.GRATING:
-                    assert stored[cy][cx] == ".", (room.name, cx, cy, char)
-
-
-def test_the_solid_cell_counts_are_what_they_were():
-    """The two numbers the repaint comparison was taken against, unchanged:
-    a re-skinned wall is still a wall."""
-    counts = {r.name: sum(r.solid_map()) for r in scene.BUILDING.rooms}
-    assert counts == {scene.NEAR_NAME: 151, scene.FAR_NAME: 157}
-    assert counts == {name: sum(row.count("#") for row in rows)
-                      for name, rows in STORED_SOLIDITY.items()}

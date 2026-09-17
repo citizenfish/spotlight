@@ -55,82 +55,7 @@ def pixel_in_cell(screen: Screen, cx: int, cy: int, dx: int, dy: int) -> bool:
     return bool(screen.point(cx * CELL + dx, cy * CELL + dy))
 
 
-# --- the dropped spotlight --------------------------------------------------
-
-def test_every_spotlight_the_building_authors_is_on_screen():
-    """Room A's two and room B's one, in the room each is lying in.
-
-    They start unlit, so what is drawn is `LAMP_OFF` -- a hollow octagon, a
-    spotlight lying dark. Read off the screen rather than from the list, since
-    a draw call that existed and drew nothing is the fault being fixed.
-    """
-    for index in (scene.NEAR, scene.FAR):
-        run, screen = lit_room(index)
-        lights = [light for light in run.kit.floor if light.room == index]
-        assert lights, f"room {index} authors no spotlight"
-        for light in lights:
-            assert not light.burning, "an authored spotlight starts unlit"
-            assert drawn_at(screen, light.cx, light.cy, sprites.LAMP_OFF), \
-                f"the spotlight at {light.cx},{light.cy} is not on screen"
-
-
-def test_a_burning_spotlight_is_filled_and_a_spare_is_hollow():
-    """**Empty is dark, filled is burning.** The middle is the whole tell.
-
-    The burning one is produced by the game's own swap: the player is stood on
-    an authored light with the torch on, and `Spotlights.tick` leaves the
-    burning one behind exactly as it would if somebody had walked there. No
-    level data moves -- lighting one in `scene` would be a change to where the
-    light in this building is, which is a gameplay dial.
-    """
-    run = Session(seed=1)
-    light = run.kit.floor[0]
-    run.player.x = light.cx * CELL
-    run.player.y = (light.cy + 1) * CELL - PERSON_HEIGHT
-    run.step(Intent(torch=True))
-    assert light.burning, "the swap left nothing burning on the floor"
-    # Off the light, so the picture is of the lamp and not of the player's box.
-    for _ in range(24):
-        run.step(Intent(dx=1))
-    screen = Screen()
-    run.draw(screen)
-    assert drawn_at(screen, light.cx, light.cy, sprites.LAMP_ON)
-    # Row 3 of the cell is solid in LAMP_ON, two pixels in LAMP_OFF, and the
-    # floor stipple never touches it -- so it is the row that tells them apart.
-    assert pixel_in_cell(screen, light.cx, light.cy, 3, 3)
-
-    spare = Session(seed=1).kit.floor[0]
-    fresh, blank = lit_room(scene.NEAR)
-    assert not spare.burning
-    assert not pixel_in_cell(blank, spare.cx, spare.cy, 3, 3), \
-        "an unlit spare is drawn filled, so it reads as burning"
-
-
-def test_a_dropped_spotlight_is_drawn_like_a_key_and_not_like_a_person():
-    """**A fixture stays put, so the fade may remember it.**
-
-    People and Clegs are drawn only where a revealing light is on them, because
-    drawing them from stale light would show the player where somebody is *now*
-    using light that has gone. A spotlight does not move, so remembering one is
-    telling the truth -- which is why it is drawn with no `visible=` test, like
-    a key or a body.
-    """
-    run = Session(seed=1)
-    light = [l for l in run.kit.floor if l.room == run.here][0]
-    # Light the room once and then let the memory of it fade to DIM.
-    run.place.floodlight.hold(True)
-    run.step()
-    run.place.floodlight.hold(False)
-    for _ in range(60):
-        run.step()
-    assert run.field.level_at(light.cx, light.cy) == lighting.DIM, \
-        "the cell is not being remembered, so this test asks nothing"
-    assert not run.field.reveals_at(light.cx, light.cy), \
-        "a light is still on the cell, so this test asks nothing"
-    screen = Screen()
-    run.draw(screen)
-    assert drawn_at(screen, light.cx, light.cy, sprites.LAMP_OFF), \
-        "the fade forgot a fixture that has not moved"
+# The dropped spotlight and its three tests went with the torch (issue #119).
 
 
 # --- the way out ------------------------------------------------------------
@@ -161,17 +86,15 @@ def test_the_far_room_authors_no_way_out_and_draws_none():
 
 # --- the searchlight's housing ----------------------------------------------
 
-def test_a_room_with_a_searchlight_draws_its_housing_and_one_without_does_not():
-    """**The absence becomes authored rather than ambiguous**, which is the
-    whole of what went wrong when a player read the far room as broken."""
-    run, screen = lit_room(scene.NEAR)
-    housing = run.place.housing
-    assert housing is not None, "room A has a searchlight and no housing"
-    assert drawn_at(screen, housing[0], housing[1], sprites.HOUSING)
-
-    far_run, _far_screen = lit_room(scene.FAR)
-    assert far_run.place.roaming is None
-    assert far_run.place.housing is None, "the dark room grew a searchlight"
+def test_every_room_draws_its_searchlights_housing():
+    """**The fixture is drawn where the light is bolted**, which is what went
+    wrong when a player read a room without one as broken. Since issue
+    #118 every room has a searchlight, so every room draws a housing."""
+    for index in (scene.NEAR, scene.FAR):
+        run, screen = lit_room(index)
+        housing = run.place.housing
+        assert housing is not None, f"room {index} has no housing"
+        assert drawn_at(screen, housing[0], housing[1], sprites.HOUSING)
 
 
 def test_the_housing_is_white_at_full_brightness():
@@ -274,29 +197,3 @@ def test_every_mount_corner_is_a_cell_of_the_play_area():
         assert 0 < cx < COLS - 1 and 0 < cy < PLAY_ROWS - 1
         assert not scene.BUILDING[scene.NEAR].is_solid(cx, cy), \
             "room A's searchlight is bolted into a wall"
-
-
-# --- the level check counts what is in the room ----------------------------
-
-def test_the_rooms_lamps_are_counted_where_fixtures_are_counted():
-    """**They cost nothing today and that is the reason to count them now.**
-
-    A fixture is priced at zero, so the building's worst case does not move by
-    a T-state. The point is that the day the zero moves, the lamps move with
-    it, rather than waiting for somebody to remember that a room has three
-    spotlights lying about in it.
-    """
-    building = scene.BUILDING
-    assert building.most_lamps == sum(
-        len(room.spotlights) for room in building.rooms) == 3
-    was = __import__("spikes.building", fromlist=["x"]).FIXTURE_COST
-    module = __import__("spikes.building", fromlist=["x"])
-    assert was == 0
-    baseline = building.worst_case()
-    try:
-        module.FIXTURE_COST = 1
-        assert building.worst_case() >= baseline + building.most_lamps, \
-            "the lamps are not in the sum, so a priced fixture would miss them"
-    finally:
-        module.FIXTURE_COST = was
-    assert building.worst_case() == baseline

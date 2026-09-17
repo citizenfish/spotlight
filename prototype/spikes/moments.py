@@ -73,30 +73,30 @@ SFX_DELIVERED = 1
 SFX_BITE = 2
 SFX_WORKER_DIED = 3
 SFX_PLAYER_DIED = 4
-SFX_TORCH_OUT = 5
-SFX_DOOR = 6
-SFX_SPRAY = 7
-SFX_SPRAY_KILL = 8
-SFX_NEST_TURNED = 9
-SFX_HATCHED = 10
-SFX_GAME_OVER = 11
-SFX_ALL_OUT = 12
-SFX_PICKUP = 13
-#: Caught in the searchlight's beam (issue #82): the fifteenth, and the only
-#: one that announces a state the player is now in rather than a thing that
-#: happened. Raised on the rising edge only.
-SFX_MAGNET = 14
+# `SFX_TORCH_OUT` sat here and `SFX_PICKUP` after `SFX_ALL_OUT` until the
+# torch went (issue #119); sixteen effects became fourteen.
+SFX_DOOR = 5
+SFX_SPRAY = 6
+SFX_SPRAY_KILL = 7
+SFX_NEST_TURNED = 8
+SFX_HATCHED = 9
+SFX_GAME_OVER = 10
+SFX_ALL_OUT = 11
+#: Caught in the searchlight's beam (issue #82): the only one that announces
+#: a state the player is now in rather than a thing that happened. Raised on
+#: the rising edge only.
+SFX_MAGNET = 12
 #: The opening strobe's crack (issue #95): two frames of noise on each of the
-#: three flash frames, the harshest thing the beeper has. The sixteenth.
-SFX_STROBE = 15
+#: three flash frames, the harshest thing the beeper has.
+SFX_STROBE = 13
 
 #: id -> the name it is known by, so the sound slice has the table and so a
 #: rename is a failing test rather than a silent one.
 SOUND_NAMES = (
     "SFX_FREED", "SFX_DELIVERED", "SFX_BITE", "SFX_WORKER_DIED",
-    "SFX_PLAYER_DIED", "SFX_TORCH_OUT", "SFX_DOOR", "SFX_SPRAY",
+    "SFX_PLAYER_DIED", "SFX_DOOR", "SFX_SPRAY",
     "SFX_SPRAY_KILL", "SFX_NEST_TURNED", "SFX_HATCHED", "SFX_GAME_OVER",
-    "SFX_ALL_OUT", "SFX_PICKUP", "SFX_MAGNET", "SFX_STROBE",
+    "SFX_ALL_OUT", "SFX_MAGNET", "SFX_STROBE",
 )
 
 # --- the moments ------------------------------------------------------------
@@ -106,7 +106,6 @@ M_DELIVERED = "delivered"
 M_BITE = "bite"
 M_WORKER_DIED = "worker_died"
 M_PLAYER_DIED = "player_died"
-M_TORCH_OUT = "torch_out"
 M_DOOR = "door"
 M_SPRAY = "spray"
 M_SPRAY_KILL = "spray_kill"
@@ -114,7 +113,6 @@ M_NEST_TURNED = "nest_turned"
 M_HATCHED = "hatched"
 M_GAME_OVER = "game_over"
 M_ALL_OUT = "all_out"
-M_PICKUP = "pickup"
 #: The searchlight's beam is on you, and for ten seconds the room knows where
 #: you are (issue #82). Its tell is the figure's outline pulsing for as long as
 #: the magnet counter runs, drawn in `Session.draw`; it is not a flash.
@@ -123,12 +121,8 @@ M_MAGNET = "magnet"
 #: flash *is* the strobe -- no pause and no strip; a crack, three times.
 M_STROBE = "strobe"
 
-#: How long a readout on the status strip flashes when a moment alerts it.
-#: `Panel.alert` already owns the mechanism and its default is 96; the two
-#: strip moments name their own frames here so that the table is the one place
-#: any of this is written down.
-TORCH_OUT_FRAMES = 96
-PICKUP_FRAMES = 32
+# `TORCH_OUT_FRAMES` and `PICKUP_FRAMES`, the two strip moments' flashes,
+# went with the torch (issue #119); no moment alerts the strip now.
 
 #: How long before a spawn a nest starts telling you, and `M_HATCHED`'s frame
 #: count -- they are the same number because they are the same flash. Two
@@ -183,10 +177,6 @@ MOMENTS = {
         # ground, and the death already has a channel in the shout.
         Moment(M_WORKER_DIED, SFX_WORKER_DIED, 1),
         Moment(M_PLAYER_DIED, SFX_PLAYER_DIED, 1, frames=16, pause=25),
-        # The LIGHT bar *and* its flag: the table says both, and they are two
-        # regions on the strip.
-        Moment(M_TORCH_OUT, SFX_TORCH_OUT, 0, frames=TORCH_OUT_FRAMES,
-               strip=("light", "lit")),
         # No flash: the screen flicks to a different room, which is already the
         # largest visual event in the game.
         Moment(M_DOOR, SFX_DOOR, 0),
@@ -201,8 +191,6 @@ MOMENTS = {
                state_flash=True),
         Moment(M_GAME_OVER, SFX_GAME_OVER, 1, pause=50),
         Moment(M_ALL_OUT, SFX_ALL_OUT, 1, pause=50),
-        Moment(M_PICKUP, SFX_PICKUP, 0, frames=PICKUP_FRAMES,
-               strip=("light",)),
         # No flash of its own: the tell is the figure drawn with its halo
         # filled in for as long as the counter runs, in `Session.draw`, and
         # not the FLASH bit at all (issue #84 -- the bit was two yellow blocks

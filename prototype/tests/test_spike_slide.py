@@ -14,7 +14,9 @@ START = (18, 10)
 
 
 def _room():
-    return scene.BUILDING.rooms[scene.NEAR]
+    # The hand-drawn room A (issue #121): the slide is about its box.
+    from playtest import room_a
+    return room_a()
 
 
 def _walk(fly: C.Cleg, goal, frames: int = 400, avoid=None) -> list:

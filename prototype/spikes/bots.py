@@ -5,7 +5,7 @@ against them. They exist so the tester can measure the same thing twice, on
 different seeds, and get numbers that mean something:
 
     Statue     never moves. The worst case, and the cheapest control.
-    Wanderer   random walk, spotlight held on. A first-timer's opening minute.
+    Wanderer   random walk. A first-timer's opening minute.
     Listener   walks to the last HELP it heard, delivers in batches of three.
                A first-timer who has worked the game out.
     Oracle     knows where everybody is. The ceiling: what the room is worth to
@@ -31,6 +31,10 @@ Two things worth saying about the code:
 
 Everything is integer and every random choice comes from the same xorshift the
 Z80 would use, so a seed names a run.
+
+**No bot carries a torch** (issue #119): the torch went, and with it the
+lit/dark pairs (T2, T3) and the Crosser, T3e's instrument. What a bot sees
+of a room is the beam's memory of it, which is what a player sees.
 """
 
 import functools
@@ -38,12 +42,16 @@ import functools
 from spotlight.core.constants import CELL, COLS
 
 from . import (
-    building, lighting, rescue as rescue_mod, sources,
-    spray as spray_mod,
+    building, clegs as clegs_mod, lighting, player as player_mod,
+    rescue as rescue_mod, sources, spray as spray_mod,
 )
 from .layout import PLAY_ROWS
 from .player import HEIGHT
 from .session import Intent
+
+#: How close a hunting fly has to be, in cells, before a spraying bot fires
+#: (issue #122). Two: the tester's N = 2.
+SPRAY_REACH = 2
 
 #: How long a bot tolerates not moving before it tears up its route.
 #: Walking into a wall you are clipping with your head can stop a figure dead
@@ -162,25 +170,8 @@ class Bot:
 
     name = "bot"
 
-    #: Whether this bot uses the torch at all. Every bot that does takes it as
-    #: a constructor argument, because two of the difficulty targets are the
-    #: same bot run twice, lit and dark.
-    light = False
-
     def __init__(self, seed: int = 1) -> None:
         self._seed = seed or 1
-
-    def _torch(self, run) -> bool:
-        """Whether to press the torch key this frame.
-
-        **Every intent any bot builds goes through here**, so that a bot with
-        an opinion about light has one opinion rather than one per branch. The
-        Scout's route decides its light, and it was getting the default in the
-        branch it spends most of its time in -- which held the torch on through
-        ground it already knew and burned all twenty seconds of it in the first
-        half-minute.
-        """
-        return self.light and not run.cone.enabled
 
     def _random(self) -> int:
         self._seed = sources.xorshift16(self._seed)
@@ -191,26 +182,20 @@ class Bot:
 
 
 class Statue(Bot):
-    """Never moves, never lights. The control, and the worst case.
+    """Never moves. The control, and the worst case.
 
-    Used in pairs: the same statue with the torch held on and with it held off
-    is the whole of difficulty target T3, which is whether light costs anything.
+    It was used in pairs -- the same statue with the torch held on and off,
+    the whole of difficulty target T3 -- until the torch went (issue #119).
     """
 
     name = "statue"
 
-    def __init__(self, seed: int = 1, light: bool = False) -> None:
-        super().__init__(seed)
-        self.light = light
-
     def intent(self, run) -> Intent:
-        # Pressed once, on the first frame it is needed. Holding a key does not
-        # toggle a torch twice.
-        return Intent(torch=self._torch(run))
+        return Intent()
 
 
 class Wanderer(Bot):
-    """Random walk with the spotlight held on: a first-timer's opening minute.
+    """Random walk: a first-timer's opening minute.
 
     Not a model of a beginner -- a beginner has intentions -- but it is the only
     honest floor available: it is what the room does to somebody who has not
@@ -236,9 +221,8 @@ class Wanderer(Bot):
     #: what stopped you, and short enough that nobody would stand there.
     WEDGED_FRAMES = 25
 
-    def __init__(self, seed: int = 1, light: bool = True) -> None:
+    def __init__(self, seed: int = 1) -> None:
         super().__init__(seed)
-        self.light = light
         self._dx = self._dy = 0
         self._left = 0
         self._was = None
@@ -257,16 +241,20 @@ class Wanderer(Bot):
             self._left = self.TURN_EVERY
             self._wedged = 0
         self._left -= 1
-        return Intent(dx=self._dx, dy=self._dy,
-                      torch=self._torch(run))
+        return Intent(dx=self._dx, dy=self._dy)
 
 
 class Walker(Bot):
     """Shared machinery for the bots that go somewhere on purpose."""
 
-    def __init__(self, seed: int = 1, light: bool = False) -> None:
+    #: Whether this bot presses fire at a fly (issue #122). Off for the
+    #: reference bots, so the measured rows stay comparable; on for the
+    #: demo's listener, the bot a person is nearest to.
+    spray = False
+
+    def __init__(self, seed: int = 1, spray: bool = False) -> None:
         super().__init__(seed)
-        self.light = light
+        self.spray = spray
         self._path: list[tuple[int, int]] = []
         self._goals: tuple = ()
         self._stuck = 0
@@ -291,6 +279,38 @@ class Walker(Bot):
 
     def _route(self, start, goals) -> list:
         return route(self.building, start, goals, self._passable)
+
+    def _armed(self, run, intent: Intent) -> Intent:
+        """Press fire as well, if a fly is coming (issue #122).
+
+        The tester's rule at N = 2, measured: a hunting fly -- not attached,
+        not sated -- within two cells of the feet and in the half-plane the
+        player faces, the patch ahead not already poisoned, and a charge
+        left. N = 3 and 4 kill a tenth as much, because the fly is not in
+        the patch when it is laid and has five seconds to walk round it.
+        It took the Level 3 listener from 6 of 7 on every seed to 6.8 and
+        blood 131 to 58. Keys only, as ever.
+        """
+        if not self.spray or run.spray.charges <= 0 or intent.spray:
+            return intent
+        player = run.player
+        sx, sy = player_mod.STEP[player.facing]
+        coming = False
+        for fly in run.place.swarm.clegs:
+            if fly.state != clegs_mod.HUNTING:
+                continue
+            dx, dy = fly.cx - player.cx, fly.cy - player.cy
+            if max(abs(dx), abs(dy)) <= SPRAY_REACH and dx * sx + dy * sy > 0:
+                coming = True
+                break
+        if not coming:
+            return intent
+        ahead = spray_mod.patch_cells(player.cx, player.cy, player.facing,
+                                      run.is_solid)
+        if any(run.spray.covers(cx, cy, run.here) for cx, cy in ahead):
+            return intent
+        intent.spray = True
+        return intent
 
     def _walk(self, run, goals) -> Intent:
         """Head for the nearest of `goals`, as cells. Returns keys, not moves."""
@@ -339,12 +359,11 @@ class Walker(Bot):
                 want = self._path[0][2]
                 dy = (want > run.player.cy) - (want < run.player.cy)
                 return Intent(dx=1 if door.side == building.EAST else -1,
-                              dy=dy,
-                              torch=self._torch(run))
+                              dy=dy)
         if not self._path:
             self._path = self._route(here, goals)
         if not self._path or self._path[0][0] != run.here:
-            return Intent(torch=self._torch(run))
+            return Intent()
 
         tx, ty = stand_pixel(*self._path[0][1:])
         dx = (tx > run.player.x) - (tx < run.player.x)
@@ -367,7 +386,7 @@ class Walker(Bot):
                 dy = 0
             else:
                 dx = 0
-        return Intent(dx=dx, dy=dy, torch=self._torch(run))
+        return Intent(dx=dx, dy=dy)
 
     def _exit_cells(self, run) -> list[tuple[int, int, int]]:
         room, cell = run.building.exit
@@ -386,8 +405,7 @@ class Walker(Bot):
         """
         if run.rescue.at_exit(run.here, run.player.occupied_cells()):
             dx, dy = run.exit_facing
-            return Intent(dx=dx, dy=dy,
-                          torch=self._torch(run))
+            return Intent(dx=dx, dy=dy)
         return self._walk(run, self._exit_cells(run))
 
 
@@ -417,8 +435,8 @@ class Listener(Walker):
 
     name = "listener"
 
-    def __init__(self, seed: int = 1, light: bool = False) -> None:
-        super().__init__(seed, light)
+    def __init__(self, seed: int = 1) -> None:
+        super().__init__(seed)
         self._heard: tuple[int, int, int] | None = None
         self._target = None
         #: A doorway with somebody shouting the other side of it, if the bot
@@ -431,6 +449,9 @@ class Listener(Walker):
         return not run.rescue.alive_waiting()
 
     def intent(self, run) -> Intent:
+        return self._armed(run, self._listen(run))
+
+    def _listen(self, run) -> Intent:
         for worker in run.shouting:
             self._heard = worker_cell(worker)
             self._target = worker
@@ -476,48 +497,40 @@ class Listener(Walker):
         # Nobody has called yet, or the last caller is accounted for. Stand
         # still rather than wander: this bot's whole point is that it acts only
         # on what the room told it.
-        return Intent(torch=self._torch(run))
+        return Intent()
 
 
 class Scout(Listener):
-    """Routes only through ground it has seen, and lights the way to see more.
+    """Routes only through ground it has seen.
 
-    The bot target T2 exists for: *light must buy something*. That target was
-    **unfalsifiable rather than unmet**, because none of the other four bots
-    consults the light field at all -- the Listener routes by breadth-first
-    search over the true room geometry, so it walks through walls it has never
-    seen to reach a shout it has just heard, and a torch can only ever cost it.
-
-    So this one knows nothing about the building it has not observed:
+    The one bot that consults the light field: the Listener routes by
+    breadth-first search over the true room geometry, so it walks through
+    walls it has never seen to reach a shout it has just heard. This one
+    knows nothing about the building it has not observed:
 
     * **A cell becomes known the first time it is seen lit or dim.** Nothing
       else is known, **including where the walls are**.
     * **It routes through known ground only.** With no route to its target
       through known cells it goes to the nearest **frontier** -- a known cell
       with unknown ground next to it -- and carries on from there.
-    * **Its torch use follows from its route.** On while it is heading for a
-      frontier, off while it is walking ground it already knows. That is the
-      whole point: the light policy is a consequence of where it is going, not
-      a flag set from outside.
 
     Everything else is the Listener's: it goes to the last shout it heard, it
     delivers when its route reaches the door, and it leaves when nobody living
-    is left inside. That makes the T2 pair honest -- the same bot with and
-    without a torch, differing in what it can see rather than in what it wants.
-
-    **A Scout with `light=False` is the control.** It still explores, because
-    the player's own glow marks the cells around them dim, and dim is known. It
-    simply learns the building an arm's length at a time.
+    is left inside. It used to light its own way with the torch while it
+    explored, and the T2 pair was the same bot lit and dark; the torch went
+    (issue #119) and what it sees now is what the beam has shown it, which
+    since #117 includes the walls -- the beam is the one thing that ever
+    taught it a room.
     """
 
     name = "scout"
 
-    def __init__(self, seed: int = 1, light: bool = True) -> None:
-        super().__init__(seed, light)
+    def __init__(self, seed: int = 1) -> None:
+        super().__init__(seed)
         #: Every cell it has ever seen, as (room, cx, cy). Not what is in them.
         self.seen: set[tuple[int, int, int]] = set()
         #: Whether the route it is following is an exploration rather than a
-        #: journey to somewhere it knows. This is what holds the torch on.
+        #: journey to somewhere it knows.
         self.exploring = False
         #: The direction it stepped off the edge of its map in, and the room it
         #: was in when it did. See `_walk`: a doorway is two frames wide and a
@@ -596,7 +609,7 @@ class Scout(Listener):
             # Nowhere left to look from here: everything it can see is fully
             # mapped. Stand still rather than blunder about -- this bot's whole
             # claim is that it acts on what it can see.
-            return Intent(torch=self._torch(run))
+            return Intent()
         if self._push is not None and run.here != self._push_room:
             self._push = None                # through, and somewhere new
         step = self._unknown_from(here) if here in edges else None
@@ -612,17 +625,8 @@ class Scout(Listener):
             # you go through a doorway: there is no "go through the door"
             # action here or anywhere else, only more of the same direction.
             self._push, self._push_room = step, run.here
-            return Intent(dx=step[0], dy=step[1], torch=self._torch(run))
+            return Intent(dx=step[0], dy=step[1])
         return super()._walk(run, edges)
-
-    def _torch(self, run) -> bool:
-        """Press the key if the light is not in the state the route wants.
-
-        On while it is heading for the edge of its map, off on ground it knows.
-        That is the whole point of this bot: the light policy is a consequence
-        of where it is going, and a policy set from outside measures nothing.
-        """
-        return self.light and self.exploring != run.cone.enabled
 
     def _leave(self, run) -> Intent:
         self.exploring = False
@@ -646,6 +650,9 @@ class Oracle(Walker):
     name = "oracle"
 
     def intent(self, run) -> Intent:
+        return self._armed(run, self._go(run))
+
+    def _go(self, run) -> Intent:
         waiting = run.rescue.alive_waiting()
         if waiting:
             goals = [c for w in waiting
@@ -682,7 +689,7 @@ class Undertaker(Oracle):
         body = run.rescue.ticking()
         if body is not None and not run.spray.empty:
             if self._would_cover(run, body):
-                return Intent(spray=True, torch=self._torch(run))
+                return Intent(spray=True)
             return self._walk(run, stand_cells(run.building, body.room,
                                                *body.cell()))
         return super().intent(run)
@@ -720,148 +727,7 @@ class Undertaker(Oracle):
                                           for c in run.player.body_cells())
 
 
-class Crosser(Walker):
-    """Walks a stated route, over and over, lit or dark. Difficulty target T3e.
-
-    **The instrument the light bargain has been waiting for.** Three rounds of
-    tuning produced one survivor and two reverts, and the pattern was not luck:
-    the survivor was about sequencing, which the other bots can see, and both
-    failures were about what light costs, which they cannot. Measured, over a
-    whole run nothing distinguishes a lit player from a dark one -- blood
-    saturates (a lit Statue is at 191.8 of 192 by 150s on every seed) and
-    survival time gives a seven-second difference inside a forty-four-second
-    spread.
-
-    The reason is that **the swarm has a conserved feeding throughput**: six
-    flies on a drink-and-sate cycle eat as fast as they can cycle, so what the
-    player switches on changes *which light a fly walked to, not how many meals
-    it gets*. Light does not change how much blood you lose, it changes when --
-    and the design never claimed otherwise. The spine says light *draws the
-    swarm onto you*, which is a claim about arrival, and arrival measures at
-    3.3x on every seed.
-
-    **The bargain is a race, and every bot measured so far is standing still.**
-    So this one runs one: a crossing is about five seconds, it is bounded so it
-    cannot saturate, and it is the shape of the decision a player actually
-    takes -- *do I light this crossing or feel my way?* The two figures it
-    reports are the ones T3e is stated in:
-
-    * **extra bites per crossing**, lit against dark; and
-    * **the share of crossings in which a fly attaches before the far end**.
-
-    Both are per crossing rather than per run, which is what stops them being a
-    quotient of two long totals.
-    """
-
-    name = "crosser"
-
-    #: The route, stated here because a result nobody can reproduce is not a
-    #: measurement. Row 14 of the near room is its longest clear run -- thirty
-    #: cells with no wall in them -- and the ends are set two cells inside it so
-    #: that arriving is not the same thing as being stopped by a wall. Twenty-
-    #: seven cells is 216 pixels, which at one pixel a frame is 4.3 seconds:
-    #: about the five the target asks for, and well short of anything that
-    #: could saturate. Room 0 is the near room of Level 3; the route is a
-    #: measurement of that room and means nothing in another, so pass one.
-    ROUTE = ((0, 2, 14), (0, 29, 14))
-
-    def __init__(self, seed: int = 1, light: bool = False, route=None) -> None:
-        super().__init__(seed, light)
-        self.route = tuple(route or self.ROUTE)
-        self.at = 0
-        #: One record per completed crossing. See `summary`.
-        self.crossings: list[dict] = []
-        self._started = 0
-        self._at_start = 0
-        self._bites = 0
-        self._attached = False
-        self._lit = 0
-
-    def _target(self) -> tuple[int, int, int]:
-        return self.route[self.at]
-
-    def intent(self, run):
-        here = (run.here, run.player.cx, run.player.cy)
-        bites = run.swarm.attachments
-        if self._started:
-            self._lit += run.cone.lit
-        if self._bites != bites:
-            # A fly landed on this leg. Whether it landed *before the far end*
-            # is the whole of the second figure, and it is true by construction
-            # here: the crossing is not finished until the target is reached.
-            self._attached = True
-            self._bites = bites
-        if here == self._target():
-            if self._started:
-                frames = run.frame - self._started
-                self.crossings.append({
-                    "from": list(self.route[self.at - 1]),
-                    "to": list(self._target()),
-                    "frames": frames,
-                    "lit_frames": self._lit,
-                    # **Lit if the torch burned for most of it.** A carried
-                    # spotlight is twenty seconds and a crossing is four, so a
-                    # long run has both kinds in it whatever the bot was asked
-                    # for -- and a crossing half spent in the dark is neither
-                    # thing and must not be counted as either.
-                    "lit": self._lit * 2 >= frames,
-                    "bites": bites - self._at_start,
-                    "bitten_before_arrival": self._attached,
-                })
-            self.at = (self.at + 1) % len(self.route)
-            self._start(run.frame, bites)
-        elif not self._started:
-            # The first leg does not count: it starts wherever the player
-            # happens to begin rather than at an end of the route.
-            self._start(run.frame, bites)
-        return self._walk(run, stand_cells(run.building, *self._target()))
-
-    def _start(self, frame: int, bites: int) -> None:
-        self._started, self._at_start = max(1, frame), bites
-        self._attached, self._lit = False, 0
-
-    @staticmethod
-    def _figures(crossings: list[dict]) -> dict:
-        """T3e's two figures over a set of crossings.
-
-        Bites are in **tenths of a bite per crossing**, because the target is
-        stated as "one extra bite every two crossings" and integers are the
-        house rule. The share is a percentage of the crossings counted.
-        """
-        n = max(1, len(crossings))
-        bites = sum(c["bites"] for c in crossings)
-        bitten = sum(1 for c in crossings if c["bitten_before_arrival"])
-        return {
-            "crossings": len(crossings),
-            "crossing_frames": sum(c["frames"] for c in crossings) // n,
-            "bites": bites,
-            "bites_per_crossing_tenths": 10 * bites // n,
-            "bitten_before_arrival": bitten,
-            "bitten_before_arrival_percent": 100 * bitten // n,
-        }
-
-    def summary(self) -> dict:
-        """The route, and T3e's figures split by whether the torch was burning.
-
-        **Split within the run as well as between runs.** A torch is twenty
-        seconds and a crossing is four, so a bot asked to hold the light on
-        spends the first five crossings lit and the rest of a two-minute run
-        dark -- and a run report that averaged those together would be reporting
-        neither. The lit and dark buckets here are the same room, the same seed
-        and the same swarm, which is a tighter comparison than two runs; the
-        across-seeds pair the target asks for is still what settles it.
-        """
-        lit = [c for c in self.crossings if c["lit"]]
-        dark = [c for c in self.crossings if not c["lit"]]
-        return {
-            "route": [list(cell) for cell in self.route],
-            "all": self._figures(self.crossings),
-            "lit": self._figures(lit),
-            "dark": self._figures(dark),
-        }
-
-
-#: What each letter means in a script. Directions are held; the two buttons are
+#: What each letter means in a script. Directions are held; the button is
 #: pressed once, which is what the keyboard does.
 SCRIPT_CODES = {
     "R": (1, 0), "L": (-1, 0), "D": (0, 1), "U": (0, -1), ".": (0, 0),
@@ -876,8 +742,9 @@ def parse_script(text: str) -> list[Intent]:
     when the tuning loop in phase 2 moves a constant, the run that showed the
     problem has to be replayable exactly.
 
-    Counts are frames, default one. `T` is the torch, `S` the spray; both are
-    pressed on a single frame because that is what a key does.
+    Counts are frames, default one. `S` is the spray, pressed on a single
+    frame because that is what a key does. (`T` was the torch, until issue
+    #119.)
     """
     frames: list[Intent] = []
     for token in text.replace(",", " ").split():
@@ -889,8 +756,6 @@ def parse_script(text: str) -> list[Intent]:
         if code in SCRIPT_CODES:
             dx, dy = SCRIPT_CODES[code]
             frames += [Intent(dx=dx, dy=dy) for _ in range(repeat)]
-        elif code == "T":
-            frames += [Intent(torch=True)] + [Intent()] * (repeat - 1)
         elif code == "S":
             frames += [Intent(spray=True)] + [Intent()] * (repeat - 1)
         else:
@@ -925,21 +790,17 @@ BOTS = {
     "wanderer": Wanderer,
     "listener": Listener,
     "scout": Scout,
-    "crosser": Crosser,
     "oracle": Oracle,
     "undertaker": Undertaker,
 }
 
 
-def make(name: str, seed: int = 1, light: bool | None = None) -> Bot:
-    """Build a bot by name. `light` overrides whether it uses the torch.
-
-    Two of the difficulty targets are the same bot run twice with the torch on
-    and off, so that has to be a parameter rather than a different bot.
-    """
+def make(name: str, seed: int = 1, spray: bool = False) -> Bot:
+    """Build a bot by name. `spray` arms a Listener or an Oracle (issue
+    #122); the other bots have no fire button and ignore it."""
     if name not in BOTS:
         raise KeyError(f"no such bot: {name}; have {sorted(BOTS)}")
-    kind = BOTS[name]
-    if light is None:
-        return kind(seed=seed)
-    return kind(seed=seed, light=light)
+    bot = BOTS[name](seed=seed)
+    if spray and isinstance(bot, Walker):
+        bot.spray = True
+    return bot

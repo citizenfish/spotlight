@@ -55,29 +55,30 @@ def test_the_statue_never_moves():
     assert run.rescued == 0
 
 
-def test_the_statue_can_be_run_lit_or_dark():
-    """Difficulty target T3 is the same statue twice. It has to be a switch."""
-    dark = play(bots.make("statue", light=False), frames=1200)
-    lit = play(bots.make("statue", light=True), frames=1200)
-    assert dark.tally.lit_frames == 0
-    assert lit.tally.lit_frames > 0
+def test_no_bot_takes_a_light_any_more():
+    """Difficulty target T3 was the same statue twice, lit and dark, and the
+    switch was a constructor argument. The torch went (issue #119) and so
+    did the switch: a bot that is asked for one is a stale test."""
+    with pytest.raises(TypeError):
+        bots.make("statue", **{"light": True})
+    with pytest.raises(TypeError):
+        bots.Scout(seed=1, **{"light": True})
 
 
-def test_the_wanderer_moves_and_lights():
+def test_the_wanderer_moves():
     run = play(bots.make("wanderer", seed=3), frames=1500)
     assert (run.player.x, run.player.y) != scene.PLAYER_START
-    assert run.tally.lit_frames > 0
 
 
-def test_the_listener_never_lights_and_still_finds_people():
-    """The review's sharpest finding, reproduced: the best play is dark.
+def test_the_listener_finds_people_in_the_dark():
+    """The review's sharpest finding, reproduced: the best play is dark, and
+    since issue #119 the only play is.
 
     This is not a target, it is the evidence for one. If the Listener stops
-    clearing the room after phase-2 tuning, this assertion is the thing to
-    revisit -- and the reason it was written down.
+    clearing the room after tuning, this assertion is the thing to revisit
+    -- and the reason it was written down.
     """
     run = play(bots.make("listener", seed=5))
-    assert run.tally.lit_frames == 0
     assert run.rescued >= 1
 
 
@@ -102,7 +103,10 @@ def test_the_listener_collects_until_there_is_nothing_left_to_hear():
     """
     run = play(bots.make("listener"), seed=2)
     assert run.rescued > 3, "still stopping at a batch"
-    assert run.rescued + run.lost == run.total, "left somebody living behind"
+    # Since the light round (issue #118) this seed's building kills the
+    # listener before it is done; a death is not a batch.
+    assert run.over == session.NO_LIVES or \
+        run.rescued + run.lost == run.total, "left somebody living behind"
 
 
 def test_the_oracle_gets_everybody_out_by_walking():
@@ -194,31 +198,34 @@ def test_the_exit_is_reachable_by_route():
 
 
 def test_a_script_is_one_intent_per_frame():
-    frames = bots.parse_script("3R 2D T S 2.")
-    assert len(frames) == 3 + 2 + 1 + 1 + 2
+    frames = bots.parse_script("3R 2D S 2.")
+    assert len(frames) == 3 + 2 + 1 + 2
     assert [(f.dx, f.dy) for f in frames[:5]] == [(1, 0)] * 3 + [(0, 1)] * 2
-    assert frames[5].torch and not frames[5].spray
-    assert frames[6].spray
+    assert frames[5].spray
+    assert not frames[6].spray
 
 
 def test_a_script_repeats_a_button_only_once():
-    """`3T` is three frames, one of them a press. Holding a key does not
-    toggle a torch three times."""
-    frames = bots.parse_script("3T")
-    assert [f.torch for f in frames] == [True, False, False]
+    """`3S` is three frames, one of them a press. Holding a key does not
+    fire the spray three times."""
+    frames = bots.parse_script("3S")
+    assert [f.spray for f in frames] == [True, False, False]
 
 
 def test_a_bad_script_says_so():
     with pytest.raises(ValueError):
         bots.parse_script("100Z")
+    # `T` was the torch, until issue #119.
+    with pytest.raises(ValueError):
+        bots.parse_script("T")
 
 
 def test_a_scripted_run_replays_exactly():
-    script = bots.parse_script("200R 150D T 300L")
+    script = bots.parse_script("200R 150D S 300L")
     a = play(bots.Script(script), seed=4, frames=900)
     b = play(bots.Script(script), seed=4, frames=900)
     assert (a.player.x, a.player.y) == (b.player.x, b.player.y)
-    assert a.tally.lit_frames == b.tally.lit_frames > 0
+    assert a.tally.sprays == b.tally.sprays == 1
 
 
 # --- the Wanderer stops grinding into walls (issue #24) --------------------
@@ -330,164 +337,43 @@ def test_the_scout_goes_to_the_edge_of_its_map_when_the_route_runs_out():
         assert bot._unknown_from(place) is not None
 
 
-def test_the_scouts_torch_follows_its_route_and_can_be_turned_off():
-    """Its light policy is a consequence of where it is going, not a flag set
-    from outside -- which is what makes the T2 pair mean anything."""
-    lit = bots.Scout(seed=1, light=True)
-    run = Session(seed=1)
-    burning = set()
-    for _ in range(1500):
-        run.step(lit.intent(run))
-        burning.add((lit.exploring, run.cone.enabled))
-    assert (True, True) in burning, "it explored in the dark"
-
-    dark = bots.Scout(seed=1, light=False)
-    control = Session(seed=1)
-    for _ in range(1500):
-        control.step(dark.intent(control))
-    assert control.tally.lit_frames == 0, "the control lit up"
-
-
-def test_the_scout_puts_the_torch_out_on_ground_it_already_knows():
-    """The bug this policy had: every branch but one built its intent with the
-    Walker's default -- *press the torch and leave it on* -- so the bot burned
-    all twenty seconds of a spotlight walking a room it had already mapped, and
-    T2 would have measured a torch nothing was routing by.
-    """
-    bot = bots.Scout(seed=1, light=True)
-    run = Session(seed=1)
-    known = 0
-    for _ in range(2500):
-        run.step(bot.intent(run))
-        if not bot.exploring and run.frame > 200:
-            known += 1
-            assert not run.cone.lit, \
-                "the torch is burning on ground it does not need to see"
-    assert known > 500, "it never walked anywhere it already knew"
-
-
-def test_the_dark_scout_is_the_same_bot_with_no_torch():
-    """A fair control: same routing, same targets, same rules about what it
-    knows. The only difference is that it cannot extend its map with light."""
-    lit, dark = bots.Scout(seed=2, light=True), bots.Scout(seed=2, light=False)
-    assert type(lit)._walk is type(dark)._walk
-    assert lit._passable.__func__ is dark._passable.__func__
-    run = Session(seed=2)
-    for _ in range(200):
-        run.step(dark.intent(run))
-    assert dark.seen, "the dark scout learns nothing at all"
-
-
 def test_the_scout_still_explores_the_building():
     """It finds the far room by walking to the edge of what it knows."""
     run = play(bots.make("scout", seed=1))
     assert run.crossings > 0, "never found the far room"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="issue #79: without the opening flash the scout burns its torch "
-           "exploring and gets nobody out on seed 1 -- recorded, not fixed")
 def test_the_scout_gets_people_out():
     """It has to be able to play the game, or it measures nothing.
 
-    **Since issue #79 it cannot, and this is the record.** The scout mapped a
-    room from what it had seen, and the opening flash showed it the whole
-    room on frame one; without that it heads for a frontier with the torch on
-    and keeps the torch on until the battery is flat at about frame 1,500,
-    then wanders on its own glow until it bleeds out with nobody out. The T2
-    pair -- the same bot lit and dark -- measured a building it had been
-    handed, and it has to learn to explore on a budget before it measures
-    this one. Strict: the day somebody teaches it, this test passes and the
-    marker has to come off.
+    From issue #79 to issue #117 it could not, and the marker on this test
+    was the record: the scout mapped a room from what it had seen, the
+    opening flash had shown it the whole room on frame one, and without
+    that it burned its torch exploring and bled out with nobody out. Nobody
+    taught it. **The beam did**: since #117 the searchlight writes the walls
+    it passes into the fade, so a swept room is a known one, and the scout
+    reads that memory as it always did. With its own torch as well it got
+    seven out on seed 1; without one (issue #119) it gets three out of the
+    playtest building and everyone out of Level 1 on every seed, which is a
+    player's game and not a ceiling's.
     """
     run = play(bots.make("scout", seed=1))
-    assert run.rescued >= 5
+    assert run.rescued >= 3
+    from spikes import levels
+    dark = Session(seed=1, building=levels.level(1))
+    bot = bots.make("scout", seed=1)
+    while dark.over is None and dark.frame < LIMIT:
+        dark.step(bot.intent(dark))
+    assert dark.over == session.ALL_OUT
 
 
 def test_both_new_bots_are_selectable_from_the_driver():
     assert {"scout", "wanderer"} <= set(bots.BOTS)
-    assert isinstance(bots.make("scout", light=False), bots.Scout)
+    assert isinstance(bots.make("scout"), bots.Scout)
 
 
-# --- the crossing walker (issue #29, target T3e) ---------------------------
-
-def _cross(seed=1, light=False, frames=4000):
-    bot = bots.Crosser(seed=seed, light=light)
-    run = Session(seed=seed)
-    while run.over is None and run.frame < frames:
-        run.step(bot.intent(run))
-    return bot, run
-
-
-def test_the_crossing_walker_walks_its_route_over_and_over():
-    """The bargain is a race, and every other bot is standing still."""
-    bot, run = _cross()
-    assert len(bot.crossings) > 5, "it never got there and back"
-    ends = {tuple(c["to"]) for c in bot.crossings}
-    assert ends == set(bots.Crosser.ROUTE), "it wandered off its route"
-    for crossing in bot.crossings:
-        assert crossing["from"] != crossing["to"]
-
-
-def test_a_crossing_is_about_five_seconds_and_cannot_saturate():
-    """Bounded on purpose: blood over a whole run saturates at 191.8 of 192,
-    which is why no whole-run measure can see the bargain."""
-    bot, _ = _cross()
-    seconds = bot.summary()["all"]["crossing_frames"] / 50
-    assert 3 <= seconds <= 7, seconds
-
-
-def test_the_route_is_stated_in_the_run_report():
-    """A figure nobody can reproduce is not a measurement."""
-    bot, run = _cross()
-    lines = report.human(run, bot="crosser", measured=bot.summary())
-    stated = [l for l in lines if "route was" in l]
-    assert stated, "the report does not say where it walked"
-    for _room, cx, cy in bots.Crosser.ROUTE:
-        assert f"{cx},{cy}" in stated[0]
-
-
-def test_both_of_t3es_figures_are_reported():
-    """Extra bites per crossing, and the share of crossings with a fly on you
-    before the far end. Per crossing rather than per run, which is what stops
-    them being a quotient of two long totals."""
-    bot, _ = _cross(light=True)
-    summary = bot.summary()
-    for part in ("all", "lit", "dark"):
-        assert {"crossings", "bites_per_crossing_tenths",
-                "bitten_before_arrival_percent"} <= set(summary[part])
-    assert summary["all"]["crossings"] == \
-        summary["lit"]["crossings"] + summary["dark"]["crossings"]
-
-
-def test_lit_and_dark_crossings_are_split_within_one_run():
-    """A torch is twenty seconds and a crossing is four, so a bot asked to hold
-    the light on spends the first few crossings lit and the rest of the run
-    dark. Averaging those together reports neither."""
-    bot, run = _cross(light=True)
-    assert bot.summary()["lit"]["crossings"], "no crossing was lit at all"
-    assert bot.summary()["dark"]["crossings"], "the torch outlived the run"
-    dark, _ = _cross(light=False)
-    assert dark.summary()["lit"]["crossings"] == 0
-
-
-def test_the_same_route_is_comparable_lit_and_dark():
-    """Same seed, same room, same swarm, same walk. Only the light differs."""
-    lit, _ = _cross(seed=3, light=True)
-    dark, _ = _cross(seed=3, light=False)
-    assert lit.summary()["route"] == dark.summary()["route"]
-    # Within a few crossings: the walk is the same, and what differs is how
-    # often it is bitten on the way, which slows it. Two until issue #93
-    # made the swarm livelier; three on this seed since.
-    assert abs(lit.summary()["all"]["crossings"]
-               - dark.summary()["all"]["crossings"]) <= 4
-
-
-def test_the_crossing_walker_is_selectable_from_the_driver():
-    assert "crosser" in bots.BOTS
-    assert isinstance(bots.make("crosser", light=True), bots.Crosser)
-
+# The crossing walker (issue #29, target T3e) went with the torch (issue
+# #119): it walked a stated route lit and dark, and there is no lit.
 
 # --- the bot that goes back for a body (issue #33) --------------------------
 
@@ -611,3 +497,78 @@ def test_a_walker_wedged_on_a_diagonal_lets_go_of_one_key():
         raise AssertionError(
             f"still at {(run.player.x, run.player.y)} after 50 frames")
     assert frame < 50
+
+
+# --- a bot that sprays at a fly (issue #122) ----------------------------------
+
+def _spraying_run(level, seed, bot="listener", spray=True):
+    from spikes import levels
+    building, _ = levels.pick(level, seed=seed)
+    run = Session(seed=seed, building=building, sound=False)
+    player = bots.make(bot, seed=seed, spray=spray)
+    while run.over is None and run.frame < LIMIT:
+        run.step(player.intent(run))
+    return run
+
+
+def test_the_reference_bots_do_not_spray_unless_armed():
+    """The flag defaults off, so the measured rows stay comparable."""
+    for name in ("listener", "oracle"):
+        assert bots.make(name, seed=1).spray is False
+        assert bots.make(name, seed=1, spray=True).spray is True
+    # A statue has no fire button to arm.
+    assert not getattr(bots.make("statue", seed=1, spray=True), "spray", False)
+
+
+def test_the_spraying_listener_spends_its_charges_and_kills_on_level_three():
+    """Four seeds: every charge spent, at least two flies killed a run, and
+    at least as many out as the dry listener with less blood lost."""
+    from spikes import levels
+    wet_out = dry_out = wet_blood = dry_blood = 0
+    for seed in range(session.DEFAULT_SEED, session.DEFAULT_SEED + 4):
+        wet = _spraying_run(3, seed)
+        dry = _spraying_run(3, seed, spray=False)
+        assert wet.tally.sprays == levels.level(3).budget.spray == 5, seed
+        assert wet.tally.swatted >= 2, seed
+        wet_out += wet.rescued
+        dry_out += dry.rescued
+        wet_blood += wet.tally.blood_lost
+        dry_blood += dry.tally.blood_lost
+    assert wet_out >= dry_out
+    assert wet_blood < dry_blood
+
+
+def test_the_spraying_listener_fires_in_level_ones_second_room():
+    """Three charges and one fly: a charge is fired where the fly is."""
+    fired = 0
+    for seed in range(session.DEFAULT_SEED, session.DEFAULT_SEED + 4):
+        run = _spraying_run(1, seed)
+        fired += run.tally.sprays >= 1
+        assert run.tally.sprays <= 3
+    assert fired >= 3
+
+
+def test_the_rule_fires_only_at_a_hunting_fly_ahead_and_never_on_poison():
+    from spikes import clegs as C
+    run = Session(seed=1, sound=False)
+    bot = bots.make("listener", seed=1, spray=True)
+    run.step()
+    charges = run.spray.charges
+    # A fly two cells ahead, hunting: fire.
+    fly = run.place.swarm.clegs[0]
+    run.player.facing = 3                              # RIGHT
+    fly.cx, fly.cy = run.player.cx + 2, run.player.cy
+    fly.state = C.HUNTING
+    intent = bot._armed(run, Intent())
+    assert intent.spray
+    # The same fly behind: nothing.
+    fly.cx = run.player.cx - 2
+    assert not bot._armed(run, Intent()).spray
+    # Ahead but sated: nothing.
+    fly.cx, fly.state = run.player.cx + 2, C.SATED
+    assert not bot._armed(run, Intent()).spray
+    # Hunting again, but the ground ahead is already poisoned: nothing.
+    fly.state = C.HUNTING
+    run.step(Intent(spray=True))
+    assert run.spray.charges == charges - 1
+    assert not bot._armed(run, Intent()).spray

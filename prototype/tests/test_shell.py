@@ -91,15 +91,20 @@ def test_playing_advances_the_run(shell):
     assert shell.run.frame == 30
 
 
-def test_the_torch_and_the_spray_are_edge_triggered(shell):
-    """Holding a key down must not strobe the torch or empty the can."""
+def test_the_spray_is_edge_triggered(shell):
+    """Holding the key down must not empty the can. (The torch's half of
+    this went with the torch, issue #119; `T` is no key at all now.)"""
     shell.key(pygame.K_s)              # start
-    shell.key(pygame.K_t)
+    charges = shell.run.spray.charges
+    shell.key(pygame.K_SPACE)
     shell.frame()
-    assert shell.run.cone.enabled is True
+    assert shell.run.spray.charges == charges - 1
     for _ in range(20):
         shell.frame()
-    assert shell.run.cone.enabled is True
+    assert shell.run.spray.charges == charges - 1
+    shell.key(pygame.K_t)
+    shell.frame()
+    assert shell.run.spray.charges == charges - 1, "T did something"
 
 
 def _out_of_the_pause(shell):
@@ -128,20 +133,20 @@ def test_an_ending_replaces_the_play_screen(shell):
     assert any(line.startswith("GOT OUT") for line in text)
 
 
-def test_space_from_the_ending_starts_a_clean_run(shell):
+def test_space_from_the_ending_goes_to_the_title_and_s_starts_a_clean_run(shell):
     """A fresh run, not a rewound one.
 
-    The run before it had a worker freed, a torch burning and a quarter of its
-    blood gone; none of that may survive, and the cheapest way to guarantee it
-    is that the object does not.
+    The run before it had a worker freed and a quarter of its blood gone;
+    none of that may survive, and the cheapest way to guarantee it is that
+    the object does not. Since issue #123 the ending goes back to the title
+    -- where the best score is -- and `S` starts the next game.
     """
     shell.key(pygame.K_s)
     first = shell.run
     first.player.x, first.player.y = first.rescue.workers[0].x, \
         first.rescue.workers[0].y
-    shell.key(pygame.K_t)
     shell.frame()
-    assert first.rescue.tail and first.cone.enabled
+    assert first.rescue.tail
     first.lives = 1
     first.blood = 0
     shell.frame()
@@ -149,11 +154,12 @@ def test_space_from_the_ending_starts_a_clean_run(shell):
     assert shell.state == spike1.ENDED
 
     shell.key(pygame.K_SPACE)
+    assert shell.state == spike1.TITLE
+    shell.key(pygame.K_s)
     assert shell.state == spike1.PLAY
     assert shell.run is not first
     assert shell.run.frame == 0
     assert shell.run.rescue.tail == []
-    assert shell.run.cone.enabled is False
     assert shell.run.blood == shell.run.blood_full
     assert shell.run.lives == session.LIVES
     assert shell.run.log == []

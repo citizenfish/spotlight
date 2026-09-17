@@ -21,9 +21,11 @@ lit was forced to leave a long memory behind it.
 So the displayed level is the fade, **overridden by whatever is shining on the
 cell right now**. A source that is present shows its own brightness whatever the
 charge says; the charge is left to do only the job it is good at, which is
-remembering. The carried cone reads lit and leaves a long bright trail. The
-searchlight reads lit while the beam is on a cell and leaves a short dim one, so
-the ground behind the beam goes out quickly instead of hanging around lit.
+remembering. The searchlight reads lit while the beam is on a cell and leaves
+a short dim one on floor, so the ground behind the beam goes out quickly
+instead of hanging around lit -- and, since issue #117, the fade's full charge
+on a wall, so the room it has swept is known. (The carried cone, which read
+lit and left a long bright trail, went with the torch, issue #119.)
 
 Cost: the override touches only the cells a source lit this frame, which is a
 short list, not the whole field.
@@ -104,6 +106,14 @@ CHARGE_DIM = LIT_THRESHOLD
 #: wake is barely a trail at all -- the beam reads as a hole punched through the
 #: dark rather than as a light smeared across it.
 CHARGE_SWEEP = 10
+
+#: What the beam leaves on a **wall** (issue #117): the fade's full charge,
+#: so a wall the beam has passed reads lit for `LIT_FRAMES` and then as
+#: remembered outline for the rest of the fade. The floor behind the beam
+#: still goes out in `CHARGE_SWEEP`, so the beam reads as a hole punched
+#: through the dark and not a bar painted across it; but the room it has
+#: swept is *known*, which with the torch gone is the only way a room is.
+CHARGE_WALL = CHARGE_LIT
 
 assert CHARGE_LIT <= 0xFF, "charge must fit in a byte"
 
@@ -224,6 +234,17 @@ class LightField:
             prey = reveals
         if prey and level > self._prey[idx]:
             self._prey[idx] = level
+
+    def linger(self, solid: bytes) -> None:
+        """Slow the walls' fade: one charge back to every remembered solid
+        cell (issue #117, the `--wall-fade` experiment). Called on even
+        frames for a half-rate decay, so three seconds of wall memory
+        becomes six. `solid` is one byte per cell, non-zero where the room
+        is solid."""
+        charge = self.charge
+        for idx in range(len(charge)):
+            if solid[idx] and 0 < charge[idx] < 0xFF:
+                charge[idx] += 1
 
     def commit(self, decay: bool = True) -> None:
         """Decay everything, top up what was lit, then work out what shows.

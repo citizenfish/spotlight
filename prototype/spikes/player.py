@@ -177,6 +177,6 @@ class Player:
         return False
 
     def ahead(self) -> tuple[int, int]:
-        """The cell directly in front, where the cone starts and spray lands."""
+        """The cell directly in front, where the spray lands."""
         sx, sy = STEP[self.facing]
         return self.cx + sx, self.cy + sy

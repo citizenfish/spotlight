@@ -7,79 +7,32 @@ from spikes import building as B, levels, scene
 from spotlight.core.constants import CYAN, YELLOW
 
 
-#: The playtest building as `scene._rooms()` authored it before the file
-#: existed: the pinned copy the loaded level is held to, field for field.
-PINNED_ROOM_A = (
-    "################################",
-    "#......#.......................#",
-    "#......#.......................#",
-    "#......#....########...........#",
-    "#......#....#......#...........#",
-    "#......#....#......#...........#",
-    "#...........#......#...........#",
-    "#...........###d####...........#",
-    "#..............................#",
-    "#####.#####....................#",
-    "D..............................d",
-    "D.........xx[]x................d",
-    "#..............................d",
-    "#..............................#",
-    "#..............................#",
-    "#..........========............#",
-    "#..............................#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "#.......................|......#",
-    "################################",
-)
-PINNED_ROOM_B = (
-    "################################",
-    "#..............................#",
-    "#..............................#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#....|........|........|.......#",
-    "#..............................#",
-    "#..............................#",
-    "#........[][]........[][]......#",
-    "d........[][]........[][]......#",
-    "d..............................#",
-    "d........cxxc........cxxc......#",
-    "#........cxxc........cxxc......#",
-    "#..............................#",
-    "#..............................#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#.......|........|........|....#",
-    "#..............................#",
-    "################################",
-)
-PINNED_WORKERS_A = ((141, 128, 90), (115, 34, 40), (232, 152, 30))
-PINNED_WORKERS_B = ((40, 144, 50), (131, 40, 60), (224, 24, 70), (232, 152, 80))
-PINNED_CLEGS_A = ((2, 3), (29, 8), (6, 20))
-PINNED_CLEGS_B = ((16, 2), (28, 11), (10, 19))
-PINNED_SPOTLIGHTS_A = ((4, 16, 900), (26, 3, 150))
-PINNED_SPOTLIGHTS_B = ((27, 11, 1500),)
+#: The playtest building's shell, which is what `level3.txt` authors since
+#: its rooms began to roll (issue #121): the clocks, the counts, the beams,
+#: the door light, the start and the doorways. The maps that were pinned
+#: here byte for byte -- A's inner box, B's desks -- are the vault's *The
+#: Playtest Building* now, and nothing else.
+PINNED_CLOCKS_A = (90, 40, 30)
+PINNED_CLOCKS_B = (50, 60, 70, 80)
 PINNED_LIGHTS_B = ((0, 10, 3, 3),)
-PINNED_START = (140, 72)
+PINNED_START = (24, 96)
 PINNED_DOOR_ROWS = (10, 11, 12)
 
 
-def test_level_three_is_the_playtest_building_field_for_field():
+def test_level_three_is_the_playtest_buildings_shell():
     b = levels.level(3)
     assert [r.name for r in b.rooms] == ["the main room", "the far room"]
     near, far = b.rooms
-    assert near.rows == PINNED_ROOM_A and far.rows == PINNED_ROOM_B
-    assert near.workers == PINNED_WORKERS_A and far.workers == PINNED_WORKERS_B
-    assert near.clegs == PINNED_CLEGS_A and far.clegs == PINNED_CLEGS_B
-    assert near.spotlights == PINNED_SPOTLIGHTS_A and far.spotlights == PINNED_SPOTLIGHTS_B
+    assert tuple(w[2] for w in near.workers) == PINNED_CLOCKS_A
+    assert tuple(w[2] for w in far.workers) == PINNED_CLOCKS_B
+    assert len(near.clegs) == 3 and len(far.clegs) == 3
     assert near.lights == () and far.lights == PINNED_LIGHTS_B
+    assert near.has_exit and not far.has_exit
     assert near.ink == B.palette(YELLOW) and far.ink == B.palette(CYAN)
     assert near.searchlight.radius == 3 and near.searchlight.vary is False
-    assert far.searchlight is None
+    # The far room's beam varies (issue #118): every room has one now.
+    assert far.searchlight.radius == 3 and far.searchlight.vary is True
+    assert near.searchlight.pace == 6 and near.searchlight.mount == 0
     assert near.player_start == PINNED_START
     assert b.start == (0, PINNED_START)
     assert [(d.side, d.rows, d.to) for d in near.doorways] == [(B.EAST, PINNED_DOOR_ROWS, 1)]
@@ -89,8 +42,9 @@ def test_level_three_is_the_playtest_building_field_for_field():
 
 def test_scene_is_a_view_of_the_loaded_level():
     assert scene.BUILDING is levels.level(3)
-    assert scene.ROOM_A == PINNED_ROOM_A and scene.ROOM_B == PINNED_ROOM_B
-    assert scene.WORKERS_A == PINNED_WORKERS_A and scene.CLEGS_B == PINNED_CLEGS_B
+    assert scene.ROOM_A == scene.BUILDING[0].rows
+    assert scene.WORKERS_A == scene.BUILDING[0].workers
+    assert scene.CLEGS_B == scene.BUILDING[1].clegs
     assert scene.PLAYER_START == PINNED_START and scene.LIGHTS_B == PINNED_LIGHTS_B
     assert scene.SEARCHLIGHT_RADIUS == 3 and scene.SEARCHLIGHT_VARY is False
     assert scene.ROOM_NEAR is scene.BUILDING[0] and scene.ROOM_FAR is scene.BUILDING[1]
@@ -99,8 +53,17 @@ def test_scene_is_a_view_of_the_loaded_level():
 def test_the_source_file_is_the_one_the_loader_reads():
     path = levels.LEVELS_DIR / "level3.txt"
     assert path.exists()
-    assert levels.load(path).rooms[0].rows == PINNED_ROOM_A
-    assert levels.levels() == [3] or 3 in levels.levels()
+    assert levels.load(path, levels.DEFAULT_SEED).rooms[0].rows == \
+        levels.level(3).rooms[0].rows
+    assert 3 in levels.levels()
+
+
+def test_a_seed_names_a_level_and_another_rolls_another():
+    """Issue #121: the rooms are the seed's."""
+    a, b = levels.level(3, 1), levels.level(3, 1)
+    assert a is b
+    assert levels.level(3, 2)[0].rows != a[0].rows
+    assert levels.level(3, 2).seed == 2
 
 
 def _lines(text: str) -> str:
@@ -116,6 +79,7 @@ map:
 """ + "\n".join(["#" * 32] + ["#" + "." * 30 + "#"] * 20 + ["#" * 32]) + """
 worker: 40 40 60
 cleg: 20 10
+searchlight: 3 repeat
 start: 40 40
 """
 
@@ -138,13 +102,14 @@ def test_a_malformed_file_names_its_fault(bad, why):
     assert why in str(err.value)
 
 
-def _room(name, hue, doors, wall_east_gap=False):
+def _room(name, hue, doors, wall_east_gap=False, wall_west_gap=False):
     rows = ["#" * 32]
     for r in range(1, 21):
         east = "d" if (wall_east_gap and r in (10, 11, 12)) else "#"
-        rows.append("#" + "." * 30 + east)
+        west = "d" if (wall_west_gap and r in (10, 11, 12)) else "#"
+        rows.append(west + "." * 30 + east)
     rows.append("#" * 32)
-    body = f"\nroom: {name}\nfloor: {hue}\nmap:\n" + "\n".join(rows) + "\nworker: 40 40 60\ncleg: 20 5\nstart: 40 40\n"
+    body = f"\nroom: {name}\nfloor: {hue}\nmap:\n" + "\n".join(rows) + "\nworker: 40 40 60\ncleg: 20 5\nsearchlight: 3 repeat\nstart: 40 40\n"
     for d in doors:
         body += f"door: {d}\n"
     return body
@@ -172,12 +137,13 @@ def test_the_loaders_own_refusals():
 # --- the budget (issue #115, The rooms AS) -----------------------------------
 
 def test_the_default_budget_is_the_constants_level_three_was_measured_with():
-    from spikes import session, sources
-    assert B.DEFAULT_BUDGET == (session.BLOOD_FULL, 5, sources.Cone.FULL,
-                                session.LIVES)
+    from spikes import session
+    assert B.DEFAULT_BUDGET == (session.BLOOD_FULL, 5, session.LIVES,
+                                session.MAGNET_FRAMES // 50, True)
     assert levels.level(3).budget == B.DEFAULT_BUDGET
-    assert levels.level(2).budget == B.DEFAULT_BUDGET
-    assert levels.level(1).budget == B.Budget(64, 0, 1000, 3)
+    # The magnet's seconds and wake are the level's since issue #118.
+    assert levels.level(2).budget == B.Budget(64, 5, 3, magnet=8, wake=False)
+    assert levels.level(1).budget == B.Budget(64, 3, 3, magnet=5, wake=False)
 
 
 def test_a_level_without_a_budget_gets_the_constants():
@@ -191,8 +157,7 @@ def test_the_session_reads_the_budget_from_the_building():
     run = S.Session(seed=1, building=levels.level(1))
     assert run.blood == run.blood_full == 64
     assert run.lives == 3
-    assert run.cone.power == run.cone_full == 1000
-    assert run.spray.charges == 0
+    assert run.spray.charges == 3          # three since issue #121
     # Given to the constructor, blood and lives still win.
     run = S.Session(seed=1, building=levels.level(1), lives=99, blood=10)
     assert run.lives == 99 and run.blood == 10
@@ -200,7 +165,12 @@ def test_the_session_reads_the_budget_from_the_building():
 
 def test_a_level_with_no_spray_starts_with_no_charges_and_the_key_does_nothing():
     from spikes import session as S
-    run = S.Session(seed=1, building=levels.level(1))
+    text = "level: 9\nname: Dry\nspray: 0\n" + _room(
+        "only", "yellow", ["east 10-12 other"], True) + _room(
+        "other", "cyan", ["west 10-12 only"], wall_west_gap=True)
+    dry = levels.build(levels.parse(text)[2]).solo(1)    # solo cuts a way out
+    dry.budget = levels.parse(text)[3]
+    run = S.Session(seed=1, building=dry)
     assert run.spray.charges == 0
     before = len(run.log)
     for _ in range(5):
@@ -228,3 +198,70 @@ def test_a_budget_key_is_the_levels_and_negative_or_lifeless_is_refused():
         levels.parse("level: 9\nname: X\nblood: -1\n" + body)
     with pytest.raises(ValueError, match="at least one life"):
         levels.parse("level: 9\nname: X\nlives: 0\n" + body)
+
+
+def test_a_room_without_a_searchlight_is_refused():
+    """Every room has one (issue #118): the beam is how a room is seen."""
+    text = "level: 9\nname: X\n" + _room("only", "yellow", []).replace(
+        "searchlight: 3 repeat\n", "")
+    with pytest.raises(ValueError, match="no `searchlight:`"):
+        levels.build(levels.parse(text)[2])
+
+
+def test_pace_and_mount_are_the_rooms_and_are_bounded():
+    text = "level: 9\nname: X\n" + _room("only", "yellow", []).replace(
+        "start: 40 40\n", "pace: 8\nmount: 2\nstart: 40 40\n")
+    room = levels.build(levels.parse(text)[2])[0]
+    assert room.searchlight.pace == 8 and room.searchlight.mount == 2
+    with pytest.raises(ValueError, match="pace is frames per cell"):
+        levels.parse("level: 9\nname: X\n" + _room("only", "yellow", []).replace(
+            "start: 40 40\n", "pace: 0\nstart: 40 40\n"))
+    with pytest.raises(ValueError, match="wake is"):
+        levels.parse("level: 9\nname: X\nwake: maybe\n" + _room("only", "yellow", []))
+
+
+def test_the_dead_keys_are_refused_not_skipped():
+    """`torch:` and `spotlight:` went with the torch (issue #119); a stale
+    level file must not carry them for ever."""
+    body = _room("only", "yellow", [])
+    with pytest.raises(ValueError, match="no longer a key"):
+        levels.parse("level: 9\nname: X\ntorch: 1000\n" + body)
+    with pytest.raises(ValueError, match="no longer a key"):
+        levels.parse("level: 9\nname: X\n" + body.replace(
+            "start: 40 40\n", "spotlight: 4 4 900\nstart: 40 40\n"))
+
+
+# --- Level 4 and on (issue #121, ruling 7) ------------------------------------
+
+def test_level_four_and_on_is_level_three_tightened():
+    """Every clock three points shorter a level to a floor of 22; one more
+    fly a level in the far room from the first level at the floor, to nine
+    in the building; every beam varies from Level 5."""
+    three = levels.level(3)
+    clocks = lambda b: [w[2] for r in b.rooms for w in r.workers]  # noqa: E731
+    assert clocks(levels.level(4)) == [c - 3 for c in clocks(three)]
+    assert min(clocks(levels.level(6))) == 22
+    assert min(clocks(levels.level(20))) == 22
+    assert [len(r.clegs) for r in levels.level(6).rooms] == [3, 3]
+    assert [len(r.clegs) for r in levels.level(7).rooms] == [3, 4]
+    assert [len(r.clegs) for r in levels.level(9).rooms] == [3, 6]
+    assert [len(r.clegs) for r in levels.level(12).rooms] == [3, 6]
+    assert not levels.level(4)[0].searchlight.vary
+    assert all(r.searchlight.vary for r in levels.level(5).rooms)
+    assert levels.level(5).level == 5 and levels.level(5).title == "Rescue"
+    assert levels.level(5).budget == three.budget
+
+
+def test_the_worst_case_stays_under_the_ceiling_to_level_nine_and_beyond():
+    ceiling = B.ENTITY_CEILING
+    assert 100 * levels.level(1).worst_case() // ceiling <= 53
+    assert 100 * levels.level(2).worst_case() // ceiling <= 92
+    assert 100 * levels.level(3).worst_case() // ceiling <= 92
+    assert levels.level(9).worst_case() <= ceiling
+    assert levels.level(30).worst_case() <= ceiling
+
+
+def test_pick_accepts_any_level_from_one():
+    assert levels.pick(12)[0].level == 12
+    with pytest.raises(ValueError, match="no level 0"):
+        levels.pick(0)

@@ -1,84 +1,50 @@
 ; assets/levels/level2.txt -- Level 2, Infested: three rooms, seven people,
 ; six Clegs.
 ;
-; The second level (issue #111, The rooms AO), as drawn in the vault's
-; "The rooms", Level 2: the spray room with a light in the middle of the
-; floor, the beam room with the searchlight in repeat mode, and the wide
-; dark with no fixed light at all and the strongest spotlight on its far
-; wall. Two flies a room. The reasons are in the note and are not repeated
-; here. Format as level3.txt.
+; The second level (issue #111, then re-authored as templates in the light
+; round, issue #121): the spray room with a light in the middle of the
+; floor, the beam room, and the wide dark with no fixed light at all. Two
+; flies a room, a searchlight in every room (issue #118). The walls, the
+; furniture, the people's cells and the flies' starts roll from the run's
+; seed (issue #120). The reasons are in the vault's "The rooms" and "The
+; light round". Format as level3.txt.
 
 level: 2
 name: Infested
 blood: 64
 spray: 5
-torch: 1000
 lives: 3
+magnet: 8
+wake: off
 
 room: the spray
 floor: yellow
-map:
-################################
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#.........c....................#
-#.........c....................#
-#.........===========..........#
-#..............................#
-#..............................#
-D..............................d
-D..............................d
-#..............................d
-#.........===========..........#
-#...................c..........#
-#...................c..........#
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-################################
-worker: 176 128 90
-worker: 216 24 80
-cleg: 20 3
-cleg: 26 12
-spotlight: 3 16 150
+roll:
+segments: 3 5
+length: 4 10
+pieces: 1 3
+band: 14 26
+away: 16
+worker: 90
+worker: 80
+clegs: 2
 light: 14 9 3 3
+searchlight: 3 repeat
 start: 24 96
 door: east 10-12 the beam
 
 room: the beam
 floor: cyan
-map:
-################################
-#..............................#
-#..............................#
-#..............................#
-#....xx.........|..............#
-#....xx.........|..............#
-#...............|..............#
-#...............|..............#
-#..............................#
-#..........[][]................#
-d..............................d
-d..............................d
-d..............................d
-#..............................#
-#.......=======................#
-#..............................#
-#....................c.........#
-#....................c.........#
-#....................c.........#
-#..............................#
-#..............................#
-################################
-worker: 64 24 70
-worker: 136 128 40
-worker: 224 16 80
-cleg: 26 8
-cleg: 12 19
+roll:
+segments: 3 5
+length: 4 10
+pieces: 1 3
+band: 14 26
+away: 16
+worker: 70
+worker: 40
+worker: 80
+clegs: 2
 searchlight: 3 repeat
 start: 16 80
 door: west 10-12 the spray
@@ -86,33 +52,15 @@ door: east 10-12 the wide dark
 
 room: the wide dark
 floor: yellow
-map:
-################################
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#..........%%..................#
-#..........%%..................#
-#..............................#
-#..............................#
-#..............................#
-d..............................#
-d.....................xx.......#
-d.....................xx.......#
-#..............................#
-#..............................#
-#..............................#
-#........%%....................#
-#........%%....................#
-#..............................#
-#..............................#
-#..............................#
-################################
-worker: 224 24 60
-worker: 224 136 70
-cleg: 16 3
-cleg: 16 19
-spotlight: 29 11 1500
+roll:
+segments: 3 5
+length: 4 10
+pieces: 1 3
+band: 14 26
+away: 16
+worker: 60
+worker: 70
+clegs: 2
+searchlight: 3 repeat
 start: 16 80
 door: west 10-12 the beam

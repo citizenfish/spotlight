@@ -75,18 +75,19 @@ STORY = (
     "BEFORE THEY BLEED TO DEATH.",
 )
 
-#: The whole control scheme. Three of them, named as keys and as verbs.
+#: The whole control scheme: four directions and fire, every joystick the
+#: machine ever had, since the torch went (issue #119).
 CONTROLS = (
     ("ARROW KEYS", "WALK"),
-    ("T", "TORCH ON AND OFF"),
     ("SPACE", "FLYSPRAY"),
 )
 
-#: The bargain, which is the thing the playtest is actually about.
+#: The bargain, which is the thing the game is named for (issue #119): the
+#: searchlight shows you the room, and shows the flies where you are.
 WARNING = (
-    "YOUR TORCH SHOWS YOU THE ROOM.",
-    "IT ALSO SHOWS THE BITING FLIES",
-    "WHERE YOU ARE.",
+    "THE SEARCHLIGHT SHOWS YOU THE",
+    "ROOM. IT ALSO SHOWS THE BITING",
+    "FLIES WHERE YOU ARE.",
 )
 
 #: **`S`, and not any key** (issue #63). Any-key start is what a tester leaning
@@ -262,20 +263,25 @@ def draw_pool(screen: Screen) -> None:
     screen.set_attr(hx, hy, _attr(WHITE, bright=True))
 
 
-def draw_title(screen: Screen) -> None:
+def draw_title(screen: Screen, best: int = 0) -> None:
     """The first thing a tester sees, and for many of them the only instructions.
 
     The words, then the beam across them (issue #76). The order is the rule:
     the beam is laid on whatever cells the words left empty, so the words go
     down first and the beam finds its way round them. Drawn the other way the
     words would land on stippled cells and the beam would have to be scrubbed
-    out from under them.
+    out from under them. `best` is the number on the wall (issue #123),
+    written under the controls when there is one.
     """
-    draw_words(screen)
+    draw_words(screen, best)
     draw_pool(screen)
 
 
-def draw_words(screen: Screen) -> None:
+#: Where `BEST nnn` goes: the row the torch's control line left empty.
+BEST_ROW = 15
+
+
+def draw_words(screen: Screen, best: int = 0) -> None:
     """The title without its beam: the logo, the prose and the prompt.
 
     This is what `draw_title` was before issue #76, split out so a test can
@@ -297,6 +303,10 @@ def draw_words(screen: Screen) -> None:
 
     for i, line in enumerate(WARNING):
         write(screen, 1, 17 + i, line, CYAN)
+
+    if best > 0:
+        label = f"BEST {best}"
+        write(screen, centre(label), BEST_ROW, label, YELLOW, bright=True)
 
     # The three badges on the strip, taught here in one line (issue #90): a
     # badge is a picture you have to have been taught, and row 20 was empty.
@@ -335,7 +345,8 @@ def draw_badge_legend(screen: Screen, row: int = BADGE_LEGEND_ROW) -> None:
 
 def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
                 lost: int, inside: int, total: int, seconds: int,
-                where: str = "") -> None:
+                where: str = "", seed: int | None = None,
+                score: int | None = None) -> None:
     """How the run went, on the screen, in words and numbers that add up.
 
     Three counts and a time. The three counts are deliberately everybody --
@@ -352,7 +363,9 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
     `where` names the level, and the room the run began in when that was not
     the level's own (issue #109): a run of one room on its own has to say so,
     or its count reads as the level's. Empty, the row is left blank, which is
-    what every ending drew before there was more than one level.
+    what every ending drew before there was more than one level. `seed`
+    names the run beside it (issue #116): a rolled room and a beam's entry
+    are the seed's, so the number is how a run is reported and replayed.
     """
     screen.clear(_attr(WHITE))
     # The logo, since issue #104 (Look and feel 3 row 12): it is resident
@@ -376,6 +389,45 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
         write(screen, 4, row, label, WHITE)
         write(screen, 4 + _VERB_COL, row, value, ink, bright=True)
 
+    if score is not None:
+        # The game's score (issue #123), where a fifth row goes.
+        write(screen, 4, 18, "SCORE", WHITE)
+        write(screen, 4 + _VERB_COL, 18, str(score), WHITE, bright=True)
     write(screen, centre(AGAIN_PROMPT), 19, AGAIN_PROMPT, WHITE, bright=True,
+          flash=True)
+    write(screen, centre(STOP_PROMPT), 21, STOP_PROMPT, WHITE)
+    if seed is not None:
+        label = f"SEED {seed}"
+        write(screen, centre(label), 23, label, WHITE)
+
+
+#: The card between levels (issue #123): the ending screen's shape with the
+#: next verb.
+CARD_PROMPT = "PRESS SPACE FOR THE NEXT BUILDING"
+
+
+def draw_card(screen: Screen, where: str, rescued: int, total: int,
+              seconds: int, lives: int, score: int) -> None:
+    """All out, or nobody left: the level is done and the next one waits.
+
+    The logo, the level, how many came out, the time, the lives you carry
+    into the next building and the score so far, then the one key. The
+    ending screen's shape with the next verb, so a player who has read one
+    has read the other.
+    """
+    screen.clear(_attr(WHITE))
+    draw_logo(screen, top=1)
+    write(screen, centre(where), 5, where.upper(), CYAN, bright=True)
+    rows = (
+        ("GOT OUT ALIVE", f"{rescued} OF {total}", GREEN),
+        ("TIME TAKEN", mmss(seconds), WHITE),
+        ("LIVES LEFT", str(lives), RED),
+        ("SCORE", str(score), WHITE),
+    )
+    for i, (label, value, ink) in enumerate(rows):
+        row = 9 + i * 2
+        write(screen, 4, row, label, WHITE)
+        write(screen, 4 + _VERB_COL, row, value, ink, bright=True)
+    write(screen, centre(CARD_PROMPT), 19, CARD_PROMPT, WHITE, bright=True,
           flash=True)
     write(screen, centre(STOP_PROMPT), 21, STOP_PROMPT, WHITE)

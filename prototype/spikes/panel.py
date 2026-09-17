@@ -14,7 +14,7 @@ Two rules the issue is explicit about:
 from dataclasses import dataclass
 
 from spotlight.core.constants import (
-    BLACK, CELL, COLS, CYAN, GREEN, RED, WHITE, YELLOW,
+    BLACK, CELL, COLS, CYAN, GREEN, RED, WHITE,
 )
 from spotlight.core.screen import Screen, attr_byte
 
@@ -32,6 +32,9 @@ BAR, COUNT, FLAG, TALLY = "bar", "count", "flag", "tally"
 #: is every count this building has (issue #90). Three of them fit where a
 #: word and a number would not.
 BADGE = "badge"
+#: NUMBER draws the value as digits, left-aligned, blank at zero: the level
+#: (issue #119), where the light bar was.
+NUMBER = "number"
 
 #: How long a readout flashes when something happens to it: two seconds, which
 #: is three blinks of the Spectrum's 32-frame flash cycle. Long enough to catch
@@ -109,7 +112,7 @@ _TOP, _BOTTOM = STRIP_TOP, STRIP_TOP + 1
 LABELS = (
     (_TOP, STATUS_LEFT, "BLOOD"),
     (_BOTTOM, STATUS_LEFT, "LIVES"),
-    (_TOP, ACTION_LEFT, "LIGHT"),
+    (_TOP, ACTION_LEFT, "LEVEL"),
     (_BOTTOM, ACTION_LEFT, "SPRAY"),
 )
 
@@ -127,10 +130,11 @@ REGIONS: dict[str, Region] = {
     "left": Region(_TOP, STATUS_LEFT + 16, 2, WHITE, BADGE, font.LEFT_MARK),
     "dead": Region(_BOTTOM, STATUS_LEFT + 16, 2, RED, BADGE, font.DEAD_MARK),
     "lives": Region(_BOTTOM, STATUS_LEFT + 6, 3, RED, COUNT, font.HEART),
-    "light": Region(_TOP, ACTION_LEFT + 6, 6, YELLOW, BAR),
-    # Against the bar, not a cell clear of it: they are one readout, and the
-    # cell that gap used to cost is the tally's word (issue #31).
-    "lit": Region(_TOP, ACTION_LEFT + 12, 1, YELLOW, FLAG, font.LIT),
+    # **The level's number where the light bar was** (issue #119): the
+    # torch went, and with it the six-cell bar and its flag. Dim white, two
+    # cells; a building with no level draws nothing, and the rest of the
+    # row is air.
+    "level": Region(_TOP, ACTION_LEFT + 6, 2, WHITE, NUMBER),
     "spray": Region(_BOTTOM, ACTION_LEFT + 6, 5, CYAN, COUNT, font.PIP),
     "keys": Region(_BOTTOM, ACTION_LEFT + 12, 1, CYAN, FLAG, font.KEY),
     # Bottom left, in the gap the three hearts leave, and now filling it: the
@@ -186,6 +190,8 @@ class Panel:
         elif region.kind == BADGE:
             # One digit: nine is every count this building has (issue #90).
             value = max(0, min(9, value))
+        elif region.kind == NUMBER:
+            value = max(0, min(10 ** region.width - 1, value))
         else:
             value = max(0, min(region.width, value))
         if self.values[name] == value:
@@ -262,10 +268,10 @@ class Panel:
             elif region.kind == BADGE:
                 glyph = (region.glyph if i == 0
                          else font.GLYPHS[str(min(9, max(0, value)))])
-            elif name == "lit":
-                # The torch's flag is a lamp, filled or hollow (issue #103);
-                # the key's flag stays blank with no key.
-                glyph = font.LIT if value else font.LIT_OFF
+            elif region.kind == NUMBER:
+                text = str(value) if value else ""
+                glyph = (font.GLYPHS[text[i]] if i < len(text)
+                         else font.BLANK)
             else:
                 glyph = region.glyph if value else font.BLANK
             cx = region.col + i

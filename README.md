@@ -10,12 +10,18 @@ You are an emergency worker in a dark building. Seven people are hurt and
 trapped in it, and they are bleeding. Find them, walk them out through the exit
 door, and get back in for the next one before the ones you left run out of time.
 
-Your torch shows you the room. It also shows the biting flies where you are.
-That trade is the whole game.
+The searchlight sweeping the room shows you the room. It also shows the
+biting flies where you are. That trade is the whole game: keep out of the
+beam, and use what it shows you.
 
 Nothing ever shows you a room whole, and nothing ever shows you the plan of
-the building. What you have seen by your own light is remembered for a few
-seconds and dims; after that, what you have is whatever you held in your head.
+the building. The walls the beam has passed stay with you for three seconds
+and dim; after that, what you have is whatever you held in your head. And
+the rooms are never the same twice: each is rolled from the game's seed, so
+a building you have learned is a building that is gone. Get everyone out and
+the next building opens with the lives you have left; the score is people
+out, seconds spared and bodies doused, and the best of it stays on the
+title.
 
 ## Playing it
 
@@ -40,7 +46,6 @@ The title screen says everything a first-time player needs, in words. Briefly:
 | | |
 | --- | --- |
 | **Arrow keys** | walk |
-| **T** | torch on and off |
 | **Space** | flyspray |
 
 Touching the exit hands over whoever is following you and the run continues;
@@ -60,8 +65,8 @@ python -m spikes.spike_driver --bot listener --seeds 5     # play it without han
 The driver runs the real game loop with no window and writes two reports per
 run: a JSON of every measurement, and five or six lines of English for talking
 a playtest through afterwards. `--bot` takes `statue`, `wanderer`, `listener`,
-`scout`, `crosser`, `oracle` or `undertaker`; `--script "300R 100D T 600."`
-presses keys.
+`scout`, `oracle` or `undertaker`; `--script "300R 100D S 600."` presses
+keys.
 
 ## How it is built
 

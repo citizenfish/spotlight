@@ -43,12 +43,12 @@ def test_the_game_is_held_and_the_log_is_empty_through_the_strobe():
     flies = [(c.cx, c.cy) for c in run.place.swarm.clegs]
     blood = [w.blood for w in run.rescue.workers]
     for _ in range(S.OPENING_FRAMES):
-        events = run.step(Intent(dx=1, dy=1, torch=True, spray=True))
+        events = run.step(Intent(dx=1, dy=1, spray=True))
         assert events == [] and run.frame == 0
     assert (run.player.x, run.player.y) == start, "the player moved"
     assert [(c.cx, c.cy) for c in run.place.swarm.clegs] == flies, "a fly moved"
     assert [w.blood for w in run.rescue.workers] == blood, "somebody bled"
-    assert not run.log and not run.cone.lit
+    assert not run.log and run.spray.charges == 5
     run.step(Intent(dx=1))
     assert run.frame == 1 and run.player.x == start[0] + 1, "play did not begin"
 

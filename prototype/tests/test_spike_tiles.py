@@ -387,6 +387,31 @@ def test_a_dark_cell_draws_nothing_at_all():
                 f"{(cx, cy)} was drawn in a room with no light in it"
 
 
+#: The playtest building's room A as it was drawn by hand, with its inner
+#: box and one-cell doorway at (15, 7) -- the case the doorway character was
+#: added for. Room A rolls now (issue #121), so the picture of a horizontal
+#: one-cell doorway is taken on `playtest.py`'s copy, with the east doorway
+#: walled up so the room stands on its own.
+from playtest import INNER_DOOR  # noqa: E402
+
+
+def _boxed_room():
+    from playtest import room_a
+    return room_a(doorways=False)
+
+
+def _lit_boxed_room():
+    """The boxed room, revealed and drawn, as `_lit_room` does it."""
+    from spikes import building as B
+    building = B.Building([_boxed_room()])
+    run = Session(seed=1, building=building)
+    run.place.floodlight.hold(True)
+    run.step()
+    screen = Screen()
+    run.draw(screen)
+    return run, screen
+
+
 def _lit_room(index: int = scene.NEAR, frames: int = 1):
     """A session with one room revealed and drawn, and the screen it drew on.
 
@@ -434,7 +459,7 @@ def test_a_lit_wall_is_drawn_as_the_tile_its_own_mask_chooses():
             assert _cell_bytes(screen, cx, cy) == tiles.WALL_LIT[mask], \
                 f"the wall at {(cx, cy)} is not mask {mask}"
             checked += 1
-    assert checked > 100, "this did not look at many walls"
+    assert checked > 90, "this did not look at many walls"   # the border alone is 104, less the sign and the doorways
 
 
 def test_a_remembered_wall_shows_the_outline_and_the_courses_and_no_joints():
@@ -475,9 +500,9 @@ def test_a_doorway_cell_draws_returns_into_the_opening():
     not a door-shaped thing at 8x8"* -- and what it draws is the two walls
     either side of it continued into the opening.
     """
-    run, screen = _lit_room()
+    run, screen = _lit_boxed_room()
     room = run.place.room
-    cx, cy = scene.INNER_DOOR
+    cx, cy = INNER_DOOR
     assert room.is_doorway(cx, cy), "the inner door is not marked as one"
     mask = tiles.mask_at(room.is_wall, cx, cy)
     assert mask == tiles.EAST | tiles.WEST, "a gap with a jamb either side"
@@ -493,8 +518,8 @@ def test_a_doorway_is_stippled_like_the_floor_it_is():
     remembered, and it takes the floor's stipple -- if it ever stops, the level
     has been changed by a drawing character."""
     from spikes import floor, lighting
-    run, screen = _lit_room()
-    cx, cy = scene.INNER_DOOR
+    run, screen = _lit_boxed_room()
+    cx, cy = INNER_DOOR
     drawn = _cell_bytes(screen, cx, cy)
     for row, bits in enumerate(floor.tile_at(lighting.LIT, cx, cy)):
         assert drawn[row] & bits == bits, "the doorway lost its stipple"
@@ -505,8 +530,8 @@ def test_the_jambs_either_side_of_a_gap_come_free():
     jambs are not drawn by the doorway: the wall cells either side already get
     their inward faces outlined by their own mask. This is why `d` costs one
     table and no special case."""
-    room = scene.ROOM_NEAR
-    cx, cy = scene.INNER_DOOR
+    room = _boxed_room()
+    cx, cy = INNER_DOOR
     for jamb in ((cx - 1, cy), (cx + 1, cy)):
         mask = tiles.mask_at(room.is_wall, *jamb)
         face = tiles.EAST if jamb[0] < cx else tiles.WEST
@@ -536,10 +561,10 @@ def test_a_sign_is_painted_on_the_wall_and_does_not_punch_through_it():
     # the routine is exercised here directly, on the three row-15 wall cells
     # the docstring's numbers were taken from. The property is the routine's,
     # not the placement's.
-    # Row 15 is a pipe run since the furniture was placed (issue #102); the
-    # box above the start is still brick.
-    painted = [(cx, 3) for cx in (13, 14, 15)]
-    assert all(room.rows[3][cx] == "#" for cx, _cy in painted), "row 3 is not the wall it was"
+    # Three cells of the top border: always brick, whatever the roll (issue
+    # #121) put inside the room.
+    painted = [(cx, 0) for cx in (13, 14, 15)]
+    assert all(room.rows[0][cx] == "#" for cx, _cy in painted), "row 0 is not the wall it was"
     for i, (cx, cy) in enumerate(painted):
         font.paint_glyph(screen, cx, cy, font.GLYPHS["HEL"[i]])
 
@@ -602,16 +627,8 @@ def test_the_status_strip_still_writes_over_itself():
 
 # --- the geometry has not moved ---------------------------------------------
 
-def test_no_cell_changed_from_wall_to_floor_or_back():
-    """**The slice changes what a wall costs to redraw, not how many there
-    are.** The repaint figures are compared against slice A on the same seeds
-    and the solid-cell count must match, so if room geometry moves the
-    comparison is worthless. These two numbers are the geometry.
-    """
-    counts = {r.name: sum(r.solid_map()) for r in scene.BUILDING.rooms}
-    assert counts == {scene.NEAR_NAME: 151, scene.FAR_NAME: 157}
-
-
+# `test_no_cell_changed_from_wall_to_floor_or_back` pinned the two rooms'
+# solid-cell counts, 151 and 157; the rooms roll now (issue #121).
 def test_the_far_rooms_light_still_covers_its_side_of_the_doorway():
     """**The light did not move when the doorway was finally drawn.**
 
@@ -641,8 +658,8 @@ def test_a_doorway_character_is_not_solid_anywhere_it_is_asked():
     collision rule and the swarm-reachability check all treat `d` as floor --
     which is what keeps the next slice's repaint comparison meaningful."""
     from spikes import building, swarming
-    room = scene.ROOM_NEAR
-    cx, cy = scene.INNER_DOOR
+    room = _boxed_room()
+    cx, cy = INNER_DOOR
     assert building.DOORWAY not in building.SOLID
     assert not room.is_solid(cx, cy)
     assert (cx, cy) not in swarming.unswarmable(room)

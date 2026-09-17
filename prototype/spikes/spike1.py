@@ -104,7 +104,12 @@ PANEL_KEYS = (
 
 # --- the three states a session is in --------------------------------------
 
-TITLE, PLAY, ENDED = "title", "play", "ended"
+TITLE, PLAY, ENDED, CARD = "title", "play", "ended", "card"
+
+#: The best score this process has seen (issue #123): the number on the
+#: wall, held in RAM until the power goes, as Manic Miner's was. Nothing is
+#: written to disk.
+BEST = 0
 
 
 #: The command-line switch that unlocks the developer keys. Off by default, and
@@ -265,12 +270,25 @@ class Shell:
                  seed: int = session_mod.DEFAULT_SEED,
                  luminous: bool = True, trail: bool = False,
                  strobe: bool = True, building=None,
-                 start_room: int | None = None) -> None:
+                 start_room: int | None = None, wall_fade: int = 1,
+                 level: int | None = None, room: int | None = None,
+                 solo: bool = False) -> None:
         self.screen = screen
-        #: `--level` and `--room` (issue #109): the building every run in this
-        #: sitting plays and the room it starts in. None is the scene's.
+        self.wall_fade = wall_fade
+        #: **The game** (issue #123): which level, from which room, and
+        #: whether alone, as `--level`, `--room` and `--solo` asked. A
+        #: building is the seed's (its rooms roll, issue #120), so it is
+        #: picked afresh for every run from `run_seed` and the level; and
+        #: all out opens the next building, on the same seed, with the
+        #: lives carried and the score kept. `building` and `start_room`
+        #: given directly are for tests: they stand in for the pick.
+        self.first_level = level
+        self.level = level
+        self.room, self.solo = room, solo
         self.building = building
         self.start_room = start_room
+        self.lives_left: int | None = None
+        self.score = 0
         #: The two look flags (issue #91), kept for the sitting so a restart
         #: keeps them.
         self.luminous, self.trail = luminous, trail
@@ -278,6 +296,9 @@ class Shell:
         self.strobe = strobe
         self.state = TITLE
         self.run: Session | None = None
+        #: The seed of the game: every level of it rolls from this and the
+        #: level number, so `--seed S` names a whole game.
+        self.run_seed = seed
         #: The seed the next run starts on. The game's own is the default and
         #: a player never changes it; the demo loop (issue #89) moves it on
         #: between runs so an attract mode does not show the same run twice.
@@ -294,7 +315,6 @@ class Shell:
         #: clicking voices, which is what let the effects be silent for a whole
         #: slice without anything noticing.
         self.speaker = speaker
-        self._torch = False
         self._spray = False
         #: Frames the shell is holding for, because a moment asked it to
         #: (issue #52). **The game is not stepped during them and the session
@@ -321,7 +341,7 @@ class Shell:
         #: but hand the frame to the music -- which is the point: it is the
         #: same rule, not a special case.
         self.title_voice = sounds.Voice(tune.Music(tune.THEME))
-        screens.draw_title(screen)
+        screens.draw_title(screen, BEST)
 
     # --- input --------------------------------------------------------------
 
@@ -339,11 +359,12 @@ class Shell:
             # two never collide because a title has no run for it to act on.
             if key == pygame.K_s:
                 self.start()
+        elif self.state == CARD:
+            if key == pygame.K_SPACE:
+                self.advance()
         elif self.state == ENDED:
             if key == pygame.K_SPACE:
-                self.start()
-        elif key == pygame.K_t:
-            self._torch = True
+                self.title()
         elif key == pygame.K_SPACE:
             self._spray = True
         elif self.debug is not None:
@@ -362,13 +383,40 @@ class Shell:
         lights it -- a few cells of wall and black everywhere else -- and it
         read as the screen having failed to draw; issue #83 took it out for
         now. The tune is still in `tune.py` for the day it comes back.
+
+        **A new game is the next seed** (issue #120): the rooms roll from the
+        seed, so playing again is a building nobody has seen, and the demo
+        loop never shows the same run twice for the same reason. A game
+        starts at its first level with the level's lives and no score
+        (issue #123); `advance` is the next building of the same game.
         """
-        self.run = Session(seed=self.seed, luminous=self.luminous,
+        if self.run is not None:
+            self.run_seed += 1
+        self.level = self.first_level
+        self.lives_left = None
+        self.score = 0
+        self._open()
+
+    def advance(self) -> None:
+        """The next building of this game (issue #123): the level after,
+        on the same seed, with full blood, the level's spray and the lives
+        carried. From the card, and only from there."""
+        self.level = (self.level or levels.DEFAULT_LEVEL) + 1
+        self.room, self.solo = None, False
+        self._open()
+
+    def _open(self) -> None:
+        self.seed = self.run_seed
+        if self.level is not None:
+            self.building, self.start_room = levels.pick(
+                self.level, self.room, self.solo, seed=self.run_seed)
+        self.run = Session(seed=self.run_seed, luminous=self.luminous,
                            trail=self.trail, strobe=self.strobe,
-                           building=self.building, start_room=self.start_room)
+                           building=self.building, start_room=self.start_room,
+                           wall_fade=self.wall_fade, lives=self.lives_left)
         self.debug = Debug(self.run) if self.debug_enabled else None
         self.state = PLAY
-        self._torch = self._spray = False
+        self._spray = False
         self.held = 0
         # The theme stops where it stops. It is not faded out and it is not
         # resumed: the next title screen starts it again from bar one, because
@@ -411,8 +459,7 @@ class Shell:
                 # The ending screen is what the pause was holding *off*. Fifty
                 # frames of the last play frame -- the flash of where you died
                 # still running on it -- and then the screen that explains it.
-                self.state = ENDED
-                self.show_ending()
+                self.finish()
             return
         if self.state == TITLE:
             # The theme, on the one screen it plays on. Nothing is raised
@@ -422,12 +469,12 @@ class Shell:
                 self.speaker.play(self.title_voice)
             return
         if self.state != PLAY:
-            # The ending screen: no tune, no click, nothing. Silence and a
-            # count is what the design asks for and what it keeps.
+            # The ending screen and the card: no tune, no click, nothing.
+            # Silence and a count is what the design asks for and what it
+            # keeps.
             return
-        self.run.step(Intent(dx=dx, dy=dy, torch=self._torch,
-                             spray=self._spray))
-        self._torch = self._spray = False
+        self.run.step(Intent(dx=dx, dy=dy, spray=self._spray))
+        self._spray = False
         if self.speaker is not None:
             # Every frame, and it does nothing on most of them: a click, a tick
             # and the frame an effect begins on are the only three things that
@@ -438,8 +485,34 @@ class Shell:
         # the frame the moment happened on.
         self.held = self.run.moments.take_pause()
         if self.run.over is not None and not self.held:
-            self.state = ENDED
-            self.show_ending()
+            self.finish()
+
+    def finish(self) -> None:
+        """The run is over: the card if the building is done and there is a
+        next one, the ending if the lives are (issue #123)."""
+        global BEST
+        run = self.run
+        self.score += run.score
+        self.lives_left = run.lives
+        if run.over in (session_mod.ALL_OUT, session_mod.NOBODY_LEFT) \
+                and self.level is not None:
+            self.state = CARD
+            self.show_card()
+            return
+        BEST = max(BEST, self.score)
+        self.state = ENDED
+        self.show_ending()
+
+    def title(self) -> None:
+        """Back to the title, with the number on the wall."""
+        self.state = TITLE
+        screens.draw_title(self.screen, BEST)
+        self.title_voice.music.play(tune.THEME)
+
+    def show_card(self) -> None:
+        run = self.run
+        screens.draw_card(self.screen, run.where, run.rescued, run.total,
+                          run.seconds, run.lives, self.score)
 
     def _sound_frame(self) -> None:
         """A frame the sound player ran and the game did not (issue #57).
@@ -469,7 +542,8 @@ class Shell:
         run = self.run
         screens.draw_ending(self.screen, session_mod.ENDING_TEXT[run.over],
                             run.rescued, run.lost, run.inside, run.total,
-                            run.seconds, where=run.where)
+                            run.seconds, where=run.where, seed=run.seed,
+                            score=self.score)
 
 
 #: `--border COLOUR` (issue #75): the Spectrum's BORDER, as a margin round the
@@ -484,6 +558,35 @@ BORDER_FLAG = "--border"
 #: default now; these two flags put the old looks back for comparison.
 DARK_CLEGS_FLAG = "--dark-clegs"
 TRAIL_FLAG = "--trail"
+#: `--wall-fade N` (issue #117): how slowly the beam's memory of a wall
+#: fades; 1 as built, 2 for half rate. For the keyboard.
+WALL_FADE_FLAG = "--wall-fade"
+
+
+SEED_FLAG = "--seed"
+
+
+def seed_from(argv: list[str]) -> int:
+    """`--seed N` (issue #120): the run the rooms roll for. The driver's
+    default when absent, so the window and the driver agree."""
+    if SEED_FLAG not in argv:
+        return session_mod.DEFAULT_SEED
+    try:
+        return int(argv[argv.index(SEED_FLAG) + 1]) & 0xFFFF
+    except (IndexError, ValueError):
+        raise ValueError(f"{SEED_FLAG} needs a number") from None
+
+
+def wall_fade_from(argv: list[str]) -> int:
+    if WALL_FADE_FLAG not in argv:
+        return 1
+    try:
+        rate = int(argv[argv.index(WALL_FADE_FLAG) + 1])
+    except (IndexError, ValueError):
+        raise ValueError(f"{WALL_FADE_FLAG} needs 1 or 2") from None
+    if rate not in (1, 2):
+        raise ValueError(f"{WALL_FADE_FLAG} is 1 or 2, not {rate}")
+    return rate
 
 
 def border_from(argv: list[str]) -> str:
@@ -507,7 +610,9 @@ def main(argv: list[str] | None = None) -> int:
     trail = TRAIL_FLAG in argv
     try:
         border = border_from(argv)
-        building, start_room = levels.picked(argv)
+        seed = seed_from(argv)
+        building, start_room = levels.picked(argv, seed)
+        wall_fade = wall_fade_from(argv)
     except ValueError as err:
         print(err, file=sys.stderr)
         return 2
@@ -519,9 +624,11 @@ def main(argv: list[str] | None = None) -> int:
         screen = Screen()
         speaker = spike_sound.Speaker()
         speaker.open()
-        shell = Shell(screen, speaker=speaker, debug=debug,
+        level, room, solo = levels.from_argv(argv)
+        shell = Shell(screen, speaker=speaker, debug=debug, seed=seed,
                       luminous=luminous, trail=trail,
-                      building=building, start_room=start_room)
+                      building=building, start_room=start_room,
+                      wall_fade=wall_fade, level=level, room=room, solo=solo)
 
         running = True
         while running:

@@ -93,8 +93,8 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1577 tests, headless-safe
-SPOTLIGHT_SLOW=1 pytest    # + 124 room runs (tests/test_rooms.py), ~25 s
+pytest                     # 1581 tests, headless-safe
+SPOTLIGHT_SLOW=1 pytest    # + 120 room runs (tests/test_rooms.py), ~50 s
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -104,8 +104,9 @@ pyproject and the package is not installed — `prototype/pytest.ini` sets
 ## Current state
 
 A playable prototype with a face and a voice, tagged `look-3` (2026-09-13).
-Three levels and eight rooms (two of them the original playtest building),
-a swarm, and the light bargain the design rests on. The look-and-feel round gave it textured walls, a colour per room,
+Three levels of rolled rooms and a fourth that tightens for ever, a swarm, a
+searchlight in every room, and the light bargain the design rests on: the
+beam is how you see the room and the thing that gives you away. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
 music, and the mains surge (since removed).
 
@@ -149,6 +150,19 @@ hashes are unmoved. `Session(building=, start_room=)`, `Building.solo(i)`, the
 bots reading the building from the run, budgets in the level file, and
 `tests/test_rooms.py` (`SPOTLIGHT_SLOW=1`) playing every room alone and in its
 building. See *The rooms* §8 in the vault.
+
+**The light round** (2026-09-17, #116–#125), from the user's five rulings
+after watching the demo: the torch is gone; the searchlight is in every room,
+seeded per room, never opening on the start, spilling through doorways, and
+writing the walls it passes into the fade, which is how a room is now seen;
+every room is a template (`roll:` in the level file) whose walls, furniture,
+people and flies roll from the run's seed by `spikes/roller.py`, proved
+pocket-free over a thousand seeds a template; all out opens the next building
+through a card with lives carried and a score, `BEST` on the title, Level 4
+and on is Level 3 tightening; the demo's listener sprays. The game starts at
+Level 1 (`DEFAULT_LEVEL`); `scene.py` stays a view of Level 3 (`SCENE_LEVEL`)
+for the tests. The sixteen baseline hashes were re-taken once, at the end
+(*2026-09-17 The light round baseline*). See *The light round* §11.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

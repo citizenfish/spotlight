@@ -1,13 +1,19 @@
-"""The four light sources.
+"""The three light sources.
 
 Every one of them resolves at 8x8 cell granularity and feeds the same
 brightest-wins field in `lighting`. None of them writes an attribute directly --
 light decides colour, and it does so in one place.
 
-    1. Glow     one cell in every direction, always on, dim
+    1. Glow     one cell in every direction, always on, dim, with a nose
     2. Room     an authored zone, fixed, always on
-    3. Cone     a wedge in the facing direction, toggleable, with power
-    4. Roaming  a pool that moves on its own -- sweeping, on a path, or drifting
+    3. Roaming  a pool that moves on its own -- sweeping, on a path, or drifting
+
+There was a fourth, the carried **Cone** -- a wedge in the facing direction,
+toggleable, with twenty seconds of power -- and it went with issue #119: it
+was pressed once and burned out in every lit bot's run, was billed 0-8 blood
+a run against the magnet's 58-162, and no human used it. The beam is the
+light the game is named for, and since #117 it leaves the walls it passes in
+memory, which is how a room is seen.
 
 Each source carries two things the field composites: the **level** it reads at
 while it is shining, and the **memory** it leaves once it has gone. They are
@@ -27,13 +33,14 @@ per-room colour no cell is without a hue of its own, so a light's colour had
 nothing left to reach. A source now says how bright and never what colour.
 """
 
+import copy
 from math import isqrt
 
 from spotlight.core.constants import COLS
 
 from .layout import PLAY_ROWS
 from .lighting import (
-    CHARGE_DIM, CHARGE_LIT, CHARGE_SWEEP, DIM, LIT, LightField,
+    CHARGE_DIM, CHARGE_LIT, CHARGE_SWEEP, CHARGE_WALL, DIM, LIT, LightField,
 )
 
 # --- facing ----------------------------------------------------------------
@@ -80,25 +87,22 @@ FAR = 255
 LURE_NONE = 0
 #: The player's own glow: hunger closing the last few cells.
 LURE_GLOW = 1
-#: The carried spotlight, burning in the player's hand.
-LURE_TORCH = 2
-#: A spotlight left burning on the floor -- bait, whether meant or not.
-LURE_FLOOR = 3
-#: Authored emergency lighting.
-LURE_ROOM = 4
+#: Authored emergency lighting. (The torch's and the floor lamps' buckets
+#: sat between the glow's and this one until issue #119.)
+LURE_ROOM = 2
 #: The searchlight.
-LURE_BEAM = 5
+LURE_BEAM = 3
 #: The player, caught in the searchlight's beam and hunted for ten seconds
 #: (issue #82, *The searchlight magnet*). Not a light: a hunting fly commits
 #: to the player's cell every frame without noticing anything, and the bite is
 #: billed to the beam that gave the player away rather than to the last hop.
-LURE_MAGNET = 6
+LURE_MAGNET = 4
 
 #: How many buckets a counter needs. A fixed-size table on the Z80.
-LURE_KINDS = 7
+LURE_KINDS = 5
 
 #: What each bucket is called in a report. Index by the constant.
-LURE_NAMES = ("none", "glow", "torch", "floor", "room", "beam", "magnet")
+LURE_NAMES = ("none", "glow", "room", "beam", "magnet")
 
 #: How far light spills round a doorway, in cells.
 #:
@@ -262,6 +266,12 @@ class Glow(Source):
         self.x = 0
         self.y = 0
         self.tall = tall
+        #: Which way the person faces (issue #117): the glow gains a
+        #: **nose**, one cell beyond its edge in the facing direction, so
+        #: that the spray -- which fires that way -- has a visible target.
+        #: The cone was the facing tell and it is gone. Set from the player
+        #: each frame, as the cone's was.
+        self.facing = RIGHT
 
     def origin(self) -> tuple[int, int]:
         return self.x, self.y
@@ -277,6 +287,19 @@ class Glow(Source):
         for dy in range(-self.tall, 2):
             for dx in (-1, 0, 1):
                 self.light(field, self.x + dx, self.y + dy)
+        nx, ny = self.nose()
+        self.light(field, nx, ny)
+
+    def nose(self) -> tuple[int, int]:
+        """The nose cell: one beyond the glow's edge, the way the person
+        faces. Up is three rows above the feet, because the figure is two
+        cells tall and the glow already reaches one above the head."""
+        dx, dy, _, _ = _AXES[self.facing]
+        if dy < 0:
+            return self.x, self.y - self.tall - 1
+        if dy > 0:
+            return self.x, self.y + 2
+        return self.x + 2 * dx, self.y
 
 
 class RoomLight(Source):
@@ -319,88 +342,6 @@ class RoomLight(Source):
         for cy in range(self.top, self.top + self.height):
             for cx in range(self.left, self.left + self.width):
                 self.light(field, cx, cy)
-
-
-class Cone(Source):
-    """The carried spotlight: a wedge ahead of the player's facing.
-
-    A cone rather than a radius so that facing is a real decision -- you cannot
-    light the way forward and watch what is behind you at the same time.
-
-    Widens by one cell every two of reach, which is roughly 45 degrees.
-    """
-
-    #: Frames of light in a full torch: twenty seconds at 50Hz.
-    #:
-    #: 600 -> 1000 with issue #23, **on comprehension grounds and with low
-    #: confidence**. A first-timer switches it on to see, leaves it on, and is
-    #: dark twelve seconds later with no event and no explanation -- the light
-    #: simply stops, and nothing told them it was going to. Twenty seconds is
-    #: four room-crossings' worth: enough to learn what light costs before
-    #: losing it, and nowhere near enough to play lit.
-    #:
-    #: **This is not the tuning question.** What a torch *buys* cannot be
-    #: measured until there is a bot whose route depends on what it can see,
-    #: and when there is, this is not the first number to reach for.
-    FULL = 1000
-
-    def __init__(self, reach: int = 7, power: int = FULL,
-                 level: int = LIT, memory: int = CHARGE_LIT) -> None:
-        super().__init__(level, memory, enabled=False)
-        self.reach = reach
-        self.power = power
-        self.x = 0
-        self.y = 0
-        self.facing = RIGHT
-
-    @property
-    def lit(self) -> bool:
-        """Lit only when switched on and with power left."""
-        return self.enabled and self.power > 0
-
-    def drain(self, amount: int = 1) -> None:
-        """Power falls only while lit."""
-        if self.lit:
-            self.power = max(0, self.power - amount)
-
-    def origin(self) -> tuple[int, int]:
-        return self.x, self.y
-
-    lure_kind = LURE_TORCH
-
-    def lure(self) -> tuple[int, int, int, int] | None:
-        """The player's own cell, not the wedge ahead of them.
-
-        A Cleg drawn by your spotlight is drawn to *you*: the wedge is where the
-        light lands, but the lamp -- and the blood -- are at its point. Steering
-        to the wedge would have the swarm converge somewhere in front of you and
-        then need a second rule to find you.
-        """
-        return (self.x, self.y, FAR, self.lure_kind) if self.lit else None
-
-    def cells(self) -> list[tuple[int, int]]:
-        """The wedge, **and the cell you are standing in**.
-
-        You are holding the lamp, so you are in its light. Without this the
-        central bargain has no teeth: switching your spotlight on would draw
-        the swarm to you and leave you untouchable when it arrived, because a
-        Cleg only bites somebody it can see. Found by measuring the cost of
-        each lighting policy in issue #10 and getting zero for all of them.
-        """
-        fx, fy, sx, sy = _AXES[self.facing]
-        out = [(self.x, self.y)]
-        for d in range(1, self.reach + 1):
-            half = d // 2
-            for k in range(-half, half + 1):
-                out.append((self.x + fx * d + sx * k,
-                            self.y + fy * d + sy * k))
-        return out
-
-    def emit(self, field: LightField) -> None:
-        if self.power <= 0:
-            return
-        for cx, cy in self.cells():
-            self.light(field, cx, cy)
 
 
 class Floodlight(Source):
@@ -537,6 +478,10 @@ _DIAGONAL = isqrt((COLS - 1) ** 2 + (PLAY_ROWS - 1) ** 2)
 #: for longer, which reads as an operator pausing to look at something rather
 #: than as the mechanism catching.
 DWELL, DWELL_SPREAD, DWELL_EVERY = 20, 30, 6
+
+#: How long the beam must keep off the start cell from the first frame
+#: (issue #116, the never list's rule 4): ten seconds, as the list says.
+SAFE_ENTRY_FRAMES = 500
 
 #: The searchlight's stations: a grid, inset from the walls, spaced closely
 #: enough that a beam sitting on one lights out past its neighbours.
@@ -739,7 +684,7 @@ class Roaming(Source):
                  seed: int = 0xACE1, level: int = LIT,
                  memory: int = CHARGE_SWEEP, step_every: int = 6,
                  mode: int | None = None, vary: bool = False,
-                 inset: int = 0) -> None:
+                 inset: int = 0, is_solid=None) -> None:
         # Frames per cell. Six is a beam that crosses the room in about four
         # seconds -- slow enough to watch, time, and cross behind. Three was
         # tried and played too fast to do anything about.
@@ -752,6 +697,9 @@ class Roaming(Source):
         self.x, self.y = x, y
         self.radius = radius
         self.inset = inset
+        #: The room's solidity, or None (issue #117): a disc cell that is
+        #: wall is written into memory at `CHARGE_WALL`, floor at the wake.
+        self.is_solid = is_solid
         self.path = path or []
         self._seed = seed or 1
         #: Which station the tour is entered at.
@@ -899,6 +847,50 @@ class Roaming(Source):
         if mode in (self.SWEEP, self.ARC):
             self._new_sweep(first=True)
 
+    # --- the never list's rule 4 (issue #116) --------------------------------
+
+    def covers(self, cx: int, cy: int) -> bool:
+        """Is the cell inside the disc? The same inequality `emit` lights by."""
+        dx, dy = cx - self.x, cy - self.y
+        return dx * dx + dy * dy <= self.radius * self.radius
+
+    def safe_entry(self, start_cell: tuple[int, int],
+                   frames: int = SAFE_ENTRY_FRAMES) -> int:
+        """Move the entry station on until the beam's first `frames` frames
+        keep off `start_cell`. Returns how many stations it moved.
+
+        **A rule and not an authoring.** The tester found the beam on the
+        start cell inside ten seconds on half the seeds, and on some at frame
+        one, and every start cell along the wall was tried: the tour covers
+        the room in under a minute, so some station's disc, or the leg
+        between two, covers any cell. So the rule walks the *route* -- the
+        cells the beam steps between stations, by the same `_delta_towards`
+        the beam itself uses -- and not the station discs alone, since a
+        knight's leg is eight cells and the disc is three.
+
+        Dwells are ignored: a dwell only makes the walk slower, and a rule
+        that counted them would pass a route that pauses just short of the
+        start. Runs on the room the player begins in, once, at session start.
+        """
+        cx, cy = start_cell
+        for moved in range(len(KNIGHT_TOUR)):
+            if not self._route_covers(cx, cy, frames):
+                return moved
+            self.entry = (self.entry + 1) % len(KNIGHT_TOUR)
+            self._new_sweep(first=True)
+        return len(KNIGHT_TOUR)          # every station covers it; give up
+
+    def _route_covers(self, cx: int, cy: int, frames: int) -> bool:
+        """Walk the route from where the beam stands, without dwelling."""
+        probe = copy.copy(self)
+        probe._tick = 0
+        for _ in range(frames):
+            if probe.covers(cx, cy):
+                return True
+            probe._hold = 0
+            probe.update()
+        return probe.covers(cx, cy)
+
     # --- movement ----------------------------------------------------------
 
     def update(self) -> None:
@@ -1033,8 +1025,17 @@ class Roaming(Source):
 
     def emit(self, field: LightField) -> None:
         r2 = self.radius * self.radius
+        solid = self.is_solid
         for dy in range(-self.radius, self.radius + 1):
             for dx in range(-self.radius, self.radius + 1):
                 # Squared distance keeps this integer -- no square roots.
                 if dx * dx + dy * dy <= r2:
-                    self.light(field, self.x + dx, self.y + dy)
+                    cx, cy = self.x + dx, self.y + dy
+                    if solid is not None and solid(cx, cy):
+                        # **The beam remembers walls** (issue #117): one
+                        # solidity test per disc cell, and the wall the
+                        # beam has passed is known for the whole fade.
+                        field.add(cx, cy, self.level, CHARGE_WALL,
+                                  self.reveals, self.prey)
+                    else:
+                        self.light(field, cx, cy)

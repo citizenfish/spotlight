@@ -135,7 +135,7 @@ def test_the_metrics_cover_the_difficulty_targets():
     run = driver.drive(bots.make("statue"), seed=1, frames=7500)
     m = report.metrics(run)
     for key in ("rescued",                      # T1, T4
-                "seconds", "torch_seconds",     # T2, T6
+                "seconds",                      # T6 (T2's torch_seconds went with the torch, #119)
                 "blood_lost",                   # T3
                 "tries_lost", "first_try_lost_seconds",   # T4, T5
                 "first_death_seconds", "last_death_seconds",
@@ -231,7 +231,10 @@ def test_the_human_log_is_a_handful_of_lines():
     # *and* people still inside has one more fact to state than the bound of
     # six was set against. The wording was trimmed twice first (#87, #88);
     # what is left is facts, and the sweep still says none above seven.
-    assert worst <= 7, f"the human log has grown past seven lines: {worst}"
+    # Eight since the rooms roll (issue #121): a run whose people are named
+    # by thirds of a rolled room can share a third three ways, and "a third
+    # in the middle" is a longer clause than a corner's.
+    assert worst <= 8, f"the human log has grown past eight lines: {worst}"
 
 
 def test_the_human_log_is_words_not_numbers():
@@ -264,7 +267,10 @@ def test_the_human_log_names_where_somebody_was():
     # "the one in" was twelve characters on every mention of every person and
     # went with issue #35. What identifies somebody is *where they were found*,
     # and that is what this test has always actually been about.
-    assert "bottom right" in text or "all seven" in text
+    # Since the rooms roll (issue #121) nobody is guaranteed a corner; a
+    # third of the room is named, whichever it is.
+    assert any(place in text for place in
+               ("top", "bottom", "middle", "left", "right")) or "all seven" in text
     assert "room's" in text or "all in" in text, "nobody was placed in a room"
 
 
@@ -272,16 +278,15 @@ def test_the_human_log_calls_out_a_follower_who_died():
     """Somebody who died while you were leading them out is a different story
     from somebody you never reached, and it is the one the design is about.
 
-    **Seed 6 rather than seed 4 since issue #19.** Seed 4 was chosen when the
-    only way to lose a follower was the clock, and with Clegs able to bite a lit
-    one the run diverges long before its first death. Seed 6 loses three of them
-    in the tail; the seed is picked for the story it tells, not for the number
-    it is.
+    **Seed 1 since the light round (issue #118), seed 6 since issue #19
+    before it, seed 4 before that.** Each was chosen for the story it
+    tells, not for the number it is: on this seed the wanderer loses four
+    of its tail to the beam and the magnet.
     """
-    run = driver.drive(bots.make("wanderer", seed=6), seed=6)
+    run = driver.drive(bots.make("wanderer", seed=1), seed=1)
     people = report.people(run)
     assert any(p["outcome"] == report.DIED_FOLLOWING for p in people), \
-        "seed 6 is chosen because somebody dies in the tail"
+        "seed 1 is chosen because somebody dies in the tail"
     text = " ".join(report.human(run, bot="wanderer"))
     assert "following you" in text
 
@@ -414,7 +419,7 @@ def test_blood_and_bites_are_attributable_per_lure_in_the_report():
     so blood-by-lure tabulates across seeds like everything else."""
     from spikes import sources
 
-    run = driver.drive(bots.make("wanderer", seed=1, light=True), seed=1,
+    run = driver.drive(bots.make("wanderer", seed=1), seed=1,
                        frames=4000)
     m = report.metrics(run)
     for lure in sources.LURE_NAMES:
@@ -424,7 +429,7 @@ def test_blood_and_bites_are_attributable_per_lure_in_the_report():
     assert sum(m[f"bites_by_{l}"] for l in sources.LURE_NAMES) == m["attachments"]
 
 
-def test_the_searchlight_can_be_told_from_the_torch():
+def test_the_searchlight_can_be_told_from_the_glow():
     """The number the hook exists for. The claim that the beam delivers three
     quarters of the swarm was inferred by correlating attachments with the beam
     passing nearby; this is the same quantity measured at the point of
@@ -433,27 +438,18 @@ def test_the_searchlight_can_be_told_from_the_torch():
     Asserted loosely and on one bot, because it is a measurement rather than a
     rule: what is pinned is that the buckets can actually tell two lures apart,
     so a future run that put everything in one of them would be read as a
-    finding rather than as the hook being broken.
+    finding rather than as the hook being broken. (The torch's bucket, and
+    the half of this test that lit one, went with the torch, issue #119.)
     """
     from spikes import sources
 
-    dark = report.metrics(driver.drive(bots.make("statue", seed=1, light=False),
+    dark = report.metrics(driver.drive(bots.make("statue", seed=1),
                                        seed=1, frames=7500))
-    assert dark[f"blood_by_{sources.LURE_NAMES[sources.LURE_TORCH]}"] == 0, \
-        "a torch that was never lit cannot have cost anything"
-    # The beam's kills are now two buckets (issue #82): a fly that came for
+    # The beam's kills are two buckets (issue #82): a fly that came for
     # the beam, and a fly the beam gave the player away to. Both are the
-    # searchlight's, and together they still out-cost the glow.
+    # searchlight's, and together they out-cost the glow.
     assert dark["blood_by_beam"] + dark["blood_by_magnet"] > dark["blood_by_glow"]
-
-    # Seed 7 rather than 2 since issue #21. The near room's swarm went from six
-    # flies to three when the building was split, so on a good many seeds every
-    # bite a still, lit player takes is the beam's and the torch's bucket is a
-    # legitimate zero -- which is a finding about the beam, not a broken hook.
-    # Across twelve seeds the beam takes 80-107 points and the torch 0-16.
-    lit = report.metrics(driver.drive(bots.make("statue", seed=7, light=True),
-                                      seed=7, frames=7500))
-    assert lit["blood_by_torch"] > 0, "a burning torch recruits, and is billed"
+    assert set(dark) >= {f"blood_by_{n}" for n in sources.LURE_NAMES}
 
 
 @pytest.mark.parametrize("seed", (1, 2, 3))
@@ -466,7 +462,7 @@ def test_the_bite_count_agrees_with_the_buckets_on_every_frame(seed):
     Every phase-2 baseline is stated in this number, so it is now the swarm's
     own count, taken where the fly lands.
     """
-    bot = bots.make("wanderer", seed=seed, light=True)
+    bot = bots.make("wanderer", seed=seed)
     run = session.Session(seed=seed)
     while run.over is None and run.frame < 4000:
         run.step(bot.intent(run))

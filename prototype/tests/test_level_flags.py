@@ -15,10 +15,12 @@ from spotlight.core.screen import Screen
 
 # --- the picker ---------------------------------------------------------------
 
-def test_the_default_is_level_three_and_the_scene():
-    assert levels.DEFAULT_LEVEL == 3
+def test_the_default_is_level_one_and_the_scene_is_level_three():
+    """The game starts at the start (issue #123); the scene -- the view every
+    test of the rules is written against -- stays the playtest building."""
+    assert levels.DEFAULT_LEVEL == 1 and levels.SCENE_LEVEL == 3
     building, start = levels.pick()
-    assert building is scene.BUILDING and start is None
+    assert building.level == 1 and start is None
     assert scene.building(3) is scene.BUILDING
 
 
@@ -37,15 +39,16 @@ def test_solo_plays_one_room_with_its_doorways_bricked_up():
 
 
 def test_a_level_that_does_not_exist_is_said_in_one_line():
-    missing = max(levels.levels()) + 1
-    with pytest.raises(ValueError, match=f"no level {missing}"):
-        levels.pick(missing)
+    # Every level after the last file is the last file tightened (issue
+    # #121), so the only level that does not exist is nought or less.
+    with pytest.raises(ValueError, match="no level 0"):
+        levels.pick(0)
     with pytest.raises(ValueError, match="no room 9"):
         levels.pick(3, 9)
 
 
 def test_the_window_reads_the_same_flags_from_a_bare_argv():
-    assert levels.from_argv([]) == (3, None, False)
+    assert levels.from_argv([]) == (1, None, False)
     assert levels.from_argv(["--scale", "2", "--level", "3", "--room", "1",
                              "--solo"]) == (3, 1, True)
     with pytest.raises(ValueError, match="--room needs a number"):
@@ -95,10 +98,9 @@ def test_the_oracle_gets_everyone_out_of_the_far_room_alone(capsys):
 
 
 def test_a_missing_level_exits_two_not_a_traceback(capsys):
-    missing = max(levels.levels()) + 1
-    assert driver.main(["--level", str(missing), "--no-files"]) == 2
-    assert f"no level {missing}" in capsys.readouterr().err
-    assert spike1.main(["--level", str(missing)]) == 2
+    assert driver.main(["--level", "0", "--no-files"]) == 2
+    assert "no level 0" in capsys.readouterr().err
+    assert spike1.main(["--level", "0"]) == 2
 
 
 def test_the_report_names_the_level():
@@ -136,15 +138,17 @@ def test_the_shell_hands_the_run_its_building_and_room():
 
 # --- the demo -----------------------------------------------------------------
 
-def test_the_demo_cycles_the_levels_it_is_given():
-    shell = spike1.Shell(Screen(), seed=1)
+def test_the_demo_starts_every_game_at_the_shells_level():
+    shell = spike1.Shell(Screen(), seed=1, level=3)
     demo = spike_demo.Demo(shell, bot="statue", runs=3, title_seconds=1,
-                           ending_seconds=1, cycle=(3, 3))
+                           ending_seconds=1)
     for _ in range(spike_demo.FRAME_RATE):
         demo.frame()
     assert shell.state == spike1.PLAY
-    assert shell.building is scene.building(3)
-    assert shell.run.building is scene.BUILDING
+    # The building is the seed's since issue #120: level 3, rolled for the
+    # shell's own seed, and not the scene's default-seed roll.
+    assert shell.building is scene.building(3, shell.seed)
+    assert shell.run.building.level == 3
 
 
 def test_the_demo_left_alone_plays_the_shells_building():
@@ -160,7 +164,7 @@ def test_the_demo_left_alone_plays_the_shells_building():
 
 def test_the_gallery_takes_a_level():
     run, screen = gallery.lit_room(1, level=3)
-    assert run.here == 1 and run.building is scene.BUILDING
+    assert run.here == 1 and run.building is scene.building(3, gallery.GALLERY_SEED)
     same_run, _ = gallery.lit_room(1)
     assert same_run.here == 1
 
@@ -176,16 +180,16 @@ def test_the_gallery_walks_a_chain_of_doorways(monkeypatch):
         rows_b[cy][31] = B.DOORWAY
     rooms = [
         B.Room(a.name, a.rows, ink=a.ink, workers=a.workers, clegs=a.clegs,
-               spotlights=a.spotlights, searchlight=a.searchlight,
+               searchlight=a.searchlight,
                lights=a.lights, player_start=a.player_start,
                doorways=(B.Doorway(B.EAST, (10, 11, 12), 1),)),
         B.Room("the middle room", ("".join(r) for r in rows_b), ink=b.ink,
-               workers=b.workers, clegs=b.clegs, spotlights=b.spotlights,
+               workers=b.workers, clegs=b.clegs,
                lights=b.lights, player_start=b.player_start,
                doorways=(B.Doorway(B.WEST, (10, 11, 12), 0),
                          B.Doorway(B.EAST, (10, 11, 12), 2))),
         B.Room("the end room", b.rows, ink=a.ink,
-               workers=b.workers, clegs=b.clegs, spotlights=b.spotlights,
+               workers=b.workers, clegs=b.clegs,
                lights=b.lights,
                doorways=(B.Doorway(B.WEST, (10, 11, 12), 1),)),
     ]
@@ -193,3 +197,15 @@ def test_the_gallery_walks_a_chain_of_doorways(monkeypatch):
     run = session_mod.Session(seed=gallery.GALLERY_SEED, building=chain)
     gallery.enter(run, 2)
     assert run.here == 2 and run.crossings == 2
+
+
+def test_the_ending_screen_names_the_seed_beside_the_level():
+    screen = Screen()
+    screens.draw_ending(screen, session_mod.ENDING_TEXT[session_mod.ALL_OUT],
+                        7, 0, 0, 7, 90, where="Level 1 Dark", seed=48879)
+    text = rows(screen)
+    assert "LEVEL 1 DARK" in text[9] and "SEED 48879" in text[23]
+    plain = Screen()
+    screens.draw_ending(plain, session_mod.ENDING_TEXT[session_mod.ALL_OUT],
+                        7, 0, 0, 7, 90)
+    assert rows(plain)[23].strip() == ""

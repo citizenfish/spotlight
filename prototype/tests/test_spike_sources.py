@@ -2,6 +2,8 @@
 
 import inspect
 
+import pytest
+
 from spikes import lighting as L, sources as S
 from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import COLS
@@ -26,9 +28,8 @@ def _lit_cells(field) -> set[tuple[int, int]]:
 def test_every_source_can_be_switched_off():
     glow = S.Glow(); glow.x, glow.y = 5, 5
     room = S.RoomLight(1, 1, 3, 3)
-    cone = S.Cone(); cone.x, cone.y = 8, 8; cone.enabled = True
     roam = S.Roaming(15, 15)
-    for src in (glow, room, cone, roam):
+    for src in (glow, room, roam):
         assert _lit_cells(_field(src)), f"{type(src).__name__} lit nothing"
         src.toggle()
         assert not _lit_cells(_field(src)), f"{type(src).__name__} still lit"
@@ -37,11 +38,12 @@ def test_every_source_can_be_switched_off():
 # --- glow ------------------------------------------------------------------
 
 def test_glow_is_one_cell_in_every_direction_around_the_person():
-    """Anchored on the feet, but a person is two cells tall."""
+    """Anchored on the feet, but a person is two cells tall. Plus the nose
+    (issue #117): one cell beyond the edge, the way they face."""
     glow = S.Glow(); glow.x, glow.y = 5, 5
     assert _lit_cells(_field(glow)) == {
         (5 + dx, 5 + dy) for dx in (-1, 0, 1) for dy in (-2, -1, 0, 1)
-    }
+    } | {(7, 5)}
 
 
 def test_the_glow_clears_the_top_of_your_head():
@@ -66,7 +68,8 @@ def test_glow_is_dim_not_lit():
 
 def test_glow_is_clipped_at_the_room_edge():
     glow = S.Glow(); glow.x, glow.y = 0, 0
-    assert _lit_cells(_field(glow)) == {(0, 0), (1, 0), (0, 1), (1, 1)}
+    assert _lit_cells(_field(glow)) == {(0, 0), (1, 0), (0, 1), (1, 1),
+                                        (2, 0)}       # the nose, facing right
 
 
 # --- room light ------------------------------------------------------------
@@ -86,54 +89,7 @@ def test_room_light_does_not_move():
     assert _lit_cells(_field(room)) == before
 
 
-# --- cone ------------------------------------------------------------------
-
-def test_cone_follows_the_facing_direction():
-    seen = {}
-    for facing, expected in ((S.RIGHT, (1, 0)), (S.LEFT, (-1, 0)),
-                             (S.UP, (0, -1)), (S.DOWN, (0, 1))):
-        cone = S.Cone(reach=4); cone.x, cone.y = 10, 10
-        cone.facing, cone.enabled = facing, True
-        cells = _lit_cells(_field(cone))
-        # The cell immediately ahead is lit; the one behind is not.
-        ahead = (10 + expected[0], 10 + expected[1])
-        behind = (10 - expected[0], 10 - expected[1])
-        assert ahead in cells, f"facing {facing}: {ahead} not lit"
-        assert behind not in cells, f"facing {facing}: {behind} lit but is behind"
-        seen[facing] = cells
-    assert len({frozenset(c) for c in seen.values()}) == 4, "facings not distinct"
-
-
-def test_cone_widens_with_distance():
-    cone = S.Cone(reach=6); cone.x, cone.y = 5, 10
-    cone.facing, cone.enabled = S.RIGHT, True
-    cells = _lit_cells(_field(cone))
-    widths = [len({c for c in cells if c[0] == 5 + d}) for d in range(1, 7)]
-    assert widths == sorted(widths), f"cone should not narrow: {widths}"
-    assert widths[0] == 1 and widths[-1] > widths[0]
-
-
-def test_a_cone_with_no_power_lights_nothing():
-    cone = S.Cone(reach=5, power=0); cone.x, cone.y = 10, 10
-    cone.enabled = True
-    assert not _lit_cells(_field(cone))
-    assert not cone.lit
-
-
-def test_power_drains_only_while_lit():
-    cone = S.Cone(power=10); cone.enabled = False
-    cone.drain(); cone.drain()
-    assert cone.power == 10, "an unlit spotlight must not drain"
-    cone.enabled = True
-    cone.drain()
-    assert cone.power == 9
-
-
-def test_power_never_goes_negative():
-    cone = S.Cone(power=1); cone.enabled = True
-    for _ in range(10):
-        cone.drain()
-    assert cone.power == 0
+# The cone's own tests went with the torch (issue #119).
 
 
 # --- roaming ---------------------------------------------------------------
@@ -195,13 +151,11 @@ def test_xorshift_never_returns_zero_and_does_not_stick():
 
 # --- composition -----------------------------------------------------------
 
-def test_all_four_composite_brightest_wins():
+def test_all_three_composite_brightest_wins():
     glow = S.Glow(); glow.x, glow.y = 10, 10
-    cone = S.Cone(reach=4); cone.x, cone.y = 10, 10
-    cone.facing, cone.enabled = S.RIGHT, True
     room = S.RoomLight(9, 9, 3, 3)
     roam = S.Roaming(10, 10, radius=1)
-    f = _field(glow, room, cone, roam)
+    f = _field(glow, room, roam)
     # The glow alone would leave this cell dim; the others make it lit.
     assert f.level_at(10, 10) == L.LIT
     assert _field(glow).level_at(10, 10) == L.DIM
@@ -358,21 +312,11 @@ def test_no_source_carries_a_colour():
     Pinned as a signature rather than as a picture, because the fault this
     guards against is somebody adding `hue=` back to one source and nothing
     on screen changing until the next room is authored."""
-    for cls in (S.Roaming, S.Cone, S.Glow, S.RoomLight, S.Floodlight):
+    for cls in (S.Roaming, S.Glow, S.RoomLight, S.Floodlight):
         assert "hue" not in inspect.signature(cls.__init__).parameters, cls
     assert "hue" not in inspect.signature(S.Source.__init__).parameters
     roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
     assert not hasattr(roam, "hue")
-
-
-def test_the_cone_still_leaves_its_long_bright_trail():
-    """Change 1 must not touch the walked trail that spike 1 settled on."""
-    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
-    cone.facing, cone.enabled = S.RIGHT, True
-    f = _field(cone)
-    for _ in range(L.LIT_FRAMES - 1):
-        f.begin(); f.commit()
-    assert f.level_at(11, 10) == L.LIT
 
 
 def test_an_inset_sweep_keeps_the_whole_disc_on_the_room():
@@ -421,11 +365,8 @@ def test_a_room_light_lights_the_ground_without_revealing_people():
 
 def test_every_other_source_reveals():
     glow = S.Glow(); glow.x, glow.y = 5, 5
-    cone = S.Cone(reach=2); cone.x, cone.y = 10, 10
-    cone.facing, cone.enabled = S.RIGHT, True
     roam = S.Roaming(15, 10, radius=1, mode=S.Roaming.DRIFT)
     assert _field(glow).reveals_at(5, 5)
-    assert _field(cone).reveals_at(11, 10)
     assert _field(roam).reveals_at(15, 10)
 
 
@@ -437,22 +378,17 @@ def test_whether_a_room_light_reveals_is_switchable():
     assert _field(room).reveals_at(3, 3)
 
 
-# --- the lamp lights its bearer (issue #10) --------------------------------
+# --- the glow and the dark (issue #10) --------------------------------------
+# The lamp that lit its bearer, and the tests of it, went with the torch
+# (issue #119). What makes you prey now is the beam.
 
-def test_a_burning_spotlight_lights_the_person_holding_it():
-    """Otherwise switching it on draws the swarm and leaves you untouchable."""
-    cone = S.Cone(reach=5, power=100)
-    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
-    cone.enabled = True
-    field = _field(cone)
+def test_the_beam_makes_whoever_it_is_on_prey():
+    roam = S.Roaming(10, 10, radius=1, mode=S.Roaming.DRIFT)
+    field = _field(roam)
     assert field.level_at(10, 10) == L.LIT
-    assert field.prey_at(10, 10), "carrying a lit lamp must make you prey"
-
-
-def test_switching_it_off_takes_you_out_of_the_light():
-    cone = S.Cone(reach=5, power=100)
-    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
-    assert not _field(cone).prey_at(10, 10)
+    assert field.prey_at(10, 10), "standing in the beam must make you prey"
+    roam.enabled = False
+    assert not _field(roam).prey_at(10, 10)
 
 
 def test_the_glow_alone_never_makes_you_prey():
@@ -462,15 +398,6 @@ def test_the_glow_alone_never_makes_you_prey():
     field = _field(glow)
     assert field.reveals_at(10, 10), "you can still see your own feet"
     assert not field.prey_at(10, 10)
-
-
-def test_the_cone_still_points_where_you_face():
-    """Lighting yourself must not have turned the cone into a radius."""
-    cone = S.Cone(reach=4, power=100)
-    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
-    cone.enabled = True
-    cells = _lit_cells(_field(cone))
-    assert (11, 10) in cells and (9, 10) not in cells
 
 
 # --- the beam swings; it does not march (issue #10) ------------------------
@@ -876,19 +803,117 @@ def test_the_beam_never_pays_for_a_step_it_does_not_take():
         assert not stalled, f"seed {seed} stalled for {stalled}"
 
 
-def test_the_carried_torch_lasts_twenty_seconds():
-    """On comprehension grounds, and low confidence: a first-timer switches it
-    on to see, leaves it on, and at twelve seconds is dark again with no event
-    and no explanation. Twenty seconds is four room-crossings -- enough to
-    learn what light costs, nowhere near enough to play lit.
+# --- the beam remembers walls; the glow's nose (issue #117) ------------------
 
-    Twenty and not more: this is not the tuning question, and what a torch buys
-    cannot be measured until a bot's route depends on what it can see.
-    """
-    cone = S.Cone(reach=7)
-    assert cone.power == 1000 == S.Cone.FULL
-    cone.enabled = True
-    for _ in range(20 * 50):
-        assert cone.lit
-        cone.drain()
-    assert not cone.lit, "the torch outlasted its twenty seconds"
+def _solid_row_nine(cx: int, cy: int) -> bool:
+    """A room that is one wall along row 9 and open floor everywhere else."""
+    return cy == 9
+
+
+def _parked(beam, cx, cy):
+    """A beam held on a cell: the tour laid out in the constructor snapped
+    it to its first station, so the cell is set after."""
+    beam.mode = beam.DRIFT
+    beam.x, beam.y = cx, cy
+    return beam
+
+
+def test_the_beam_leaves_a_wall_remembered_and_the_floor_forgotten():
+    field = L.LightField()
+    beam = _parked(S.Roaming(0, 0, radius=3, is_solid=_solid_row_nine), 10, 10)
+    field.begin()
+    beam.apply(field)
+    field.commit()
+    assert field.charge[9 * COLS + 10] == L.CHARGE_WALL
+    assert field.charge[11 * COLS + 10] == L.CHARGE_SWEEP
+    # Then the beam is gone: the wall reads lit for the lit frames, dim for
+    # the rest of the fade, and dark after it; the floor is dark at once.
+    for _ in range(31):
+        field.begin()
+        field.commit()
+    assert field.level_at(10, 9) == L.DIM
+    assert field.level_at(10, 11) == L.DARK
+    for _ in range(120):
+        field.begin()
+        field.commit()
+    assert field.level_at(10, 9) == L.DARK
+
+
+def test_a_beam_told_nothing_of_the_room_remembers_no_wall():
+    field = L.LightField()
+    beam = _parked(S.Roaming(0, 0, radius=3), 10, 10)
+    field.begin()
+    beam.apply(field)
+    field.commit()
+    assert field.charge[9 * COLS + 10] == L.CHARGE_SWEEP
+
+
+def test_linger_slows_the_walls_fade_and_nothing_else():
+    field = L.LightField()
+    solid = bytes(1 if cy == 9 else 0
+                  for cy in range(PLAY_ROWS) for cx in range(COLS))
+    beam = _parked(S.Roaming(0, 0, radius=3, is_solid=_solid_row_nine), 10, 10)
+    field.begin()
+    beam.apply(field)
+    field.commit()
+    wall, floor = field.charge[9 * COLS + 10], field.charge[11 * COLS + 10]
+    field.begin()
+    field.commit()
+    field.linger(solid)
+    assert field.charge[9 * COLS + 10] == wall           # decayed, then back
+    assert field.charge[11 * COLS + 10] == floor - 1     # floor is not slowed
+
+
+@pytest.mark.parametrize("facing,nose", [
+    (S.UP, (0, -3)), (S.DOWN, (0, 2)), (S.LEFT, (-2, 0)), (S.RIGHT, (2, 0))])
+def test_the_glow_lights_thirteen_cells_and_the_thirteenth_is_the_nose(
+        facing, nose):
+    glow = S.Glow()
+    glow.x, glow.y, glow.facing = 10, 10, facing
+    field = L.LightField()
+    field.begin()
+    glow.apply(field)
+    field.commit()
+    lit = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
+           if field.level_at(cx, cy) > L.DARK}
+    assert len(lit) == 13
+    body = {(10 + dx, 10 + dy) for dx in (-1, 0, 1) for dy in (-2, -1, 0, 1)}
+    assert lit - body == {(10 + nose[0], 10 + nose[1])}
+    assert glow.nose() == (10 + nose[0], 10 + nose[1])
+
+
+def test_the_nose_cell_is_seen_but_makes_no_prey():
+    """The nose is the glow's: dim, so a fly on it is drawn and a person on
+    it is not prey -- the glow alone never makes you prey, and the nose is
+    one more cell of the same light."""
+    from spikes.session import Session
+    run = Session(seed=1)
+    run.step()
+    nose = run.glow.nose()
+    assert run.field.level_at(*nose) == L.DIM
+    assert run.field.reveals_at(*nose)
+    assert not run.field.prey_at(*nose)
+
+
+def test_a_dark_listener_comes_to_know_most_of_the_main_room():
+    """The beam's memory of walls is what makes a swept room a known one:
+    over a dark listener's run the main room's floor *and* walls have nearly
+    all been seen. Before #117 the walls never were."""
+    from spikes import bots, scene
+    from spikes.session import Session
+    run = Session(seed=S.xorshift16(1), sound=False)
+    bot = bots.make("listener", seed=1)
+    room = scene.BUILDING[scene.NEAR]
+    seen = set()
+    while run.over is None and run.frame < 9000:
+        run.step(bot.intent(run))
+        field = run.places[scene.NEAR].field
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                if field.level_at(cx, cy) > L.DARK:
+                    seen.add((cx, cy))
+    cells = [(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)]
+    walls = [c for c in cells if room.is_solid(*c)]
+    floor = [c for c in cells if not room.is_solid(*c)]
+    assert len(seen & set(floor)) / len(floor) >= 0.9
+    assert len(seen & set(walls)) / len(walls) >= 0.9

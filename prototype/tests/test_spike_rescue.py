@@ -89,14 +89,15 @@ def test_the_scene_gives_the_player_something_to_look_for():
 
 # --- what a run cost -------------------------------------------------------
 
-def test_a_tally_counts_only_the_frames_the_light_was_burning():
+def test_a_tally_counts_frames_and_blood():
+    """It counted the frames the torch was burning too, until the torch
+    went (issue #119)."""
     t = Tally()
     for _ in range(100):
-        t.frame(True, 0)
-    for _ in range(300):
-        t.frame(False, 0)
-    assert t.lit_frames == 100
-    assert t.lit_percent == 25
+        t.frame(0)
+    for _ in range(50):
+        t.frame(1)
+    assert t.frames == 150 and t.seconds == 3 and t.blood_lost == 50
 
 
 def test_blood_per_rescue_is_the_number_the_bargain_turns_on():
@@ -113,9 +114,9 @@ def test_blood_per_rescue_survives_finding_nobody():
 
 def test_the_report_says_what_the_run_cost():
     t = Tally()
-    t.frame(True, 2)
+    t.frame(2)
     lines = " ".join(t.report())
-    for wanted in ("time", "workers found", "light on", "blood lost",
+    for wanted in ("time", "workers found", "blood lost",
                    "attachments", "blood per rescue"):
         assert wanted in lines
 

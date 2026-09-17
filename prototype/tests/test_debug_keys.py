@@ -76,11 +76,8 @@ def test_f_does_not_reveal_the_room_without_the_flag():
     assert shell.run.floodlight.held is False
 
 
-def test_the_three_controls_still_work_without_the_flag():
+def test_the_two_controls_still_work_without_the_flag():
     shell = started()
-    shell.key(pygame.K_t)
-    shell.frame()
-    assert shell.run.cone.enabled is True
     shell.key(pygame.K_SPACE)
     charges = shell.run.spray.charges
     shell.frame()

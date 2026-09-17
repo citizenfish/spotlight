@@ -99,8 +99,25 @@ def test_values_are_clamped_to_the_readout_width():
 
 def test_flags_are_coerced_to_zero_or_one():
     p = panel.Panel()
-    p.set("lit", 7)
-    assert p.values["lit"] == 1
+    p.set("keys", 7)
+    assert p.values["keys"] == 1
+
+
+def test_the_level_is_a_number_where_the_light_bar_was():
+    """Issue #119: the torch went, and the level's number took the bar's
+    cells. Blank at zero, which is a building with no level."""
+    p = panel.Panel()
+    region = panel.REGIONS["level"]
+    assert region.kind == panel.NUMBER and region.width == 2
+    assert (region.row, region.col) == (panel.REGIONS["blood"].row,
+                                        panel.ACTION_LEFT + 6)
+    assert "light" not in panel.REGIONS and "lit" not in panel.REGIONS
+    assert [text for _r, _c, text in panel.LABELS] == \
+        ["BLOOD", "LIVES", "LEVEL", "SPRAY"]
+    p.set("level", 3)
+    assert p.values["level"] == 3
+    p.set("level", 123)
+    assert p.values["level"] == 99
 
 
 def test_unknown_readout_is_rejected():
@@ -342,8 +359,7 @@ def test_nothing_else_on_the_strip_changed_colour():
     assert {name: r.ink for name, r in panel.REGIONS.items()} == {
         "blood": RED,
         "lives": RED,
-        "light": YELLOW,
-        "lit": YELLOW,
+        "level": WHITE,
         "spray": CYAN,
         "keys": CYAN,
         "rescued": GREEN,
@@ -382,30 +398,30 @@ def _flashing(screen, region):
 def test_an_alert_flashes_the_readout():
     s, p = _fresh()
     p.draw(s, force=True)
-    assert not _flashing(s, panel.REGIONS["light"])
-    p.alert("light")
+    assert not _flashing(s, panel.REGIONS["spray"])
+    p.alert("spray")
     p.draw(s)
-    assert _flashing(s, panel.REGIONS["light"])
+    assert _flashing(s, panel.REGIONS["spray"])
 
 
 def test_an_alert_repaints_a_readout_that_did_not_change():
     """Nothing about the light's value moves when the last frame of it goes."""
     s, p = _fresh()
     p.draw(s, force=True)
-    p.alert("light")
-    assert "light" in p.dirty
+    p.alert("spray")
+    assert "spray" in p.dirty
 
 
 def test_an_alert_stops_of_its_own_accord():
     s, p = _fresh()
-    p.alert("light", frames=3)
+    p.alert("spray", frames=3)
     p.draw(s, force=True)
     for _ in range(3):
-        assert p.flashing("light")
+        assert p.flashing("spray")
         p.tick()
-    assert not p.flashing("light")
+    assert not p.flashing("spray")
     p.draw(s)
-    assert not _flashing(s, panel.REGIONS["light"])
+    assert not _flashing(s, panel.REGIONS["spray"])
 
 
 def test_an_alert_on_an_unknown_readout_is_a_mistake():

@@ -50,10 +50,12 @@ ROW_18_WALL = [(cx, 18) for cx in range(20, COLS - 1) if cx != 25]
 
 
 def pocket_room(wall=None):
-    """The near room with a wall in it, and its own swarm to be reached by."""
-    return B.Room("pocket", walled(scene.ROOM_A, wall or ROW_18_WALL),
-                  clegs=scene.CLEGS_A, workers=scene.WORKERS_A,
-                  player_start=scene.PLAYER_START)
+    """The hand-drawn room A with a wall in it, and its own swarm to be
+    reached by. Room A rolls now (issue #121); the copy is `playtest.py`'s."""
+    import playtest
+    return B.Room("pocket", walled(playtest.ROOM_A, wall or ROW_18_WALL),
+                  clegs=playtest.CLEGS_A, workers=playtest.WORKERS_A,
+                  player_start=playtest.PLAYER_START)
 
 
 def test_the_playtest_building_can_be_swarmed_everywhere():

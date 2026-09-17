@@ -17,34 +17,26 @@ FRAME_RATE = 50
 class Tally:
     """What one run cost."""
 
-    __slots__ = ("frames", "lit_frames", "blood_lost", "attachments",
+    __slots__ = ("frames", "blood_lost", "attachments",
                  "sprays", "found", "swatted")
 
     def __init__(self) -> None:
         self.frames = 0
-        self.lit_frames = 0        # frames with the carried spotlight burning
+        # `lit_frames` -- frames with the carried spotlight burning -- went
+        # with the torch (issue #119).
         self.blood_lost = 0
         self.attachments = 0
         self.sprays = 0
         self.found = 0
         self.swatted = 0           # Clegs killed by spray
 
-    def frame(self, lit: bool, drained: int) -> None:
+    def frame(self, drained: int) -> None:
         self.frames += 1
-        self.lit_frames += 1 if lit else 0
         self.blood_lost += drained
 
     @property
     def seconds(self) -> int:
         return self.frames // FRAME_RATE
-
-    @property
-    def lit_seconds(self) -> int:
-        return self.lit_frames // FRAME_RATE
-
-    @property
-    def lit_percent(self) -> int:
-        return 100 * self.lit_frames // max(1, self.frames)
 
     @property
     def blood_per_worker(self) -> int:
@@ -57,7 +49,6 @@ class Tally:
         return [
             f"time            {self.seconds}s",
             f"workers found   {self.found}",
-            f"light on        {self.lit_seconds}s ({self.lit_percent}% of the run)",
             f"blood lost      {self.blood_lost}",
             f"attachments     {self.attachments}",
             f"clegs sprayed   {self.swatted} for {self.sprays} charges",

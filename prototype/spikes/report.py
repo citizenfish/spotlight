@@ -264,14 +264,9 @@ def metrics(run) -> dict:
             1 for r in people(run) if r["outcome"] == DIED_FOLLOWING),
         "tries_lost": session_mod.LIVES - run.lives,
         "first_try_lost_seconds": when(session_mod.LIFE_LOST),
-        "torch_seconds": run.tally.lit_seconds,
-        "dark_seconds": run.seconds - run.tally.lit_seconds,
-        "torch_percent": run.tally.lit_percent,
-        # **When the torch died on them**, and how often (issue #31). A run
-        # that never got there spent the whole of it in hand; `None` is that
-        # answer rather than a missing one.
-        "first_torch_out_seconds": when(session_mod.TORCH_OUT),
-        "torch_outs": sum(1 for e in log if e.kind == session_mod.TORCH_OUT),
+        # `torch_seconds`, `dark_seconds`, `torch_percent`,
+        # `first_torch_out_seconds` and `torch_outs` went with the torch
+        # (issue #119).
         "sprays_fired": run.tally.sprays,
         "clegs_killed": run.tally.swatted,
         "clegs_left": len(run.swarm.clegs),
@@ -307,7 +302,7 @@ def metrics(run) -> dict:
         # comment said. `Building.most_fixtures` is the bound; this is what
         # actually happened, and the two want comparing rather than trusting.
         "most_fixtures_at_once": run.peak_fixtures,
-        "spotlight_swaps": run.kit.swaps,
+        # `spotlight_swaps` went with the torch and the lamps (issue #119).
         # **Did they ever find the door.** Target T10 is stated in this and in
         # nothing else, and a second room that nobody goes into bought walking
         # and nothing more (issue #21).
@@ -407,7 +402,7 @@ def _name_them(records, rooms: int, omit: str | None = None) -> list[str]:
     either. The second becomes "another one in the top left", which is how a
     person would say it.
     """
-    out, seen, said = [], set(), None
+    out, seen, said = [], {}, None
     for record in records:
         where = record["found_in"]
         if rooms > 1 and record["room"] == said:
@@ -436,10 +431,18 @@ def _name_them(records, rooms: int, omit: str | None = None) -> list[str]:
         # for one sentence. What identifies somebody is *where you found them*
         # and that is untouched -- the user can still ask "did you know they
         # were there?", which is the whole job the phrase does.
-        clause = f"another in {where}" if where in seen else where
-        seen.add(where)
+        # Since the rooms roll (issue #121) three can share a third: the
+        # second is "another", the third "a third", and so on, so that no
+        # two people are ever named alike.
+        seen[where] = seen.get(where, 0) + 1
+        nth = seen[where]
+        clause = (where if nth == 1 else f"another in {where}" if nth == 2
+                  else f"a {_ORDINALS[min(nth, len(_ORDINALS) + 2) - 3]} in {where}")
         out.append(clause)
     return out
+
+
+_ORDINALS = ("third", "fourth", "fifth", "sixth", "seventh")
 
 
 def _join(parts: list[str]) -> str:

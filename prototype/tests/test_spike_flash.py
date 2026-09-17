@@ -57,17 +57,17 @@ def test_nobody_is_drawn_or_prey_in_the_dark_on_entry():
         assert worker not in run._lit_people(run.place)
 
 
-def test_the_same_worker_under_the_lit_cone_is_both_drawn_and_prey():
-    """The rule: under the player's torch, *if you can see them, so can the
-    flies*. A worker two cells ahead of the player with the torch on."""
+def test_the_same_worker_under_the_beam_is_both_drawn_and_prey():
+    """The rule: under the beam, *if you can see them, so can the flies*.
+    (It was the player's torch that lit them until issue #119.)"""
     run = Session(seed=1)
     run.step()
     worker = next(w for w in run.rescue.workers if w.room == run.here)
-    cx, cy = worker.cell()
-    run.player.x, run.player.y = (cx - 2) * CELL, worker.y
-    run.player.facing = sources.RIGHT
-    run.step(Intent(torch=True))
-    assert run.cone.lit
+    beam = run.place.roaming
+    beam.mode = beam.DRIFT
+    beam.x, beam.y = worker.cell()
+    beam.update = lambda: None
+    run.step(Intent())
     assert any(run.field.reveals_at(*c) for c in worker.cells())
     assert worker in run._lit_people(run.place)
 
@@ -76,6 +76,10 @@ def test_the_same_worker_under_a_room_light_is_neither():
     """Room lights show the room and not who is in it, to the player and to
     the flies."""
     run = Session(seed=1)
+    # The room's beam off: the claim is the room light's, and since issue
+    # #116 each beam has its own entry, which on this seed opens on the
+    # worker and would reveal them.
+    run.place.roaming.enabled = False
     run.step()
     worker = next(w for w in run.rescue.workers if w.room == run.here)
     cx, cy = worker.cell()
@@ -148,7 +152,6 @@ def test_prey_reads_the_prey_flag_and_nothing_else():
 def test_every_source_but_the_held_view_sets_both_bits():
     """The rule, source by source, so a new one cannot quietly split them."""
     assert sources.Glow().reveals and sources.Glow().prey
-    assert sources.Cone().reveals and sources.Cone().prey
     roam = sources.Roaming(0, 0, radius=3)
     assert roam.reveals and roam.prey
     room = sources.RoomLight(0, 0, 3, 3)

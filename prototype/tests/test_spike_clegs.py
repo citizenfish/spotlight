@@ -2,7 +2,6 @@
 
 from spikes import clegs as C, lighting as L, sources as S
 from spikes.layout import PLAY_ROWS
-from spikes.spotlights import FloorLight, Spotlights
 from spotlight.core.constants import COLS
 
 def OPEN(cx, cy):
@@ -23,12 +22,12 @@ def _lures(*cells):
     A lure is `(cx, cy, reach, kind)` since issue #22 -- the kind is what a
     bite gets billed to and takes no part in the choice.
     """
-    return [(cx, cy, S.FAR, S.LURE_TORCH) for cx, cy in cells]
+    return [(cx, cy, S.FAR, S.LURE_BEAM) for cx, cy in cells]
 
 
 def _run(swarm, lures, player=(20, 10), frames=1, is_solid=OPEN, blood=64):
     """`lures` may be given as plain cells; they carry full reach."""
-    lures = [l if len(l) == 4 else (*l, S.FAR, S.LURE_TORCH) for l in lures]
+    lures = [l if len(l) == 4 else (*l, S.FAR, S.LURE_BEAM) for l in lures]
     for _ in range(frames):
         blood = swarm.tick(lures, player, is_solid, blood)
     return blood
@@ -52,23 +51,8 @@ def test_the_personal_glow_pulls_only_from_close():
                                 close.notice) == (10, 10)
 
 
-def test_a_burning_spotlight_attracts_and_a_dark_one_does_not():
-    cone = S.Cone(reach=5, power=100)
-    cone.x, cone.y = 10, 10
-    assert cone.lure() is None, "switched off, so nothing to come to"
-    cone.enabled = True
-    assert cone.lure() == (10, 10, S.FAR, S.LURE_TORCH)
-    cone.power = 0
-    assert cone.lure() is None, "out of power is out of bait"
-
-
-def test_the_cone_lures_to_the_player_not_to_the_wedge():
-    """The lamp and the blood are at the point of the cone, not in it."""
-    cone = S.Cone(reach=6, power=100)
-    cone.x, cone.y, cone.facing = 10, 10, S.RIGHT
-    cone.enabled = True
-    assert cone.lure() == (10, 10, S.FAR, S.LURE_TORCH)
-    assert (14, 10) in cone.cells(), "the wedge really is out in front"
+# The burning torch's lure and the floor lamps' bait, and their tests, went
+# with the torch (issue #119).
 
 
 def test_a_room_light_and_a_searchlight_both_attract():
@@ -76,13 +60,6 @@ def test_a_room_light_and_a_searchlight_both_attract():
     assert room.lure() == (6, 5, S.FAR, S.LURE_ROOM)
     beam = S.Roaming(15, 10, radius=2, mode=S.Roaming.DRIFT)
     assert beam.lure() == (15, 10, S.FAR, S.LURE_BEAM)
-
-
-def test_a_spotlight_left_burning_on_the_floor_is_bait():
-    lit = FloorLight(5, 5, power=100, lit=True)
-    dark = FloorLight(9, 9, power=100, lit=False)
-    kit = Spotlights(S.Cone(), [lit, dark])
-    assert kit.floor_lures() == [(5, 5, S.FAR, S.LURE_FLOOR)]
 
 
 # --- attraction ------------------------------------------------------------
@@ -495,7 +472,7 @@ def test_keenness_is_capped():
 def test_hunger_only_helps_with_faint_light():
     """A bright light already carries further than any Cleg can notice."""
     faint = [(20, 10, 2, S.LURE_GLOW)]
-    bright = [(20, 10, S.FAR, S.LURE_TORCH)]
+    bright = [(20, 10, S.FAR, S.LURE_BEAM)]
     assert C.Swarm.nearest_lure(28, 10, faint, within=30) is None
     assert C.Swarm.nearest_lure(28, 10, faint, within=30, keenness=8) == (20, 10)
     # The bright one was already noticed, and stays noticed. No change.
@@ -733,8 +710,8 @@ def test_a_new_journey_takes_a_new_source():
     cleg.notice = 30
     cleg.goal, cleg.goal_source = None, S.LURE_BEAM
     swarm = C.Swarm([cleg])
-    swarm.tick([_lure((24, 10), S.LURE_TORCH)], (0, 0), OPEN, 64)
-    assert cleg.goal_source == S.LURE_TORCH
+    swarm.tick([_lure((24, 10), S.LURE_BEAM)], (0, 0), OPEN, 64)
+    assert cleg.goal_source == S.LURE_BEAM
 
 
 def test_feeding_closes_the_account():
@@ -809,7 +786,7 @@ def test_halving_the_hunger_cap_changes_no_measured_number():
     def play(cap, seed):
         was, C.KEEN_MAX = C.KEEN_MAX, cap
         try:
-            bot = bots.Statue(seed=seed, light=False)
+            bot = bots.Statue(seed=seed)
             run = session_mod.Session(seed=seed, lives=99)
             while run.over is None and run.frame < 30 * 50:
                 run.step(bot.intent(run))

@@ -85,8 +85,8 @@ def test_the_bank_writes_every_file_headless(tmp_path):
     assert {"theme.wav", "opening.wav", "siren.wav", "siren-under-load.wav",
             "siren-with-sonar.wav"} <= names
     assert not any("ostinato" in name for name in names)
-    assert len(paths) == 26, \
-        "sixteen effects, three sonar rates, a tick, a set, and five of music"
+    assert len(paths) == 24, \
+        "fourteen effects, three sonar rates, a tick, a set, and five of music"
     for path in paths:
         assert _samples(path) > 0
 
@@ -118,7 +118,7 @@ def test_a_run_renders_from_the_decisions_the_game_made(tmp_path):
     and an effect that was cut off is short in it. A render that re-derived the
     arbitration from the log would be a different performance."""
     recorder = spike_sound.Recorder()
-    run = spike_driver.drive(seed=1, frames=500, on_sound=recorder)
+    run = spike_driver.drive(seed=1, frames=1500, on_sound=recorder)
     assert len(recorder.frames) == run.frame
     data = recorder.render()
     assert len(data) == run.frame * len(spike_sound.SILENT_FRAME)
@@ -140,7 +140,7 @@ def test_a_cut_effect_is_short_in_the_render():
     """A priority-1 arrival stops a priority-0 sound dead, and the file says
     so: the frames it never got are not in it."""
     voice = sounds.Voice()
-    voice.update(False, False, [(M.SFX_TORCH_OUT, 0)])
+    voice.update(False, False, [(M.SFX_HATCHED, 0)])
     heard = [voice.decision()]
     voice.update(False, False)
     heard.append(voice.decision())
@@ -225,7 +225,7 @@ def test_the_speaker_is_silent_and_harmless_with_no_device():
 def test_the_driver_writes_a_bank_and_a_run_wav(tmp_path, capsys):
     """Both flags, end to end, headless."""
     assert spike_driver.main(["--bank", str(tmp_path / "bank")]) == 0
-    assert len(list((tmp_path / "bank").iterdir())) == 26
+    assert len(list((tmp_path / "bank").iterdir())) == 24
 
     wav = tmp_path / "run.wav"
     assert spike_driver.main([

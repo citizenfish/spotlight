@@ -24,7 +24,6 @@ from spikes import (
     scene, session, sources,
 )
 from spikes.session import Intent, Session
-from spikes.spotlights import FloorLight
 
 import screenreader
 
@@ -328,7 +327,7 @@ def test_a_restart_is_a_new_session_with_nothing_carried_over():
     """The cheapest guarantee available: there is no reset path to get wrong."""
     played = Session(seed=7)
     for _ in range(400):
-        played.step(Intent(dx=1, torch=True))
+        played.step(Intent(dx=1))
     fresh, benchmark = Session(seed=7), Session(seed=7)
     assert (fresh.player.x, fresh.player.y) == \
            (benchmark.player.x, benchmark.player.y) == scene.PLAYER_START
@@ -339,7 +338,6 @@ def test_a_restart_is_a_new_session_with_nothing_carried_over():
            [w.state for w in benchmark.rescue.workers]
     assert [(c.cx, c.cy) for c in fresh.swarm.clegs] == \
            [(c.cx, c.cy) for c in benchmark.swarm.clegs]
-    assert fresh.cone.lit is False
 
 
 def test_a_session_draws_a_whole_frame_including_the_strip():
@@ -358,7 +356,7 @@ def test_the_run_says_nothing_to_stdout(capsys):
     """Everything the player needs is on screen. Nothing prints."""
     run = Session(lives=1)
     for _ in range(300):
-        run.step(Intent(dx=1, torch=True))
+        run.step(Intent(dx=1))
     run.blood = 0
     run.step()
     assert run.over is not None
@@ -439,15 +437,17 @@ def test_a_death_is_announced_from_where_they_fell():
     from spikes import lighting, rescue as rescue_mod
 
     run = Session(seed=1, lives=99)
-    dying = min(run.rescue.workers, key=lambda w: w.blood)
     while True:
         events = run.step()
-        if any(e.kind == session.WORKER_DIED for e in events):
+        died = [e for e in events if e.kind == session.WORKER_DIED]
+        if died:
             break
         assert run.frame < 12000, "nobody died"
 
-    assert dying.state == rescue_mod.DEAD, \
-        "the shortest clock was not the first to run out"
+    # Whoever it was: since the rooms roll (issue #121) a fly can reach
+    # somebody before the shortest clock runs out, and the beat is the same.
+    dying = run.rescue.workers[died[0].who]
+    assert dying.state == rescue_mod.DEAD
     assert dying in run.shouting, "the death was not announced"
     # The cells the session placed the word in, not a second answer to the
     # same question: since issue #59 the placement depends on where everybody
@@ -499,7 +499,7 @@ def test_every_death_is_announced_exactly_once():
 
 # --- dying must not empty the room (issue #27) -----------------------------
 
-#: Seed 3 with the torch held on is the run the bug was reported and measured
+#: Seed 3 (with the torch held on, before issue #119) is the run the bug was reported and measured
 #: on: it loses its first try at 35 seconds and used to come out of it with
 #: half a swarm. Named here so the regression is pinned on the run that showed
 #: it rather than on a run chosen to be convenient.
@@ -520,7 +520,7 @@ def _lit_statue_run(seed: int = BUG_SEED, frames: int = 12000):
     across.
     """
     from spikes import bots
-    bot = bots.Statue(seed=seed, light=True)
+    bot = bots.Statue(seed=seed)
     run = Session(seed=seed)
     sizes, deaths = [], []
     while run.over is None and run.frame < frames:
@@ -614,13 +614,35 @@ def test_dying_detaches_rather_than_deletes():
 # in a running session.
 
 
-def _free(run, index, torch=True):
+def _free(run, index):
     """Touch a worker so they follow, through the game's own `reach`."""
     worker = run.rescue.workers[index]
     touch(run, worker)
-    run.step(Intent(torch=torch))
+    run.step(Intent())
     assert worker.state == rescue_mod.FOLLOWING
     return worker
+
+
+def _beams_off(run):
+    """No searchlight anywhere: the only light on anybody is the glow's."""
+    for place in run.places:
+        place.roaming.enabled = False
+
+
+def _beam_on(run, cell, room=None):
+    """Park the room's searchlight on a cell, the way the beam finds a tail.
+
+    The torch used to do this -- turning round lit the people behind you --
+    until issue #119 took it away. What lights a follower now is the beam,
+    and the trap the tail is built on is the beam finding your line.
+    """
+    place = run.places[run.here if room is None else room]
+    beam = place.roaming
+    beam.enabled = True
+    beam.mode = beam.DRIFT
+    beam.x, beam.y = cell
+    beam.update = lambda: None
+    return beam
 
 
 def _flies_on(run, person, count=2):
@@ -642,11 +664,10 @@ def _flies_on(run, person, count=2):
 
 
 def _walk_away(run, worker, frames=30):
-    """Walk east with the tail strung out behind, which is the safe way round.
-
-    The cone points the way you are walking, so the people behind you are in
-    the dark. This is what the game looks like when nothing is going wrong.
+    """Walk east with the tail strung out behind and no beam on it: the safe
+    way round. This is what the game looks like when nothing is going wrong.
     """
+    _beams_off(run)
     for _ in range(frames):
         run.step(Intent(dx=1))
     assert worker not in run._lit_people(run.place), \
@@ -655,28 +676,34 @@ def _walk_away(run, worker, frames=30):
 
 
 def _turn_round(run, worker, frames=2):
-    """Look back down your own line, which is the thing that gets them eaten."""
+    """The beam finds your line, which is the thing that gets them eaten.
+
+    Named for what it was -- turning round to check on them put them in the
+    torch's cone -- and kept, because the tests below are about what happens
+    to a lit follower and not about which light lit them.
+    """
+    _beam_on(run, worker.cell())
     for _ in range(frames):
         run.step(Intent(dx=-1))
     assert worker in run._lit_people(run.place), \
-        "turning round did not light the tail"
+        "the beam did not light the tail"
     return worker
 
 
-def test_a_follower_is_dark_behind_you_and_lit_when_you_turn_round():
+def test_a_follower_is_dark_behind_you_and_lit_when_the_beam_finds_them():
     """**The trap the whole tail is built on**, end to end.
 
-    The cone points the way you are walking, so the people behind you are in
-    the dark -- and the instinct to turn and check on them is exactly what puts
-    them in the light. *Trapped Workers*: "a worker trailing you through
-    darkness is ignored, and one standing in your cone is prey."
+    The people behind you are in the dark, and the beam that sweeps the room
+    finds a line of them as readily as it finds you. *Trapped Workers*: "a
+    worker trailing you through darkness is ignored, and one standing in
+    the light is prey."
     """
     run = Session(seed=1)
     worker = _free(run, 5)
     _walk_away(run, worker)
     assert run._lit_people(run.place) == [], "walking away, the tail is in the dark"
     _turn_round(run, worker)
-    assert run._lit_people(run.place) == [worker], "turning round lit them up"
+    assert run._lit_people(run.place) == [worker], "the beam lit them up"
 
 
 def test_prey_is_exactly_who_is_drawn_so_the_rule_can_be_seen():
@@ -739,7 +766,8 @@ def test_a_follower_being_eaten_behind_you_in_the_dark_is_audible():
     swarm.kill([c for c in swarm.clegs if c not in riders])
     assert [c.state for c in swarm.clegs] == [clegs_mod.ATTACHED]
 
-    for _ in range(8):                   # off down the room; they go dark again
+    run.place.roaming.enabled = False    # the beam moves on; they go dark again
+    for _ in range(8):                   # and you walk off down the room
         run.step(Intent(dy=1))
     assert worker not in run._lit_people(run.place), "they are still lit"
     assert swarm.clegs[0].state == clegs_mod.ATTACHED, "it let go too soon"
@@ -764,16 +792,16 @@ def test_a_fly_on_somebody_you_cannot_see_at_all_still_clicks():
     showed every worker in the room; nothing shows them now.)
     """
     run = Session(seed=1)
+    _beams_off(run)
     run.step()
     worker = next(w for w in run.rescue.workers if w.room == run.here)
-    lamp = FloorLight(*worker.cell(), power=9000, lit=True, room=worker.room)
-    run.kit.floor.append(lamp)
+    beam = _beam_on(run, worker.cell())
     run.step()
     riders = _flies_on(run, worker, 1)
     run.step()
     assert run.swarm.victim_attachments > 0, "nothing landed on them"
 
-    run.kit.floor.remove(lamp)           # the bait is gone; so is the light
+    beam.enabled = False                 # the beam has moved on; so has the light
     swarm = run.place.swarm
     swarm.kill([c for c in swarm.clegs if c not in riders])
     for _ in range(4):
@@ -804,23 +832,22 @@ def test_a_fly_feeding_on_you_is_still_not_worth_a_click():
 
 
 def test_a_waiting_worker_standing_in_light_is_bitten_where_they_stand():
-    """A spotlight left burning beside somebody is bait with a person in it.
+    """The beam on somebody waiting is bait with a person in it.
 
-    This is the design's own baiting rule read with a worker on the lit ground:
-    a light on the floor pulls exactly as hard as one in your hand, and now
-    there is something for the swarm to find when it gets there.
+    This is the design's own rule read with a worker on the lit ground: a
+    light on the floor pulls the swarm, and now there is something for the
+    swarm to find when it gets there.
     """
     run = Session(seed=1)
+    _beams_off(run)
     worker = run.rescue.workers[3]
-    cx, cy = worker.cell()
-    # The lamp lies in **the worker's room**, which is the far one: a light
+    # The beam is **the worker's room's**, which is the far one: a light
     # belongs to the room it is in, and the same cell in the other room is a
     # different place (issue #21).
-    lamp = FloorLight(cx, cy, power=9000, lit=True, room=worker.room)
-    run.kit.floor.append(lamp)
+    _beam_on(run, worker.cell(), room=worker.room)
     run.step()
     where = run.places[worker.room]
-    assert worker in run._lit_people(where), "a burning lamp did not light them"
+    assert worker in run._lit_people(where), "the beam did not light them"
 
     _flies_on(run, worker)
     run.step()
@@ -879,7 +906,7 @@ def test_a_follower_dying_closes_the_line_and_leaves_the_body_where_it_fell():
     """
     run = Session(seed=1)
     first = _free(run, 5)
-    second = _free(run, 3, torch=True)
+    second = _free(run, 3)
     assert run.rescue.tail == [first, second]
 
     for _ in range(60):
@@ -1083,182 +1110,6 @@ def test_the_run_carries_on_past_a_loss_so_the_loss_can_be_felt():
         "the swarm froze when somebody died"
     assert [w.blood for w in run.rescue.alive_waiting()] != blood, \
         "the clock stopped for everybody else"
-
-
-# --- the torch running out (issue #31) -------------------------------------
-
-def test_the_torch_running_out_is_an_event_and_it_flashes():
-    """A first-timer switches it on to see, leaves it on, and goes dark.
-
-    Until this, nothing said so: the bar slid to empty over twenty seconds and
-    the light simply stopped. The bar is not an event -- the moment it matters
-    is the moment the player is looking at something else, in the dark.
-    """
-    run = Session()
-    run.cone.power = 3
-    # The frame the torch is switched on burns a frame of it, like any other.
-    run.step(Intent(torch=True))
-    assert run.cone.lit and run.cone.power == 2
-
-    run.step()
-    assert run.cone.lit, "went out a frame early"
-    assert not any(e.kind == session.TORCH_OUT for e in run.frame_events)
-
-    events = run.step()
-    assert [e.kind for e in events if e.kind == session.TORCH_OUT] == \
-        [session.TORCH_OUT]
-    assert not run.cone.lit
-    assert run.panel.flashing("light")
-
-
-def test_the_torch_going_out_is_announced_once_and_then_stops_flashing():
-    run = Session()
-    run.cone.power = 1
-    run.step(Intent(torch=True))
-    for _ in range(panel.ALERT_FRAMES + 10):
-        run.step()
-    assert sum(1 for e in run.log if e.kind == session.TORCH_OUT) == 1
-    assert not run.panel.flashing("light"), "the alert never ended"
-
-
-def test_swapping_onto_a_fresh_light_is_not_the_torch_running_out():
-    """The bar refills in front of you, and you did it on purpose.
-
-    A spotlight picked up on the same frame the last one died is not the torch
-    running out, and it must not be logged or read as one.
-
-    **The bar does now flash on a swap, and it did not until issue #52.** The
-    original rule here was that the alert is only for the thing that happens
-    *to* the player, and a swap is not that; *Art Direction* section 8 revisits
-    it and adds `M_PICKUP`, on the ground that the bar's **value** changed
-    underneath the player in the same instant -- the case *Screen Layout* carved
-    out -- and because `spotlight_swaps` is 0 in every run any agent has ever
-    made, so a swap that makes no noise and draws no lamp is a mechanic with no
-    surface at all. What still has to be true is that the two are told apart, so
-    the assertion is now about *which* flash: thirty-two frames for the pickup,
-    not the torch's ninety-six, and no `TORCH_OUT` in the log either way.
-    """
-    run = Session()
-    cx, cy = run.player.cx, run.player.cy
-    run.kit.floor.append(FloorLight(cx, cy, power=500, room=run.here))
-    run.cone.power = 1
-    run.step(Intent(torch=True))
-    assert any(e.kind == session.SWAPPED for e in run.frame_events)
-    assert not any(e.kind == session.TORCH_OUT for e in run.frame_events)
-    assert not run.panel.flashing("lit"), "the flag is the torch's, not a swap's"
-    for _ in range(moments.PICKUP_FRAMES - 2):
-        run.step()
-    assert run.panel.flashing("light")
-    run.step()
-    assert not run.panel.flashing("light"), "a pickup flashed for a torch's time"
-
-
-# --- the bar reads the light in your hand (issue #38) ----------------------
-
-def test_a_full_light_reads_full_before_a_key_is_pressed():
-    """Four pips of six on frame one, on every run that had ever been played.
-
-    The gauge was scaled against `cone_full` = the strongest spotlight in the
-    *building* -- a 1500 pickup in the far room that the player has not seen
-    and may never reach -- while the cone in their hand holds 1000. A third of
-    the readout was missing at full charge, and a player misled by a readout
-    assumes the mistake is theirs, so no playtest was ever going to report it.
-
-    Both the value shown before the first step and the one the first step
-    computes are pinned, because the fault lived in a hard-coded 4 as well as
-    in the scale.
-    """
-    run = Session()
-    assert run.panel.values["light"] == 6, "still short before a key is pressed"
-    run.step()
-    assert run.panel.values["light"] == 6, "the first frame took a pip back"
-
-
-def test_the_panel_agrees_with_the_cone_before_the_first_step():
-    """The torch flag is seeded from the cone, not from a literal (issue #40).
-
-    It read 1 while the cone was constructed unlit. Nobody ever saw it -- the
-    panel is refreshed every frame before anything is drawn, so the first step
-    corrected it -- but it was the last hand-written opening value left after
-    issue #38 removed the other one, and the next force-draw or first-frame
-    capture would have inherited it.
-    """
-    run = Session()
-    assert run.cone.lit is False, \
-        "the cone no longer starts unlit; this test stopped exercising #40"
-    assert run.panel.values["lit"] == run.cone.lit, \
-        "the panel claims a torch state the cone does not have"
-
-
-def test_the_bar_ignores_a_stronger_light_in_another_room():
-    run = Session()
-    strongest = max(light.power for light in run.kit.floor)
-    assert strongest > run.cone.power, \
-        "the building no longer authors a pickup stronger than the cone; " \
-        "this test stopped exercising issue #38"
-    assert run.cone_full == run.cone.power
-
-
-def test_half_a_light_reads_half_the_pips():
-    """The scale still has to move: full-reads-full is not a bar stuck on 6."""
-    run = Session()
-    run.cone.power = run.cone_full // 2
-    run.step()
-    assert run.panel.values["light"] == 3
-    run.cone.power = 0
-    run.step()
-    assert run.panel.values["light"] == 0
-
-
-def test_picking_up_a_stronger_light_rescales_the_bar_to_it():
-    """A new light in the hand is a new full, and the pips mean that one."""
-    run = Session()
-    cx, cy = run.player.cx, run.player.cy
-    run.kit.floor.append(FloorLight(cx, cy, power=1500, room=run.here))
-    run.step()
-    assert any(e.kind == session.SWAPPED for e in run.frame_events)
-    assert run.cone.power == 1500 and run.cone_full == 1500
-    assert run.panel.values["light"] == 6
-
-    run.cone.power = 750
-    run.step()
-    assert run.panel.values["light"] == 3
-
-
-def test_a_weak_light_picked_up_reads_full_and_that_is_the_price():
-    """The cost issue #38 accepted, written down so it is not read as a bug.
-
-    Scaling against the building's strongest light made a weak spotlight
-    legible *before* you picked it up: 150 power showed one pip of six. That
-    reading is gone -- a 150 light now reads six pips and empties in three
-    seconds. It was traded away because nothing has ever picked up a second
-    spotlight (`spotlight_swaps` is 0 across every run of both playtest
-    agents), so the absolute scale was buying legibility never once exercised,
-    at the price of a wrong reading in the first second of every run. If swaps
-    start happening, this test is the one to come back to.
-    """
-    run = Session()
-    cx, cy = run.player.cx, run.player.cy
-    run.kit.floor.append(FloorLight(cx, cy, power=150, room=run.here))
-    run.step()
-    assert run.cone.power == 150 and run.cone_full == 150
-    assert run.panel.values["light"] == 6
-
-
-def test_the_strip_says_with_a_taught_mark_how_many_are_safe():
-    """Issue #31: `*3/7` left the reader to guess what was being counted, and
-    the word SAFE replaced the badge. Issue #96 laid the strip out again
-    with air round every readout and the word became a tick -- a mark, but
-    one the title now teaches beside the other three, which is what #31's
-    objection to a badge was about."""
-    run = Session()
-    screen = Screen()
-    run.draw(screen)
-    region = panel.REGIONS["rescued"]
-    assert screenreader.read(screen, region.label_col, region.row,
-                             len(region.label)) == "√"
-    assert screenreader.read(screen, region.col, region.row,
-                             region.width).rstrip() == "0/7"
 
 
 # --- the door is two acts (issue #28) --------------------------------------
@@ -1759,7 +1610,7 @@ def _meddled_run(seed: int, frames: int, meddle: bool):
     in states a walk would never put them in."""
     run = Session(seed=seed, metrics=True)
     screen = Screen()
-    bot = bots.make("listener", seed=seed, light=True)
+    bot = bots.make("listener", seed=seed)
     for n in range(frames):
         run.step(bot.intent(run))
         if run.over is not None:
@@ -1808,7 +1659,7 @@ def test_a_stride_adds_no_dirty_cell():
     on far fewer frames than he moves on, so it is never the thing that
     decides whether he is redrawn."""
     run = Session(seed=3)
-    bot = bots.make("listener", seed=3, light=True)
+    bot = bots.make("listener", seed=3)
     was = (run.player.stride, run.player.x, run.player.y)
     strides = moves = 0
     for _ in range(1500):

@@ -130,20 +130,23 @@ def test_you_cannot_see_into_the_far_room_from_the_near_rooms_doorway():
     what the room model exists to avoid, and a threshold you cannot see past is
     what makes stepping through it a commitment rather than a glance.
 
-    Asked with the torch on and pointing straight at the doorway, which is the
-    hardest case: the cone reaches seven cells, so without the rule the player
-    would be looking a quarter of the way into the room next door.
+    It was asked with the torch on and pointing straight at the doorway,
+    the hardest case, until the torch went (issue #119); the glow the player
+    carries now reaches one cell, and the nose one more, so what this asks
+    is that not even that crosses.
     """
     # With the trail (issue #92 made no trail the default): this asks what
     # the field remembers at the wall, which is the trail's business.
     run = at_door(Session(seed=1, trail=True))
-    run.step(Intent(dx=1, torch=True))
+    # The far room's own beam off: since issue #118 every room has one, and
+    # this asks what the *player's* light reaches, not the far room's.
+    run.places[scene.FAR].roaming.enabled = False
+    run.step(Intent(dx=1))
     for _ in range(4):
         run.step(Intent(dx=1))
     assert run.here == scene.NEAR, "walked through before the light was asked"
-    assert run.cone.lit
     near, far = run.places[scene.NEAR], run.places[scene.FAR]
-    assert near.field.level_at(COLS - 1, DOOR_ROW) == lighting.LIT, \
+    assert near.field.level_at(COLS - 1, DOOR_ROW) != lighting.DARK, \
         "the player is not even lighting the doorway they are standing in"
     for cy in scene.DOOR_ROWS:
         for cx in range(0, 7):
@@ -155,7 +158,7 @@ def test_you_cannot_see_into_the_far_room_from_the_near_rooms_doorway():
                        for c in _zone_cells(z)}
     for cy in range(22):
         for cx in range(COLS):
-            if (cx, cy) in lit_by_the_room:
+            if (cx, cy) in lit_by_the_room or (cx, cy) == far.housing:
                 continue
             assert far.field.level_at(cx, cy) == lighting.DARK, \
                 f"the player's torch lit {cx},{cy} in the room next door"
@@ -217,11 +220,14 @@ def test_the_far_rooms_light_does_not_make_the_tail_prey():
         assert not far.field.prey_at(0, cy)
 
 
-def test_the_far_room_has_no_searchlight_and_the_near_room_does():
+def test_every_room_has_a_searchlight_and_the_far_rooms_varies():
+    """Since issue #118: the beam is how a room is seen, so every room has
+    one; the far room's is the level's only varying beam."""
     run = Session(seed=1)
     assert run.places[scene.NEAR].roaming is not None
-    assert run.places[scene.FAR].roaming is None
-    assert len(run.searchlights) == 1
+    assert run.places[scene.FAR].roaming is not None
+    assert run.places[scene.FAR].roaming.vary
+    assert len(run.searchlights) == 2
 
 
 # --- first entry, and the fade across a room change -------------------------
@@ -253,7 +259,7 @@ def test_the_fade_keeps_running_in_the_room_you_have_left():
     # nobody is looking at, so leaving it on would be measuring the beam rather
     # than the fade. Everything else here is the real loop.
     near.roaming.toggle()
-    run.step(Intent(torch=True))
+    run.step(Intent())
     for _ in range(10):
         run.step()
     # The sign and the searchlight's housing are held lit by their own
@@ -264,7 +270,7 @@ def test_the_fade_keeps_running_in_the_room_you_have_left():
     remembered = [(cx, cy) for cy in range(22) for cx in range(COLS)
                   if near.field.remembered_at(cx, cy) != lighting.DARK
                   and (cx, cy) not in held]
-    assert remembered, "the torch left no memory to decay"
+    assert remembered, "the glow left no memory to decay"
     walk(run, 1, 16)
     assert run.here == scene.FAR
     warm = sum(near.field.charge[cy * COLS + cx] for cx, cy in remembered)
@@ -326,6 +332,10 @@ def test_a_cleg_beside_a_doorway_walks_through_it_to_the_light_beyond():
     over. Nothing in the swarm knows a doorway exists.
     """
     run = Session(seed=1)
+    # The near room's own beam off: since issue #116 each room's beam has
+    # its own entry, and on this seed it passes close enough to pull the
+    # fly away first. The claim here is about the door, not the beam.
+    run.places[scene.NEAR].roaming.enabled = False
     fly = _put_flies(run, scene.NEAR, [(COLS - 3, DOOR_ROW)])[0]
     for _ in range(200):
         run.step()
@@ -368,8 +378,14 @@ def test_a_fly_looks_round_its_own_room_before_it_looks_at_a_doorway():
     run = Session(seed=1)
     fly = _put_flies(run, scene.NEAR, [(COLS - 3, DOOR_ROW)])[0]
     run.player.x, run.player.y = (COLS - 6) * CELL, (DOOR_ROW - 1) * CELL
-    run.step(Intent(torch=True))
-    assert run.cone.lit
+    # The lit thing on this side of the wall is the beam, held on the
+    # player (the torch that used to be it went, issue #119).
+    beam = run.places[scene.NEAR].roaming
+    beam.mode = beam.DRIFT
+    beam.x, beam.y = run.player.cx, run.player.cy
+    beam.update = lambda: None
+    run.step(Intent())
+    assert run.beam_on_player()
     for _ in range(120):
         run.step()
         assert fly in run.places[scene.NEAR].swarm.clegs, \
@@ -1058,7 +1074,8 @@ def test_a_call_only_carries_while_somebody_is_actually_shouting():
     assert not run.door_calls
     door = run.place.room.doorways[0]
     assert run.field.level_at(door.column, door.middle) != lighting.LIT \
-        or run.cone.lit, "the doorway stayed lit after the shout"
+        or run.place.roaming.covers(door.column, door.middle), \
+        "the doorway stayed lit after the shout"
 
 
 def test_a_call_through_a_doorway_draws_no_clegs():

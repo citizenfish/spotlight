@@ -370,11 +370,20 @@ class Searchlight:
     searchlight at all, which is the first time any room has said no.
     """
 
-    __slots__ = ("radius", "vary")
+    __slots__ = ("radius", "vary", "pace", "mount")
 
-    def __init__(self, radius: int = 3, vary: bool = False) -> None:
+    def __init__(self, radius: int = 3, vary: bool = False, pace: int = 6,
+                 mount: int = 0) -> None:
         self.radius = radius
         self.vary = vary
+        #: Frames per cell of the beam's travel (issue #118): 6 as the beam
+        #: has always moved; Level 1 authors 8, walking pace, so a stranger
+        #: can step out of it. Faster than 6 is not a ramp: it breaks the
+        #: one skill the beam teaches.
+        self.pace = pace
+        #: Which corner the housing is bolted to, 0-3, for a repeating
+        #: light; a varying one moves with each circuit.
+        self.mount = mount
 
 
 class Room:
@@ -384,7 +393,7 @@ class Room:
     """
 
     def __init__(self, name: str, rows, *, ink=None, workers=(), clegs=(),
-                 spotlights=(), searchlight: Searchlight | None = None,
+                 searchlight: Searchlight | None = None,
                  lights=(), player_start: tuple[int, int] | None = None,
                  doorways=()) -> None:
         self.name = name
@@ -399,8 +408,8 @@ class Room:
         #: (cx, cy). Clegs live on the cell grid; pixel placement would cost
         #: the Z80 a shift and a mask per fly per frame for no gain.
         self.clegs = tuple(tuple(c) for c in clegs)
-        #: (cx, cy, power).
-        self.spotlights = tuple(tuple(s) for s in spotlights)
+        # `spotlights` -- (cx, cy, power) floor lamps the torch was swapped
+        # for -- went with the torch (issue #119).
         self.searchlight = searchlight
         #: The room's emergency lights, as (left, top, width, height) cell
         #: rectangles. **Authored beside the map rather than painted into it**
@@ -673,14 +682,20 @@ class Budget(NamedTuple):
     """What a level hands the player at the door (issue #115).
 
     *The numbers live in the level* (*Player and Resources*): starting blood,
-    spray charges, the torch's power and lives are the level's to author,
-    not the game's. The defaults are the constants Level 3 was measured
-    with, so a building built by hand plays as every baseline did.
+    spray charges and lives are the level's to author, not the game's. The
+    defaults are the constants Level 3 was measured with, so a building
+    built by hand plays as every baseline did. (`torch`, the cone's power,
+    went with the torch, issue #119.)
     """
     blood: int = 64
     spray: int = 5
-    torch: int = 1000
     lives: int = 3
+    #: The magnet's seconds and whether a hit wakes the sated (issue #118):
+    #: Level 3's ten and on are the rule as ruled on 2026-09-14; the levels
+    #: before it dial both down, because with a beam in every room the
+    #: magnet is the whole of the loss.
+    magnet: int = 10
+    wake: bool = True
 
 
 DEFAULT_BUDGET = Budget()
@@ -705,6 +720,9 @@ class Building:
         self.title: str | None = None
         #: What the player starts with, set by `levels.load` (issue #115).
         self.budget: Budget = DEFAULT_BUDGET
+        #: The run seed the level was rolled for (issue #120), or None for
+        #: a building built by hand or from `map:` rooms alone.
+        self.seed: int | None = None
 
     def __len__(self) -> int:
         return len(self.rooms)
@@ -780,22 +798,6 @@ class Building:
         """
         return self.roster
 
-    @property
-    def most_lamps(self) -> int:
-        """The most dropped spotlights one room can be holding at once.
-
-        **The whole building's**, not a room's, because a spotlight moves: a
-        swap leaves the one you were carrying where you stand, so every light
-        in the building can end up on one room's floor.
-
-        A dropped spotlight is a fixture -- it stays put, the fade may remember
-        it, and since issue #49 it is drawn on the floor like a key. It is
-        counted here because **the day `FIXTURE_COST` stops being zero, these
-        move with it** rather than waiting for somebody to remember that the
-        room has lamps in it. Today it changes no number at all.
-        """
-        return sum(len(room.spotlights) for room in self.rooms)
-
     def worst_case(self) -> int:
         """What this building can come to in one room, in T-states.
 
@@ -814,10 +816,9 @@ class Building:
         At least one is dead, because a level with no nest in it is not the
         failure this is sizing for.
 
-        **The room's authored spotlights are counted as fixtures too** (issue
-        #49). They are free today, because a fixture is priced at zero, and
-        that is exactly the reason to count them now: the arithmetic has to
-        find them the day the zero moves.
+        The room's authored spotlights were counted as fixtures too, until
+        the torch and the lamps went (issue #119); a searchlight is a light
+        and not an entity, and costs nothing here.
 
         **This counts the building's whole swarm**, where the runtime valve
         counts a room's -- see `Session._load`. Clegs cross doorways and go to
@@ -827,9 +828,8 @@ class Building:
         that cannot.
         """
         flies = self.population + NEST_BROOD
-        lamps = self.most_lamps
         return max(cost(clegs=flies, people=1 + self.roster - dead,
-                        fixtures=min(dead, self.most_fixtures) + lamps)
+                        fixtures=min(dead, self.most_fixtures))
                    for dead in range(1, max(1, self.roster) + 1))
 
     @property
@@ -915,11 +915,12 @@ class Building:
         alone = Room(
             room.name, ("".join(r) for r in rows), ink=room.ink,
             workers=room.workers, clegs=room.clegs,
-            spotlights=room.spotlights, searchlight=room.searchlight,
+            searchlight=room.searchlight,
             lights=room.lights, player_start=room.player_start, doorways=())
         building = Building([alone])
         building.level, building.title = self.level, self.title
         building.budget = self.budget
+        building.seed = self.seed
         building.validate()
         return building
 

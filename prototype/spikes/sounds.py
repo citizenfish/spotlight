@@ -120,9 +120,9 @@ from dataclasses import dataclass
 from . import tune as tune_mod
 from .moments import (
     MOMENTS, SFX_ALL_OUT, SFX_BITE, SFX_DELIVERED, SFX_DOOR, SFX_FREED,
-    SFX_GAME_OVER, SFX_HATCHED, SFX_NEST_TURNED, SFX_PICKUP, SFX_PLAYER_DIED,
+    SFX_GAME_OVER, SFX_HATCHED, SFX_NEST_TURNED, SFX_PLAYER_DIED,
     SFX_MAGNET, SFX_STROBE,
-    SFX_SPRAY, SFX_SPRAY_KILL, SFX_TORCH_OUT, SFX_WORKER_DIED, SOUND_NAMES,
+    SFX_SPRAY, SFX_SPRAY_KILL, SFX_WORKER_DIED, SOUND_NAMES,
 )
 
 #: T-states a second on a 48K Spectrum. Every period in this module is in these
@@ -365,12 +365,6 @@ EFFECTS = {
         Segment(12, 110, 110, 3, jitter=15),
         Segment(8, 90, 62, 3),
     )),
-    SFX_TORCH_OUT: Effect(SFX_TORCH_OUT, 0, (
-        Segment(6, 660, 660, 4),
-        Segment(6, 494, 494, 4),
-        Segment(6, 330, 330, 4),
-        Segment(6, 120, 120, 6, jitter=15),
-    )),
     # Two frames. A door is crossed constantly and this is a knock, not a tune.
     SFX_DOOR: Effect(SFX_DOOR, 0, (
         Segment(2, 233, 175, 8),
@@ -405,9 +399,6 @@ EFFECTS = {
         Segment(10, 880, 880, 2),
         Segment(10, 785, 785, 2),
         Segment(10, 880, 880, 2),
-    )),
-    SFX_PICKUP: Effect(SFX_PICKUP, 0, (
-        Segment(8, 880, 1313, 2),
     )),
     # Caught in the beam (issue #82): a rising pair sounded twice, E5 then C6,
     # which is the delivered rise's top two notes with the good news taken out

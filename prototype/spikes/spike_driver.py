@@ -74,7 +74,8 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           screen: Screen | None = None, on_frame=None,
           metrics: bool = True, on_sound=None,
           magnet: bool = True, building=None,
-          start_room: int | None = None) -> session_mod.Session:
+          start_room: int | None = None,
+          wall_fade: int = 1) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -110,7 +111,8 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
     # measures, so every run it drives is priced. It costs a 704-byte compare
     # a frame, which three frames in four settle on the first instruction.
     run = session_mod.Session(seed=seed, metrics=metrics, magnet=magnet,
-                              building=building, start_room=start_room)
+                              building=building, start_room=start_room,
+                              wall_fade=wall_fade)
     if draw and screen is None:
         screen = Screen()
     if draw:
@@ -259,8 +261,12 @@ SUMMARY = (
     ("blood", "blood_lost", 6),
     ("bites", "attachments", 6),
     ("1stbite", "first_attachment_seconds", 8),
-    ("torch", "torch_seconds", 6),
     ("tries", "tries_lost", 6),
+    # The spray's columns (issue #122): charges fired, flies killed by them,
+    # and flies left at the end.
+    ("sprays", "sprays_fired", 6),
+    ("killed", "clegs_killed", 6),
+    ("left", "clegs_left", 4),
     ("dspread", "death_spread_seconds", 8),
     # Blood by lure, at the point of attachment (issue #22). The searchlight
     # is the largest single term in every dark-player number the tester has
@@ -268,7 +274,7 @@ SUMMARY = (
     # inferred from proximity in time. Three columns rather than six because
     # the table has to stay readable; the JSON carries all of them.
     ("beam", "blood_by_beam", 5),
-    ("torch", "blood_by_torch", 5),
+    ("magnet", "blood_by_magnet", 6),
     ("glow", "blood_by_glow", 5),
     # What each frame costs to draw (issue #46), which is what every slice of
     # the look-and-feel round has to be priced against. The first column is the
@@ -343,11 +349,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frames", type=int, default=DEFAULT_FRAMES,
                         help=f"frame limit per run (default {DEFAULT_FRAMES}, "
                              f"three minutes)")
-    parser.add_argument("--light", dest="light", action="store_true",
-                        default=None,
-                        help="make the bot hold the torch on")
-    parser.add_argument("--no-light", dest="light", action="store_false",
-                        help="make the bot never light")
+    parser.add_argument("--spray", action="store_true",
+                        help="arm the bot: a listener or an oracle presses "
+                             "fire at a fly within two cells ahead (#122)")
+    parser.add_argument("--wall-fade", type=int, default=1, choices=(1, 2),
+                        help="how slowly the beam's memory of a wall fades: "
+                             "1 as built (three seconds), 2 half rate (six)")
     parser.add_argument("--no-magnet", dest="magnet", action="store_false",
                         help="run without the searchlight magnet (issue #82): "
                              "the pin that the rule off is the tree before it")
@@ -383,13 +390,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         scales = numbers(args.scales, "--scales") if args.scales else None
         snap_at = numbers(args.snap, "--snap") if args.snap else []
-        building, start_room = levels.pick(args.level, args.room, args.solo)
+        # The building is picked per seed (issue #120): its rooms roll.
+        picker = lambda s: levels.pick(args.level, args.room, args.solo, seed=s)  # noqa: E731
+        picker(args.seed)
     except ValueError as bad:
         print(bad, file=sys.stderr)
         return 2
 
     if args.gallery is not None:
-        return gallery(args.gallery, scales, args.level)
+        return gallery(args.gallery, scales, args.level, args.seed)
 
     if args.bank is not None:
         return bank(args.bank)
@@ -408,10 +417,12 @@ def main(argv: list[str] | None = None) -> int:
         snapper = (Snapper(base_name(name, seed, args.out, when), snap_at,
                            scales) if snap_at else None)
         recorder = _recorder() if args.wav else None
+        building, start_room = picker(seed)
         run = drive(bot, seed=seed, frames=args.frames, draw=draw,
                     magnet=args.magnet,
                     on_frame=snapper, on_sound=recorder,
-                    building=building, start_room=start_room)
+                    building=building, start_room=start_room,
+                    wall_fade=args.wall_fade)
         extra = measured(bot)
         if args.repeat:
             again = drive(_bot(args, seed), seed=seed, frames=args.frames,
@@ -501,7 +512,8 @@ def bank(out_dir: str) -> int:
 
 
 def gallery(out_dir: str, scales=None,
-            level: int = levels.DEFAULT_LEVEL) -> int:
+            level: int = levels.DEFAULT_LEVEL,
+            seed: int = session_mod.DEFAULT_SEED) -> int:
     """Write the look-and-feel sheets and print where they went.
 
     It runs no seeds and writes no report: the gallery is not a measurement of
@@ -514,7 +526,7 @@ def gallery(out_dir: str, scales=None,
     from . import spike_gallery
 
     paths = spike_gallery.write(out_dir, scales or spike_snap_scales(),
-                                level=level)
+                                level=level, seed=seed)
     print(f"\ngallery: {len(paths)} files in {out_dir}")
     for path in paths:
         print(f"  -> {path}")
@@ -530,7 +542,7 @@ def spike_snap_scales():
 def _bot(args, seed: int):
     if args.script:
         return bots.Script(bots.parse_script(args.script), seed=seed)
-    return bots.make(args.bot, seed=seed, light=args.light)
+    return bots.make(args.bot, seed=seed, spray=args.spray)
 
 
 if __name__ == "__main__":

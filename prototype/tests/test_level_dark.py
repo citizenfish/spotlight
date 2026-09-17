@@ -2,9 +2,11 @@
 AN). The maps are the vault's; the numbers are the ones the note holds,
 measured again here."""
 
+import statistics
+
 import pytest
 
-from levelplay import SEEDS, play, lives_lost
+from levelplay import SEEDS, play, lives_lost, MOVING
 from spikes import building as B, levels, session as S
 from spotlight.core.constants import CYAN, YELLOW
 from spotlight.core.screen import Screen
@@ -24,12 +26,16 @@ def test_the_level_is_as_the_note_draws_it(dark):
         B.palette(YELLOW)[B.FLOOR], B.palette(CYAN)[B.FLOOR],
         B.palette(YELLOW)[B.FLOOR]]
     glow, buzz, lamp = dark.rooms
-    assert glow.workers == ((128, 32, 90),)
-    assert buzz.workers == ((48, 120, 90), (216, 24, 80))
-    assert lamp.workers == ((216, 144, 70),)
-    assert [r.clegs for r in dark.rooms] == [(), ((24, 17),), ()]
-    assert all(r.spotlights == () and r.searchlight is None
-               for r in dark.rooms)
+    # The shell (issue #121): the clocks and the counts; where each person
+    # stands and where the fly begins are the seed's.
+    assert tuple(w[2] for w in glow.workers) == (90,)
+    assert tuple(w[2] for w in buzz.workers) == (90, 80)
+    assert tuple(w[2] for w in lamp.workers) == (70,)
+    assert [len(r.clegs) for r in dark.rooms] == [0, 1, 0]
+    # A beam in every room at walking pace (issue #118).
+    assert all(r.searchlight.radius == 3 and not r.searchlight.vary
+               and r.searchlight.pace == 8 for r in dark.rooms)
+    assert dark.budget.magnet == 5 and dark.budget.wake is False
     assert [r.lights for r in dark.rooms] == [
         ((1, 9, 3, 4),), ((0, 10, 3, 3),), ((26, 17, 3, 3),)]
     assert dark.start == (0, (24, 96))
@@ -72,6 +78,7 @@ def test_a_room_with_no_cleg_steps_draws_and_sounds():
 
 
 @pytest.mark.parametrize("seed", SEEDS)
+@MOVING
 def test_the_oracle_gets_everyone_out(seed):
     run = play(LEVEL, "oracle", seed)
     assert run.over == S.ALL_OUT and run.rescued == 4
@@ -80,14 +87,32 @@ def test_the_oracle_gets_everyone_out(seed):
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-def test_the_listener_gets_everyone_out_without_dying(seed):
+@MOVING
+def test_the_listener_loses_no_life(seed):
     run = play(LEVEL, "listener", seed)
-    assert run.over == S.ALL_OUT and run.rescued == 4
+    assert run.over != S.FRAME_LIMIT
     assert lives_lost(run) == 0
 
 
+@MOVING
+def test_the_listener_gets_nearly_everyone_out():
+    """3.8 of 4 over the seeds (the light round baseline, issue #124). The
+    one it loses is the far room's, to the clock: the listener never leaves
+    a room that has gone silent, and once the middle room's people are
+    delivered nothing calls it on. A bot's limit, not the level's -- the
+    scout, which explores, gets all four out on most seeds."""
+    runs = [play(LEVEL, "listener", seed) for seed in SEEDS]
+    assert statistics.mean(r.rescued for r in runs) >= 3.5
+    assert sum(r.over == S.ALL_OUT for r in runs) >= 2
+
+
 @pytest.mark.parametrize("seed", SEEDS)
-def test_a_statue_at_the_start_is_never_bitten(seed):
+@MOVING
+def test_a_statue_at_the_start_lives_three_minutes_and_is_not_bitten_early(seed):
+    """With a beam in every room (issue #118) a statue is found -- that is
+    T8 -- but Level 1's one fly and five-second magnet never kill it, and
+    the beam never opens on the start (issue #116)."""
     run = play(LEVEL, "statue", seed)
     assert run.over == S.FRAME_LIMIT
-    assert run.tally.attachments == 0
+    first = next((e.frame for e in run.log if e.kind == S.BITTEN), None)
+    assert first is None or first >= 500

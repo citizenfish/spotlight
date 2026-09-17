@@ -16,12 +16,19 @@ pip install -r requirements-dev.txt   # or requirements.txt for runtime only
 cd prototype
 python -m spotlight            # --scale N to resize the window (default 3)
 python -m spotlight --border blue   # a Spectrum BORDER round the frame
+python -m spotlight --level 3       # start at Level 3, Rescue (default 1, Dark)
+python -m spotlight --seed 48879    # the game the rooms roll for; a restart is the next
+python -m spotlight --level 2 --room 1        # Level 2 from its second room
+python -m spotlight --level 2 --room 1 --solo # that room on its own
 ```
 
 That starts the game. `--border` takes one of the Spectrum's fifteen colours
 (`black` … `white`, `bright-blue` … `bright-white`), default `black`; it is the
-window's margin and nothing else -- no snapshot shows it and no rule reads it. Three controls, and the title screen names them: arrow
-keys to walk, `T` for your torch, `SPACE` for the flyspray. `ESC` quits.
+window's margin and nothing else -- no snapshot shows it and no rule reads it.
+Two controls, and the title screen names them: arrow keys to walk, `SPACE`
+for the flyspray. `ESC` quits. (There was a torch on `T` until issue #119;
+what shows you the room now is the searchlight, which also shows the flies
+where you are.)
 
 ## The opening
 
@@ -37,7 +44,8 @@ test starts at frame one.
 
 ```sh
 python -m spotlight --dark-clegs     # flies drawn only where the light falls on them
-python -m spotlight --trail          # your lights leave a memory behind you
+python -m spotlight --trail          # your glow leaves a memory behind you
+python -m spotlight --wall-fade 2    # the beam's memory of a wall fades at half rate
 ```
 
 Since 2026-09-15 the flies are red and seen wherever they are, and your own
@@ -49,8 +57,12 @@ For a screen recording, or a cabinet in a corridor: the game plays itself.
 
 ```sh
 python -m spikes.spike_demo                        # the listener, for ever
-python -m spikes.spike_demo --bot oracle --runs 3  # three perfect runs, then quit
+python -m spikes.spike_demo --bot oracle --runs 3  # every room once, then quit
+python -m spikes.spike_demo --level 2              # Level 2 only
 ```
+
+With no `--level` the runs cycle through the levels in order -- 1, 2, 3, 1 --
+so `--runs 3` shows every room in the game once. `--level N` pins it to one.
 
 The ordinary window and the ordinary game, with a bot pressing the keys a
 player would press. The title is pressed for you after four seconds, an ending
@@ -72,7 +84,7 @@ and speed, the light hue, the remembered-light wipe, and `F`, which reveals the
 whole room and everybody in it and holds it there. They are listed in the
 `Debug` class in `spikes/spike1.py`.
 
-Without the flag only the three controls and `ESC` do anything, and every other
+Without the flag only the two controls and `ESC` do anything, and every other
 key is ignored. That is the point: a playtester who presses a key to see what it
 does would otherwise be able to solve the game by accident and never know they
 had.
@@ -83,8 +95,8 @@ A scripted or bot-driven session, from a seed, with no window and no host:
 
 ```sh
 python -m spikes.spike_driver --bot listener --seeds 5
-python -m spikes.spike_driver --bot statue --light --frames 3000
-python -m spikes.spike_driver --script "300R 100D T 600."   # exact replay
+python -m spikes.spike_driver --bot statue --frames 3000
+python -m spikes.spike_driver --script "300R 100D S 600."   # exact replay
 python -m spikes.spike_driver --bot oracle --repeat          # check a seed reproduces
 ```
 
@@ -117,7 +129,7 @@ python -m spikes.spike_driver --gallery runs/gallery
 | --- | --- |
 | `--snap 0,300,900` | Saves those frames of the run as PNGs, into `--out`, named after the same run as its `.json` and `.txt`. Implies `--draw`. |
 | `--scales 1,3` | Which scales to write (the default). 1:1 is the only honest view of the pixels; x3 is what a person can actually look at. |
-| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet of the objects, the doors and the body, a people sheet with every frame of the three standing figures and their walk laid out as a strip, each room fully lit and as it looks a few seconds into a run — the same instant four times, with every walker on each stride of the cycle N A N B in turn, so the walk can be judged where a figure is actually seen — and the frames a bot cannot produce on its own — a spotlight burning on the floor, a moment's flash, and **a body in a played room beside somebody standing up**. Runs no seeds and writes no report. |
+| `--gallery DIR` | Writes the sheets a look-and-feel review needs and prints the paths: the title screen (both halves of its flash), the ending screen, a labelled sprite sheet of the objects, the doors and the body, a people sheet with every frame of the three standing figures and their walk laid out as a strip, each room fully lit and as it looks a few seconds into a run — the same instant four times, with every walker on each stride of the cycle N A N B in turn, so the walk can be judged where a figure is actually seen — and the frames a bot cannot produce on its own — a moment's flash, and **a body in a played room beside somebody standing up** — then every level's rooms lit, at the strobe's flash and as first seen, with a plan strip per level. Runs no seeds and writes no report. |
 
 A snapshot is named by its session frame. **Frame 0 is the run before it has
 run** — the walls are drawn but no light has been applied yet, so it comes out

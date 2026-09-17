@@ -37,14 +37,13 @@ from . import (
     building as building_mod, buzz, clegs as clegs_mod, floor, font, lighting,
     moments as moments_mod, player as player_mod, rescue as rescue_mod,
     scene, screens, sounds, sources, spray as spray_mod, sprites,
-    tally as tally_mod, tiles, tune as tune_mod,
+    tally as tally_mod, tiles, tune as tune_mod, seeds,
 )
 from .building import EAST
 from .layout import PLAY_BOTTOM, PLAY_TOP, PLAY_ROWS, STRIP_BOTTOM, STRIP_TOP
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
 from .player import Player
-from .spotlights import FloorLight, Spotlights
 
 PLAY_ATTR = attr_byte(ink=WHITE, paper=BLACK, bright=False)
 
@@ -73,8 +72,11 @@ LEAVE_FRAMES = 25
 #: How long the player is a Cleg magnet after the searchlight's beam is on
 #: them (issue #82, *The searchlight magnet*): ten seconds, the user's number,
 #: and the only number on that page that was given. A hit sets it, never adds
-#: to it, so the ten seconds run from the last sighting.
+#: to it, so the ten seconds run from the last sighting. Since issue #118 the
+#: level authors the seconds (`magnet:` in the level block, ten on Level 3);
+#: this is the constant's frames per second of it.
 MAGNET_FRAMES = 500
+FRAME_RATE = 50
 
 #: The strobe a level opens on (issue #94): the whole room lit for `STROBE_ON`
 #: frames, dark for `STROBE_OFF`, `STROBE_FLASHES` times, with the game held.
@@ -170,13 +172,9 @@ SPRAY_KILL = "spray_kill"
 #: cannot answer that. Only logged on frames where something was taken, which
 #: is a few hundred events in the worst run.
 DRAINED = "drained"
-SWAPPED = "swapped"
-#: The carried torch burned its last frame of power (issue #31). Its own kind
-#: rather than a `SWAPPED` with a zero count, because it is the one thing that
-#: happens to the player's kit **without the player asking for it** -- and
-#: because "how long before a first-timer's torch died, and what did they do
-#: next" is a question the playtest wants to be able to ask of a run.
-TORCH_OUT = "torch_out"
+# `SWAPPED` and `TORCH_OUT` went with the torch (issue #119): the carried
+# cone, the floor lamps it was swapped for, and the twenty seconds it lasted
+# are no longer in the game.
 #: The player stepped through a doorway (issue #21). `count` is the room they
 #: arrived in, `room` the room they left. It is logged because a second room is
 #: only worth having if people go into it, and "did a first-timer ever find the
@@ -244,17 +242,16 @@ class Intent:
     """What the player asked for this frame.
 
     Movement is held (a key down means moving now, per the responsiveness
-    requirement); the torch and the spray are edge-triggered, because holding
-    the torch key down should not strobe it. Whoever builds the intent decides
-    which is which -- the session only obeys.
+    requirement); the spray is edge-triggered, because holding the key down
+    should not empty the can. Whoever builds the intent decides which is
+    which -- the session only obeys. Four directions and one button, since
+    the torch went (issue #119): every joystick the machine ever had.
     """
 
-    __slots__ = ("dx", "dy", "torch", "spray")
+    __slots__ = ("dx", "dy", "spray")
 
-    def __init__(self, dx: int = 0, dy: int = 0, torch: bool = False,
-                 spray: bool = False) -> None:
+    def __init__(self, dx: int = 0, dy: int = 0, spray: bool = False) -> None:
         self.dx, self.dy = dx, dy
-        self.torch = torch
         self.spray = spray
 
 
@@ -299,7 +296,14 @@ class Place:
         if room.searchlight is not None:
             self.roaming = sources.Roaming(
                 0, 0, radius=room.searchlight.radius,
-                vary=room.searchlight.vary, seed=beam_seed)
+                vary=room.searchlight.vary, seed=beam_seed,
+                is_solid=room.is_solid, step_every=room.searchlight.pace)
+            self.roaming.mount = room.searchlight.mount
+        #: One byte per cell, non-zero where the room is solid, for the
+        #: `--wall-fade` experiment (issue #117).
+        self.solid_mask = bytes(
+            1 if room.is_solid(cx, cy) else 0
+            for cy in range(PLAY_ROWS) for cx in range(COLS))
         self.swarm = clegs_mod.Swarm(clegs)
         self.sign_cells = room.exit_sign_cells(scene.EXIT_SIGN)
         #: Where the room's gratings are (issue #74): floor cells that draw a
@@ -393,20 +397,25 @@ class Session:
                  sound: bool = True, magnet: bool = True,
                  luminous: bool = True, trail: bool = False,
                  strobe: bool = False, building=None,
-                 start_room: int | None = None) -> None:
+                 start_room: int | None = None, wall_fade: int = 1) -> None:
         self.seed = seed
         #: Two looks the user tried and ruled on (issue #91, then #92), both
         #: now the default. `luminous`: Clegs are drawn wherever they are,
         #: lit or not, **and their cells wear red** -- a dark cell is black
         #: ink on black paper, so pixels alone showed nothing, which is what
-        #: the first cut got wrong. `trail` off: the player's own glow and
-        #: torch leave no memory, so the floor and the walls behind you go
+        #: the first cut got wrong. `trail` off: the player's own glow
+        #: leaves no memory, so the floor and the walls behind you go
         #: dark the frame after you pass. It reaches the rules -- a body
         #: waits on remembered ground, a scout maps what it has seen -- and
         #: the log moved with it, recorded. `--dark-clegs` and `--trail` put
         #: the old looks back for comparison.
         self.luminous = luminous
         self.trail = trail
+        #: `--wall-fade N` (issue #117): 1 is the fade as it is, three
+        #: seconds of wall memory behind the beam; 2 tops every remembered
+        #: wall cell up by one on even frames, so it fades at half rate and
+        #: lasts six. An experiment for the keyboard, not a level key.
+        self.wall_fade = wall_fade
         #: **A run takes a building** (issue #108). Left out, it is the one
         #: `scene` shows, which is Level 3; given, it is whatever the driver
         #: loaded -- another level, or one room of one on its own
@@ -422,10 +431,19 @@ class Session:
         self.building = building
 
         # Every random thing in the run is derived from the one seed, so a seed
-        # names a run. The Clegs' temperaments and the searchlight's tour are
-        # the only two, and both use the same xorshift the Z80 will.
-        cleg_seed = sources.xorshift16(seed or 1)
-        beam_seed = sources.xorshift16(cleg_seed)
+        # names a run -- and, since issue #116, **one seed per stream and per
+        # room**. Before, one `beam_seed` served every searchlight in the
+        # building, so they all entered at the same station and walked the
+        # same tour on the same frames, and the same run seed gave the same
+        # entry on every level. Now the run seed and the level make a level
+        # seed, and each stream -- the roll (issue #120), the flies, each
+        # room's beam, the brood -- takes its own from a tag. All of it the
+        # xorshift the Z80 will run.
+        level_seed = seeds.level_seed(seed, self.building.level)
+        self.roll_seed = seeds.stream(level_seed, seeds.ROLL_TAG)
+        cleg_seed = seeds.stream(level_seed, seeds.CLEG_TAG)
+        beam_seeds = [seeds.stream(level_seed, seeds.BEAM_TAG + i)
+                      for i in range(len(self.building))]
 
         #: Which room the player is standing in. **The whole of the screen
         #: transition**: `draw` paints this room and no other, so stepping
@@ -454,39 +472,22 @@ class Session:
         self.glow = sources.Glow() if trail else sources.Glow(memory=0)
         self.glow.x, self.glow.y = self.player.cx, self.player.cy
         #: **The level authors the budget** (issue #115): starting blood,
-        #: spray charges, the torch's power and lives are the building's
-        #: `Budget`, and `blood` and `lives` given to the constructor override
-        #: it (a test that wants ninety-nine lives still gets them). Level 3's
-        #: budget is the constants, so nothing measured moves.
-        budget = self.building.budget
-        self.cone = (sources.Cone(reach=7, power=budget.torch) if trail
-                     else sources.Cone(reach=7, power=budget.torch, memory=0))
-        self.cone.x = self.player.cx
-        self.cone.y = self.player.cy
-        self.cone.facing = self.player.facing
-        self.kit = Spotlights(
-            self.cone,
-            [FloorLight(cx, cy, power, room=i)
-             for i, room in enumerate(self.building.rooms)
-             for cx, cy, power in room.spotlights])
-        #: What a full light bar means on the panel: **the capacity of the
-        #: light in the player's hand**, fixed at the moment it entered the
-        #: hand, so a full light reads full and a light drains from six pips to
-        #: none whatever its size.
+        #: spray charges and lives are the building's `Budget`, and `blood`
+        #: and `lives` given to the constructor override it (a test that
+        #: wants ninety-nine lives still gets them).
         #:
-        #: This used to be the strongest spotlight in the *building*
-        #: (`max(power for light in kit.floor)`), on the argument that an
-        #: absolute scale makes a weak spotlight legible before you pick it up.
-        #: Issue #38 removed it: the carried cone starts on 1000 and the
-        #: playtest building authors a 1500 pickup, so the gauge read four pips
-        #: of six on frame one of every run ever played -- a third of the
-        #: readout missing at full charge, and the kind of fault a playtester
-        #: reports as their own mistake. The absolute scale was buying
-        #: legibility that has never once been exercised: `spotlight_swaps` is
-        #: 0 across every run of both playtest agents. If swaps ever start
-        #: happening, this is the decision to revisit.
-        self.cone_full = self.cone.power
+        #: **There is no torch** (issue #119, the user's ruling). The carried
+        #: cone was pressed once and burned out at twenty seconds in every
+        #: lit bot's run, was billed 0-8 blood a run against the magnet's
+        #: 58-162, and no human used it; the floor lamps it was swapped for
+        #: only ever lit under it. What lights a room is the beam, which
+        #: since #117 leaves the walls it passes in memory; what the player
+        #: carries is the glow, with a nose. One button: the spray.
+        budget = self.building.budget
         self.spray = spray_mod.Spray(charges=budget.spray)
+        #: How long a hit keeps the magnet on (issue #118): the level's
+        #: seconds, ten on Level 3 as the rule was made.
+        self.magnet_frames = budget.magnet * FRAME_RATE
 
         # One `Place` per room. Cleg seeds run on across the building rather
         # than restarting per room, so no two flies in the building share a
@@ -498,7 +499,17 @@ class Session:
             flies = [clegs_mod.Cleg(cx, cy, seed=cleg_seed + made + n)
                      for n, (cx, cy) in enumerate(room.clegs)]
             made += len(flies)
-            self.places.append(Place(i, room, flies, beam_seed))
+            self.places.append(Place(i, room, flies, beam_seeds[i]))
+        #: **The never list's rule 4** (issue #116): the beam in the room the
+        #: player begins in never opens on the start. `Roaming.safe_entry`
+        #: walks the route and moves the entry station on until the first ten
+        #: seconds keep off the feet cell; how far it moved is kept for the
+        #: record. Only the start room: every other room's beam is already
+        #: running when the player arrives, which is what the spill is for.
+        self.entry_moved = 0
+        beam = self.places[self.start_room].roaming
+        if beam is not None:
+            self.entry_moved = beam.safe_entry((self.player.cx, self.player.cy))
         #: Every swarm in the building, read as one. See `clegs.Swarms`: the
         #: counters are the building's because a fly that walked through a
         #: doorway is the same fly.
@@ -549,7 +560,7 @@ class Session:
         #: Where the next hatchling's temperament comes from. Its own chain,
         #: run on from the starting swarm's, so no fly in the building shares a
         #: seed with another and a brood is as varied as an authored swarm.
-        self._brood_seed = sources.xorshift16(beam_seed)
+        self._brood_seed = seeds.stream(level_seed, seeds.BROOD_TAG)
         # The mains surge's schedule was seeded here, as the last link in the
         # chain after the Cleg, beam and brood seeds -- placed last precisely
         # so that removing it would move nothing upstream. It was removed on
@@ -615,12 +626,12 @@ class Session:
         # (issue #38). A hand-written starting value is a second place for the
         # gauge to be wrong in, so there is no longer one.
         for name, value in (("blood", 8),
-                            ("light", bar_pips(self.cone.power,
-                                               self.cone_full)),
-                            ("lit", self.cone.lit),
                             ("spray", self.spray.charges), ("keys", 0)):
             self.panel.set(name, value)
         self.panel.set("lives", self.lives)
+        # The level's number where the light bar was (issue #119). A
+        # building with no level draws nothing there.
+        self.panel.set("level", self.building.level or 0)
         self.panel.set("rescued", 0)
 
         self.frame = 0
@@ -735,7 +746,7 @@ class Session:
     @property
     def all_sources(self) -> tuple:
         """Every light shining into the room the player is in."""
-        return (self.glow, self.cone, *self.place.fixed)
+        return (self.glow, *self.place.fixed)
 
     # --- what is going on --------------------------------------------------
 
@@ -778,16 +789,35 @@ class Session:
         enabled and burning at `LIT`, and the feet cell inside its disc by the
         same squared-distance inequality `Roaming.emit` lights by -- so a
         player on the disc's edge is hit exactly where the floor under them
-        is lit, and there is no frame of lag. Only the beam counts: not the
-        cone, a floor lamp, a room light, the glow, the housing or the debug
-        floodlight, none of which give you away to anything that was not
-        already looking.
+        is lit, and there is no frame of lag. Only the beam counts: not a
+        room light, the glow, the housing or the debug floodlight, none of
+        which give you away to anything that was not already looking. (Nor
+        the cone or a floor lamp, while there were any.)
         """
         beam = self.place.roaming
-        if beam is None or not beam.enabled or beam.level < lighting.LIT:
-            return False
-        dx, dy = self.player.cx - beam.x, self.player.cy - beam.y
-        return dx * dx + dy * dy <= beam.radius * beam.radius
+        if beam is not None and beam.enabled and beam.level >= lighting.LIT \
+                and beam.covers(self.player.cx, self.player.cy):
+            return True
+        # **The spill counts** (issue #116): a player standing in doorway
+        # cells the far room's beam covers is as lit, and as found, as one
+        # standing in that beam.
+        for door, other in self._spilling(self.place):
+            if self.player.cx == door.column and self.player.cy in door.rows \
+                    and other.covers(door.landing, self.player.cy):
+                return True
+        return False
+
+    def _spilling(self, place):
+        """The doorways of `place` whose cells the room beyond's beam can
+        reach: `(doorway, that beam)` pairs. The beam beyond is asked about
+        the landing column, which is the same cells seen from its side."""
+        out = []
+        for door in place.room.doorways:
+            other = self.places[door.to].roaming
+            if other is not None and other.enabled \
+                    and other.level >= lighting.LIT:
+                out.append((door, other))
+        return out
 
     def _magnet_cell(self, place: Place):
         """What this room's hunting flies are handed while the magnet runs.
@@ -831,10 +861,12 @@ class Session:
             self._moment(moments_mod.M_MAGNET)
             # **And the building wakes** (issue #88): every sated fly in every
             # room hunts again, on the rising edge and not on the frames after
-            # it -- see `Swarm.wake` for why once.
-            for place in self.places:
-                place.swarm.wake()
-        self.magnet = MAGNET_FRAMES
+            # it -- see `Swarm.wake` for why once. Since issue #118 the level
+            # says whether: Levels 1 and 2 let the sated sleep.
+            if self.building.budget.wake:
+                for place in self.places:
+                    place.swarm.wake()
+        self.magnet = self.magnet_frames
 
     def _lit_people(self, place: Place) -> list:
         """Everybody in one room, except the player, who is **plainly lit**.
@@ -876,19 +908,17 @@ class Session:
     def _own_lures(self, place: Place) -> list:
         """Every light in one room that a Cleg standing in it can steer for.
 
-        The room's own fixtures, whatever is burning on its floor, and -- only
-        if the player is in it -- the player's glow and torch. **A light belongs
-        to a room**, which is the same rule that stops light crossing a
-        threshold, applied to the other half of the bargain.
+        The room's own fixtures and -- only if the player is in it -- the
+        player's glow. **A light belongs to a room**, which is the same rule
+        that stops light crossing a threshold, applied to the other half of
+        the bargain.
         """
         lures = [p for p in (src.lure() for src in place.fixed) if p is not None]
-        lures += self.kit.floor_lures(place.index)
         if place.index == self.here:
-            lures += [p for p in (self.glow.lure(), self.cone.lure())
-                      if p is not None]
+            lures += [p for p in (self.glow.lure(),) if p is not None]
             if self.magnet:
                 # The magnet, offered as a lure so that the room next door
-                # sees it as door spill exactly as it sees the torch
+                # sees it as door spill exactly as it saw the torch
                 # (issue #82). This room's own hunting flies never compare
                 # it: `Swarm.tick` hands them the cell directly.
                 lures.append((self.player.cx, self.player.cy, sources.FAR,
@@ -1021,8 +1051,8 @@ class Session:
         """Advance one frame. Returns what happened on it.
 
         The order is the order the spike's loop ran in, and some of it matters:
-        the torch and the spray are acted on before the player moves, because
-        that is the frame the key was pressed on; lighting is rebuilt last,
+        the spray is acted on before the player moves, because that is the
+        frame the key was pressed on; lighting is rebuilt last,
         because the shout and the exit sign are added to it after every source
         has had its say.
         """
@@ -1080,8 +1110,6 @@ class Session:
         # what was raised; it changes nothing a rule can read.
         self.moments.begin()
 
-        if intent.torch:
-            self.kit.toggle()
         # The room is handed to the burst so it lays no poison inside a wall
         # (issue #41) and so a refused cell falls back one step toward the
         # player rather than being lost (issue #44). `is_solid` is the current
@@ -1109,8 +1137,7 @@ class Session:
         self._maybe_cross()
         room = self.room
         self.glow.x, self.glow.y = self.player.cx, self.player.cy
-        self.cone.x, self.cone.y = self.player.cx, self.player.cy
-        self.cone.facing = self.player.facing
+        self.glow.facing = self.player.facing
 
         # Every room, not only the one on screen. The building is a simulation
         # running whether or not you are looking at it, which is what makes the
@@ -1260,7 +1287,7 @@ class Session:
             self._moment(moments_mod.M_BITE)
         if self.swarm.drained:
             self._record(DRAINED, count=self.swarm.drained, room=room)
-        self.tally.frame(self.cone.lit, self.swarm.drained)
+        self.tally.frame(self.swarm.drained)
 
         # Death costs a try and puts you back at the entrance. The building
         # carries on regardless: workers you did not reach are still bleeding,
@@ -1292,42 +1319,6 @@ class Session:
             if self.lives > 0:
                 self._respawn()
 
-        # **Say the light ran out** (issue #31). A first-timer switches the
-        # torch on to see, leaves it on, and goes dark twenty seconds later --
-        # and until now nothing said so. The bar has been sliding towards empty
-        # the whole time, but a bar you are not looking at is not an event, and
-        # the moment it matters is exactly the moment the player is looking at
-        # something else in the dark.
-        #
-        # Swapping onto a fresh spotlight on the same frame is not the torch
-        # running out: the bar refills in front of you and the player did that
-        # on purpose. The alert is for the thing that happened *to* them.
-        was_lit = self.cone.lit
-        picked = self.kit.tick(self.player, self.here)
-        if picked is not None:
-            # A new light in the hand is a new full: the bar is scaled to what
-            # you are carrying (issue #38), so picking one up refills it and
-            # the six pips go back to meaning "all of this one". Taken at the
-            # moment of the swap, because a spotlight has no capacity of its
-            # own on the floor -- what it had when you took it is the most it
-            # will ever have again.
-            self.cone_full = self.cone.power
-            self._record(SWAPPED, count=self.cone.power, room=room)
-            # The bar's *value* changed underneath the player in the same
-            # instant, which is the one case *Screen Layout* carved out for a
-            # readout the player did ask for. The bar only, not the flag: the
-            # light was already burning and still is.
-            self._moment(moments_mod.M_PICKUP)
-        elif was_lit and self.cone.power <= 0:
-            self._record(TORCH_OUT, room=room)
-            # Both regions, which the bare `panel.alert("light")` here was not:
-            # the table says *the LIGHT bar and its flag*, and the flag is the
-            # half that says the thing has gone out. The frames come from the
-            # moment table, so the two are no longer written down twice.
-            self._moment(moments_mod.M_TORCH_OUT)
-
-        self.panel.set("light", bar_pips(self.cone.power, self.cone_full))
-        self.panel.set("lit", self.cone.lit)
         self.panel.set("blood", bar_pips(self.blood, self.blood_full, 8))
         self.panel.tick()
 
@@ -1434,7 +1425,8 @@ class Session:
         of the player, so a burst never covers where they stand. Because a
         person is two cells tall, facing **up** put the patch on their own
         upper cell and the douse happened to work -- in exactly one facing out
-        of four, with no facing indicator on screen once the torch is off. So
+        of four, with no facing indicator on screen (the glow's nose is that
+        indicator since issue #117). So
         the one place a body can be found without spending light, by walking
         onto it in the dark, was the one place it could not be saved from. That
         matters more since a death shout gives a direction rather than a
@@ -1817,6 +1809,23 @@ class Session:
             return None
         return ALL_OUT if self.rescued == self.total else NOBODY_LEFT
 
+    @property
+    def score(self) -> int:
+        """What this run scored (issue #123): ten a living person delivered,
+        a point a second of the level's shortest authored clock left when
+        the last living person was delivered (nought if anybody died or
+        nobody was), and five a body doused before it turned. Small
+        integers, a person always worth most, unspent spray worth nothing.
+        Summed across a game by the shell; never on the strip."""
+        points = 10 * self.rescued
+        delivered = [e.frame for e in self.log if e.kind == DELIVERED]
+        if delivered and self.rescued == self.total and not self.lost:
+            shortest = min(w[2] for room in self.building.rooms
+                           for w in room.workers) * rescue_mod.BLEED_EVERY
+            points += max(0, (shortest - max(delivered)) // FRAME_RATE)
+        points += 5 * sum(1 for e in self.log if e.kind == DOUSED)
+        return points
+
     def _record(self, kind: str, who: int | None = None, count: int = 0,
                 room: str = "") -> Event:
         event = Event(self.frame, kind, who, count, room or self.room)
@@ -1915,29 +1924,36 @@ class Session:
 
         A source belongs to a room and writes into that room's field, so
         **light does not cross a threshold** and never has to be stopped from
-        doing so. Standing in A's doorway you cannot see into B.
+        doing so. Standing in A's doorway you cannot see into B -- with one
+        exception since issue #116: **the beam shows in a doorway from both
+        sides.** A searchlight whose disc covers a doorway's cells writes
+        those same cells into the room beyond, at its own level and memory,
+        so a beam sweeping past a door is seen through it and a player
+        standing in the gap is found from either side. Every field begins
+        before any source writes, because a spill lands in another room's
+        field and a `begin` after it would wipe it.
         """
         self.shouting = []
         self.door_calls = []
         self.call_cells = []
         self.shout_runs = []
         for place in self.places:
+            place.field.begin()
+        if black:
+            # The opening's black (issue #95): no source at all, not even
+            # the ones that never fade. The fields are committed from their
+            # untouched charge, so nothing is remembered of it either.
+            for place in self.places:
+                place.field.commit(decay=not held)
+            return
+        for place in self.places:
             here = place.index == self.here
             field = place.field
-            field.begin()
-            if black:
-                # The opening's black (issue #95): no source at all, not
-                # even the ones that never fade. The field is committed
-                # from its untouched charge below, so nothing is remembered
-                # of it either.
-                field.commit(decay=not held)
-                continue
             for src in place.fixed:
                 src.apply(field)
+            self._spill(place)
             if here:
                 self.glow.apply(field)
-                self.cone.apply(field)
-            self.kit.apply(field, place.index)
 
             # A shout is not a light. It lifts its own cells out of the dark so
             # the word can be read, leaves no memory behind it, and reveals
@@ -1999,7 +2015,25 @@ class Session:
             if housing is not None:
                 field.add(*housing, level=lighting.LIT, memory=1,
                           reveals=False)
-            field.commit(decay=not held)
+        for place in self.places:
+            place.field.commit(decay=not held)
+            if self.wall_fade == 2 and not held and self.frame % 2 == 0:
+                place.field.linger(place.solid_mask)
+
+    def _spill(self, place: Place) -> None:
+        """This room's beam, through its doorways, into the rooms beyond
+        (issue #116). Each doorway cell the disc covers is written into the
+        neighbour's field at the landing column, the beam's own level,
+        memory and reveal bits -- the same `light` the beam lights its own
+        room by."""
+        beam = place.roaming
+        if beam is None or not beam.enabled:
+            return
+        for door in place.room.doorways:
+            beyond = self.places[door.to].field
+            for cy in door.rows:
+                if beam.covers(door.column, cy):
+                    beam.light(beyond, door.landing, cy)
 
     def _people_cells(self, place) -> set:
         """Every cell a figure is drawn in, in one room (issue #59).
@@ -2012,7 +2046,7 @@ class Session:
 
         **Position rather than visibility**, deliberately: the word steps aside
         for somebody standing in the dark as readily as for somebody lit. Tying
-        it to the light would make the word jump when the torch came on, which
+        it to the light would make the word jump when the beam passed, which
         is a worse fault than the one being fixed.
 
         All four figures count, because all four are drawn as people: the
@@ -2185,22 +2219,6 @@ class Session:
         # cells they happen to be standing in.
         for spr, sx, sy in place.fixtures:
             sprites.draw(screen, spr, sx, sy)
-        # **The spotlights lying on this room's floor** (issue #49). There was
-        # no draw call for one anywhere in the game, so an unlit spare was
-        # invisible and a burning one was a disc of stipple with nothing in the
-        # middle -- which means the whole pick-up-and-swap economy, on which a
-        # weak spotlight being a trap and baiting being a level-design feature
-        # both rest, had never once been on screen.
-        #
-        # Filled when it is burning, hollow when it is not: empty is dark,
-        # filled is burning. **Drawn like a key and not like a person** -- no
-        # `visible=` -- because a dropped spotlight is a fixture. It stays put,
-        # so the fade is allowed to remember it.
-        for light in self.kit.floor:
-            if light.room != self.here:
-                continue
-            spr = sprites.LAMP_ON if light.burning else sprites.LAMP_OFF
-            sprites.draw(screen, spr, light.cx * CELL, light.cy * CELL)
         # The searchlight's housing: a ring with a lens, on the cell `_light`
         # holds permanently lit. A fixture rather than a light -- see
         # `Place.housing`.
@@ -2269,8 +2287,8 @@ class Session:
                          worker.x, worker.y, visible=field.reveals_at)
         # **A follower is drawn wherever they are** (issue #90). They are
         # yours and you know where they are; seven of them reach ten cells
-        # behind you, the glow lit the first and the torch points the other
-        # way, and the user watched a full tail vanish. The prey rule is
+        # behind you, the glow lit the first and nothing lit the rest, and
+        # the user watched a full tail vanish. The prey rule is
         # untouched: a follower is bitable only while lit, and the swarm reads
         # the light and not the drawing.
         for worker in self.rescue.tail:

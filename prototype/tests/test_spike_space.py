@@ -27,7 +27,7 @@ def _cheb(a, b):
     return max(abs(a.cx - b.cx), abs(a.cy - b.cy))
 
 
-def _lure(cx, cy, kind=S.LURE_TORCH):
+def _lure(cx, cy, kind=S.LURE_BEAM):
     return [(cx, cy, S.FAR, kind)]
 
 
@@ -248,6 +248,10 @@ def test_a_fly_will_not_step_through_a_doorway_beside_a_fly_next_door():
     from tests.test_spike_doorway import DOOR_ROW, _put_flies
 
     run = Session(seed=1)
+    # The near room's beam off, so the crosser wants the door and nothing
+    # else: since issue #116 each beam has its own entry, and on this seed
+    # it pulls the crosser away before the staging holds.
+    run.places[scene.NEAR].roaming.enabled = False
     sitter = _put_flies(run, scene.FAR, [(0, DOOR_ROW)])[0]
     crosser = _put_flies(run, scene.NEAR, [(COLS - 2, DOOR_ROW + 1)])[0]
     for fly in run.places[scene.FAR].swarm.clegs:
