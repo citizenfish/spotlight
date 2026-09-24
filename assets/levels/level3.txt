@@ -26,6 +26,7 @@
 
 level: 3
 name: Rescue
+building: The Hollins Hotel
 blood: 64
 spray: 5
 lives: 3

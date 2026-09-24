@@ -42,7 +42,7 @@ cell is the same pixels and the same attribute byte with the beam as without.
 """
 
 from spotlight.core.constants import (
-    BLACK, CELL, COLS, CYAN, GREEN, RED, ROWS, SCREEN_W, WHITE, YELLOW,
+    BLACK, CELL, COLS, CYAN, GREEN, MAGENTA, RED, ROWS, SCREEN_W, WHITE, YELLOW,
 )
 from spotlight.core.screen import Screen, attr_byte
 
@@ -174,6 +174,114 @@ def draw_logo(screen: Screen, top: int = LOGO_TOP) -> None:
         font.draw_glyph(screen, cx, top + 1, rows[8:])
         screen.set_attr(cx, top, attr)
         screen.set_attr(cx, top + 1, attr)
+
+
+#: The building's name on the opening (issue #126): the standard font
+#: doubled in height, every row drawn twice, so any name the level file
+#: gives can be written -- the logo's block letters exist only for
+#: SPOTLIGHT. Bright yellow on black, like the logo it replaces there.
+def big_pixels(text: str, top: int) -> list[tuple[int, int]]:
+    """Every pixel of `text` at double height, in the order it **builds
+    up** (issue #126, the user: *"I want the name to build up from
+    pixels"*): a scatter, so the name gathers out of dust rather than
+    wiping in. The order is a multiplicative hash of the pixel's index --
+    integers, one multiply, and the same on the port -- sorted once per
+    name at level start.
+    """
+    text = text.upper()
+    col = centre(text)
+    pixels = []
+    for i, char in enumerate(text):
+        glyph = font.GLYPHS.get(char, font.BLANK)
+        cx = col + i
+        for r, row in enumerate(glyph):
+            for dx in range(CELL):
+                if row & (0x80 >> dx):
+                    x = cx * CELL + dx
+                    y = top * CELL + 2 * r
+                    pixels.append((x, y))
+                    pixels.append((x, y + 1))
+    return sorted(pixels, key=lambda p: (p[0] * 40503 + p[1] * 12569) & 0xFFFF)
+
+
+def draw_big(screen: Screen, text: str, top: int, ink: int = YELLOW,
+             bright: bool = True, progress: tuple[int, int] | None = None
+             ) -> None:
+    """`text` centred at double height on rows `top` and `top + 1`.
+
+    An 8x8 glyph becomes 8x16 by drawing each of its rows twice, the top
+    four rows in the upper cell and the bottom four in the lower: two
+    cell-aligned eight-byte runs, which is the shape the port's routine
+    takes anyway. A character the font has no glyph for is a space.
+
+    `progress` is `(done, whole)`: how far the name has built up. The
+    first `done / whole` of its pixels are plotted, in `big_pixels`' scatter
+    order, so the name gathers over the frames it is given and is whole at
+    `whole`. None draws it whole.
+    """
+    text = text.upper()
+    attr = _attr(ink, bright=bright)
+    col = centre(text)
+    for i, _char in enumerate(text):
+        screen.set_attr(col + i, top, attr)
+        screen.set_attr(col + i, top + 1, attr)
+    pixels = big_pixels(text, top)
+    if progress is not None:
+        done, whole = progress
+        pixels = pixels[:len(pixels) * max(0, done) // max(1, whole)]
+    for x, y in pixels:
+        screen.plot(x, y)
+
+
+#: The building's plan on the opening's flash (issue #126): every room of
+#: the level side by side in chain order, two pixels a cell, walls and
+#: furniture in the room's own hue, the exit in its magenta, the people as
+#: dots. A gap of `PLAN_GUTTER` pixels between rooms; the whole centred in
+#: the play area. It is the whole building and nothing else: a fly is not
+#: shown, as the strobe never showed one, and nothing lit is remembered.
+PLAN_SCALE = 2
+PLAN_GUTTER = 8
+
+
+def plan_origin(building) -> tuple[int, int]:
+    """Where the plan's top-left pixel goes, centred in the play area."""
+    from .layout import PLAY_ROWS
+    rooms = len(building)
+    width = rooms * COLS * PLAN_SCALE + (rooms - 1) * PLAN_GUTTER
+    height = PLAY_ROWS * PLAN_SCALE
+    return (SCREEN_W - width) // 2, (PLAY_ROWS * CELL - height) // 2
+
+
+def draw_plan(screen: Screen, building) -> None:
+    from .building import DOOR, FLOOR, SOLID
+    from .layout import PLAY_ROWS
+    x0, y0 = plan_origin(building)
+    stride = COLS * PLAN_SCALE + PLAN_GUTTER
+    for i, room in enumerate(building.rooms):
+        left = x0 + i * stride
+        hue = room.ink[FLOOR]
+        # The room's hue on every attribute cell the plan of it touches.
+        for cy in range(y0 // CELL, (y0 + PLAY_ROWS * PLAN_SCALE - 1) // CELL + 1):
+            for cx in range(left // CELL, (left + COLS * PLAN_SCALE - 1) // CELL + 1):
+                screen.set_attr(cx, cy, _attr(hue, bright=True))
+        for cy, row in enumerate(room.rows):
+            for cx, char in enumerate(row):
+                if char in SOLID:
+                    _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
+                elif char == DOOR:
+                    _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
+                    screen.set_attr((left + cx * PLAN_SCALE) // CELL,
+                                    (y0 + cy * PLAN_SCALE) // CELL,
+                                    _attr(MAGENTA, bright=True))
+        for x, y, _blood in room.workers:
+            cx, cy = x // CELL, (y + 15) // CELL
+            _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
+
+
+def _block(screen: Screen, x: int, y: int) -> None:
+    for dy in range(PLAN_SCALE):
+        for dx in range(PLAN_SCALE):
+            screen.plot(x + dx, y + dy)
 
 
 #: **The beam across the title** (issue #76). The searchlight's own disc --
@@ -403,7 +511,9 @@ def draw_ending(screen: Screen, headline: tuple[str, str], rescued: int,
 
 #: The card between levels (issue #123): the ending screen's shape with the
 #: next verb.
-CARD_PROMPT = "PRESS SPACE FOR THE NEXT BUILDING"
+# Twenty-nine characters: the first wording was thirty-three and ran off the
+# right of the screen, which `centre` clamps rather than refuses.
+CARD_PROMPT = "PRESS SPACE FOR NEXT BUILDING"
 
 
 def draw_card(screen: Screen, where: str, rescued: int, total: int,

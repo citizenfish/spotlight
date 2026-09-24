@@ -138,12 +138,16 @@ def test_the_loaders_own_refusals():
 
 def test_the_default_budget_is_the_constants_level_three_was_measured_with():
     from spikes import session
-    assert B.DEFAULT_BUDGET == (session.BLOOD_FULL, 5, session.LIVES,
-                                session.MAGNET_FRAMES // 50, True)
-    assert levels.level(3).budget == B.DEFAULT_BUDGET
-    # The magnet's seconds and wake are the level's since issue #118.
-    assert levels.level(2).budget == B.Budget(64, 5, 3, magnet=8, wake=False)
-    assert levels.level(1).budget == B.Budget(64, 3, 3, magnet=5, wake=False)
+    assert B.DEFAULT_BUDGET[:5] == (session.BLOOD_FULL, 5, session.LIVES,
+                                    session.MAGNET_FRAMES // 50, True)
+    assert levels.level(3).budget == B.DEFAULT_BUDGET._replace(
+        building="The Hollins Hotel")
+    # The magnet's seconds and wake are the level's since issue #118; the
+    # building's name rides on the budget since issue #126.
+    assert levels.level(2).budget == B.Budget(64, 5, 3, magnet=8, wake=False,
+                                              building="Marrow Street Baths")
+    assert levels.level(1).budget == B.Budget(64, 3, 3, magnet=5, wake=False,
+                                              building="The Severn Depot")
 
 
 def test_a_level_without_a_budget_gets_the_constants():
@@ -249,7 +253,12 @@ def test_level_four_and_on_is_level_three_tightened():
     assert not levels.level(4)[0].searchlight.vary
     assert all(r.searchlight.vary for r in levels.level(5).rooms)
     assert levels.level(5).level == 5 and levels.level(5).title == "Rescue"
-    assert levels.level(5).budget == three.budget
+    assert levels.level(5).budget._replace(building="") == \
+        three.budget._replace(building="")
+    # Each building past the last file has a name of its own (issue #126).
+    assert levels.level(4).name == "Blackwell Mill"
+    assert levels.level(5).name == "Cutter's Yard"
+    assert levels.level(14).name == "Blackwell Mill"
 
 
 def test_the_worst_case_stays_under_the_ceiling_to_level_nine_and_beyond():
@@ -265,3 +274,12 @@ def test_pick_accepts_any_level_from_one():
     assert levels.pick(12)[0].level == 12
     with pytest.raises(ValueError, match="no level 0"):
         levels.pick(0)
+
+
+def test_a_buildings_name_is_the_levels_and_is_bounded():
+    text = "level: 9\nname: X\nbuilding: The Old Assize\n" + _room("only", "yellow", [])
+    assert levels.parse(text)[3].building == "The Old Assize"
+    with pytest.raises(ValueError, match="goes before the first `room:`"):
+        levels.parse("level: 9\nname: X\n" + _room("only", "yellow", []) + "building: Late\n")
+    with pytest.raises(ValueError, match="1 to 32 characters"):
+        levels.parse("level: 9\nname: X\nbuilding: " + "A" * 33 + "\n" + _room("only", "yellow", []))

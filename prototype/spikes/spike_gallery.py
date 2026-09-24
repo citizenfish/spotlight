@@ -1032,10 +1032,12 @@ def level_lit(level: int, index: int, seed: int = GALLERY_SEED) -> Screen:
 
 
 def level_flash(level: int, index: int, seed: int = GALLERY_SEED) -> Screen:
-    """The opening strobe's one lit frame: the people, not the flies, and
-    the strip black -- what a player is given to memorise."""
+    """The opening strobe's one lit frame, which since issue #126 is the
+    building's plan -- every room, the exit, the people, not the flies, the
+    strip black -- what a player is given to memorise. The same picture
+    from every room of the level, so `index` only names the file."""
     run = level_session(level, index, strobe=True, seed=seed)
-    for _ in range(session_mod.OPENING_BLACK + 1):
+    for _ in range(session_mod.OPENING_NAME + 1):
         run.step()
     assert run._flashing, "not on a flash frame"
     screen = Screen()

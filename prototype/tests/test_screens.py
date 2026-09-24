@@ -590,3 +590,14 @@ def test_the_play_path_does_not_import_the_logo():
     assert _imports_logo("import spikes.session"), "the opening draws the logo"
     assert not _imports_logo("import spikes.scene")
     assert not _imports_logo("import spikes.sprites, spikes.tiles, spikes.floor")
+
+
+def test_no_prompt_is_wider_than_the_screen():
+    """The card's prompt was thirty-three characters and ran off the right
+    (the user, 2026-09-18); `centre` clamps a wide line to column nought
+    rather than refusing it, so the strings themselves are held here."""
+    from spotlight.core.constants import COLS
+    for name in ("START_PROMPT", "AGAIN_PROMPT", "STOP_PROMPT", "CARD_PROMPT"):
+        text = getattr(screens, name)
+        assert len(text) <= COLS, f"{name} is {len(text)} wide"
+    assert len(screens.CARD_PROMPT) == 29

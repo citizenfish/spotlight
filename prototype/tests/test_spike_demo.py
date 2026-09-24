@@ -28,13 +28,13 @@ def test_the_bot_plays_the_run_through_the_shells_own_keys():
     for _ in range(spike_demo.FRAME_RATE):
         demo.frame()
     run = demo.shell.run
-    for _ in range(300):
+    for _ in range(400):
         demo.frame()
-    # Three hundred and the one the press frame stepped on the way in, less
-    # the opening strobe's held frames (issue #94): the demo is the game's
-    # own shell, strobe and all.
+    # Four hundred and the one the press frame stepped on the way in, less
+    # the opening's held frames (issues #94, #126): the demo is the game's
+    # own shell, name, plan and all.
     from spikes import session
-    assert run.frame == 301 - session.OPENING_FRAMES, \
+    assert run.frame == 401 - session.OPENING_FRAMES, \
         "the shell did not step every frame"
     assert run.player.x != run.building.start[1][0] \
         or run.player.y != run.building.start[1][1], "the bot never moved"

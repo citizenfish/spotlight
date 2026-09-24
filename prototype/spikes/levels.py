@@ -13,6 +13,7 @@ The format, in full:
 
     level: 3            once, first
     name: Rescue        once
+    building: The Hollins Hotel      what the building is called (issue #126)
     room: <name>        starts a room; the building starts in its first
     floor: yellow|cyan  the room's floor hue; adjacent rooms never share
     map:                followed by exactly 22 rows of 32 characters
@@ -111,8 +112,10 @@ def parse(text: str, where: str = "<text>"
           ) -> tuple[int, str, list, Budget]:
     """The file as (level number, name, room specs, budget). Raises on any
     fault. The budget's keys are the level's (issue #115) and default to the
-    constants when the file does not say."""
+    constants when the file does not say. The building's name (issue #126)
+    rides on the budget's `building` field."""
     number, name = None, None
+    building_name = None
     budget = dict(DEFAULT_BUDGET._asdict())
     rooms: list[_RoomSpec] = []
     lines = text.splitlines()
@@ -144,6 +147,14 @@ def parse(text: str, where: str = "<text>"
             continue
         if key == "name":
             name = value
+            continue
+        if key == "building":
+            if rooms:
+                raise fail(i, "`building:` is the level's, and goes before "
+                              "the first `room:`")
+            if not value or len(value) > BIG_WIDTH:
+                raise fail(i, f"a building's name is 1 to {BIG_WIDTH} characters")
+            building_name = value
             continue
         if key in DEAD_KEYS:
             raise fail(i, f"`{key}:` is no longer a key: {DEAD_KEYS[key]}")
@@ -244,6 +255,8 @@ def parse(text: str, where: str = "<text>"
         raise fail(0, "no rooms")
     if budget["lives"] < 1:
         raise fail(0, "a level needs at least one life")
+    if building_name is not None:
+        budget["building"] = building_name
     return number, name, rooms, Budget(**budget)
 
 
@@ -343,9 +356,23 @@ def load(path, seed: int | None = None) -> Building:
     building = build(specs, str(path), roll_seed=roll)
     building.level = number
     building.title = name
+    building.name = budget.building
     building.budget = budget
     building.seed = seed
     return building
+
+
+#: What the buildings past the last file are called (issue #126): Level 3
+#: re-rolled is a different building each time, and it says so. Cycled.
+BEYOND_NAMES = (
+    "Blackwell Mill", "Cutter's Yard", "The Vane Institute",
+    "Ashgrove Sanatorium", "The Old Assize", "Parade Picture House",
+    "The Kessler Works", "St Jude's Infirmary", "The Granary",
+    "Lowry's Printworks",
+)
+
+#: The widest a building's name can be, in characters: the screen.
+BIG_WIDTH = 32
 
 
 #: Level 4 and on (issue #121, ruling 7): Level 3's templates re-rolled with
@@ -399,7 +426,8 @@ def _beyond(n: int, seed: int) -> Building:
                      roll_seed=seeds.roll_seed(seed, n))
     building.level = n
     building.title = name
-    building.budget = budget
+    building.name = BEYOND_NAMES[(n - LAST_FILE - 1) % len(BEYOND_NAMES)]
+    building.budget = budget._replace(building=building.name)
     building.seed = seed
     return building
 

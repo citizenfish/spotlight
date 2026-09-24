@@ -87,14 +87,23 @@ STROBE_ON = 1
 STROBE_OFF = 5
 STROBE_FLASHES = 3
 STROBE_FRAMES = (STROBE_ON + STROBE_OFF) * STROBE_FLASHES
-#: Two seconds of the play area completely black on either side of the
-#: strobe (issue #95): built from no source at all, so not even the things
-#: that never fade are there. The whole opening is held, frame counter at
-#: nought.
+#: **A level opens on its building's name, then its plan** (issue #126, the
+#: user's rule for the beginning of every level): `OPENING_NAME` frames of
+#: black with the building's name on it and its own tune under it -- two
+#: bars, the length of a jingle -- then the strobe's three flashes of the
+#: *building's plan*, every room of it, black between; then `OPENING_BLACK`
+#: frames of nothing; then play. The name and the plan are never on screen
+#: at once. The whole opening is held, frame counter at nought, and nothing
+#: the flash shows is remembered.
+OPENING_NAME = 2 * tune_mod.BAR_FRAMES
+#: How many of the name's frames it takes to build up out of pixels (issue
+#: #126): the first bar and a half, so it stands whole for the last half
+#: bar before the plan.
+OPENING_BUILD = OPENING_NAME * 3 // 4
 OPENING_BLACK = 100
-OPENING_FRAMES = OPENING_BLACK + STROBE_FRAMES + OPENING_BLACK
-#: Where the logo sits on the opening's black (issue #97): its two cell rows
-#: centred in the twenty-two of the play area.
+OPENING_FRAMES = OPENING_NAME + STROBE_FRAMES + OPENING_BLACK
+#: Where the name sits on the opening's black: its two cell rows centred in
+#: the twenty-two of the play area, as the logo was (issue #97).
 OPENING_LOGO_TOP = (PLAY_ROWS - 2) // 2
 
 #: The magnet's tell, in frames on and then off (issue #84, the box since
@@ -337,8 +346,10 @@ class Place:
         #: in play switches it on.
         self.floodlight = sources.Floodlight()
         #: The strobe's light (issue #94): the room whole, for one frame at a
-        #: time, remembered not at all. Held on and off by `Session.step`
-        #: while the strobe runs and never otherwise.
+        #: time, remembered not at all, held on and off by `Session.step`
+        #: while the strobe ran. Since issue #126 the flash is the building's
+        #: plan, drawn, and this is never held on; kept so the fixed list
+        #: keeps its shape.
         self.strobe = sources.Floodlight(memory=0)
         self.seen = False
 
@@ -661,9 +672,13 @@ class Session:
         #: a session driven directly -- the driver, the gallery, every test
         #: -- starts at frame one, as it always did.
         self.strobe = OPENING_FRAMES if strobe else 0
-        #: Whether the held frame being drawn is a flash (issue #97): the room
-        #: without its flies, rather than black with the logo.
+        #: Whether the held frame being drawn is a flash (issue #97): the
+        #: building's plan (issue #126), rather than black; and whether it
+        #: is the name.
         self._flashing = False
+        self._naming = False
+        #: How far the name has built up, in frames of `OPENING_BUILD`.
+        self._named = 0
         self.over: str | None = None
         self.calls_on = True
         self.log: list[Event] = []
@@ -1071,16 +1086,22 @@ class Session:
             self.frame_events = []
             self.moments.begin()
             flashing = False
-            if OPENING_BLACK <= gone < OPENING_BLACK + STROBE_FRAMES:
-                within = gone - OPENING_BLACK
+            if gone == 0 and self.voice is not None:
+                # The building's own tune under its name (issue #126); the
+                # siren, which the run opens on, comes back at play.
+                self.voice.music.play(tune_mod.jingle_for(self.building.name))
+            self._naming = gone < OPENING_NAME
+            self._named = min(gone, OPENING_BUILD)
+            if OPENING_NAME <= gone < OPENING_NAME + STROBE_FRAMES:
+                within = gone - OPENING_NAME
                 flashing = within % (STROBE_ON + STROBE_OFF) < STROBE_ON
                 if flashing:
                     self._moment(moments_mod.M_STROBE)
-            self.place.strobe.hold(flashing)
             self._flashing = flashing
-            # Black between the flashes too: the strobe is three frames of
-            # the room on black, not three frames of the room on the glow.
-            self._light(held=True, black=not flashing)
+            # Black throughout: the plan is drawn on the flash frames and
+            # the name on the naming ones, and neither is a light -- nothing
+            # in the building is lit or remembered until play (issue #126).
+            self._light(held=True, black=True)
             if self.voice is not None:
                 self.voice.update(False, False, self.moments.sounds(),
                                   self.sonar.interval, self.ticker.interval,
@@ -1092,7 +1113,8 @@ class Session:
                 # rebuilt from its untouched charge with nothing shining -- so
                 # that the first stepped frame is the first stepped frame, and
                 # a bot reading the light on it reads what it always read.
-                self.place.strobe.hold(False)
+                if self.voice is not None:
+                    self.voice.music.play(tune_mod.SIREN)
                 for place in self.places:
                     place.field.begin()
                     place.field.commit(decay=False)
@@ -2162,12 +2184,20 @@ class Session:
                 for cx in range(COLS):
                     screen.set_attr(cx, cy, black)
             self._painted_strip = False
-            if not self._flashing:
-                # **The black, with the logo on it** (issue #97): the play
-                # area is nothing but SPOTLIGHT, centred. Not the sign, not
-                # the housing, not a fixture -- black means black.
-                screens.draw_logo(screen, top=OPENING_LOGO_TOP)
+            if self._naming:
+                # **The black, with the building's name on it** (issue #126,
+                # where the logo was, #97): the play area is nothing but
+                # the name, centred. Not the sign, not the housing, not a
+                # fixture -- black means black.
+                screens.draw_big(screen, self.building.name or "",
+                                 top=OPENING_LOGO_TOP,
+                                 progress=(self._named, OPENING_BUILD))
                 return
+            if self._flashing:
+                # **The flash is the building's plan** (issue #126): every
+                # room of the level, and never with the name.
+                screens.draw_plan(screen, self.building)
+            return
         elif not self._painted_strip:
             # Painted once and thereafter only where it changes. On a restart
             # this runs again, because the session is new and the strip on

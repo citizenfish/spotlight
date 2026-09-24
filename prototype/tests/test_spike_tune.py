@@ -831,8 +831,11 @@ def test_the_siren_is_the_four_integers_in_the_note():
     assert tune.SIREN.wail == 300
     assert tune.SIREN.frames == 900 and tune.SIREN.seconds == 18
     assert tune.DUTY == 2, "1:2, as all music is; 1:4 is a listen not spent"
-    assert tune.TUNES == {"siren": tune.SIREN, "theme": tune.THEME,
-                          "opening": tune.OPENING}
+    assert {k: v for k, v in tune.TUNES.items() if not k.startswith("jingle:")} \
+        == {"siren": tune.SIREN, "theme": tune.THEME, "opening": tune.OPENING}
+    # And a jingle per building since issue #126, in the same grid.
+    assert all(k.startswith("jingle:") for k in tune.TUNES if k not in
+               ("siren", "theme", "opening"))
 
 
 def test_the_sirens_period_at_the_seams():

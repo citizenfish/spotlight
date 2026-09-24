@@ -11,6 +11,7 @@
 
 level: 2
 name: Infested
+building: Marrow Street Baths
 blood: 64
 spray: 5
 lives: 3

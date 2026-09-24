@@ -696,6 +696,8 @@ class Budget(NamedTuple):
     #: magnet is the whole of the loss.
     magnet: int = 10
     wake: bool = True
+    #: What the building is called (issue #126). The level file's own.
+    building: str = "The Building"
 
 
 DEFAULT_BUDGET = Budget()
@@ -718,6 +720,10 @@ class Building:
         #: (issue #107); None for a building built by hand.
         self.level: int | None = None
         self.title: str | None = None
+        #: What the building is called (issue #126): the name a level opens
+        #: on, in place of the logo, before its plan is flashed. None for a
+        #: building built by hand.
+        self.name: str | None = None
         #: What the player starts with, set by `levels.load` (issue #115).
         self.budget: Budget = DEFAULT_BUDGET
         #: The run seed the level was rolled for (issue #120), or None for
@@ -919,6 +925,7 @@ class Building:
             lights=room.lights, player_start=room.player_start, doorways=())
         building = Building([alone])
         building.level, building.title = self.level, self.title
+        building.name = self.name
         building.budget = self.budget
         building.seed = self.seed
         building.validate()

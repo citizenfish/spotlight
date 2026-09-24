@@ -477,11 +477,46 @@ class Siren:
 #: The two things a run and a title can play, built once. Neither holds any
 #: state, so one of each is enough and a test may hand a different table or
 #: different integers to the same class.
+# --- the buildings' jingles (issue #126) --------------------------------------
+#
+# Each building opens on its name and a tune of its own: two bars, 192
+# frames, under the name and before the plan is flashed, and it does not
+# loop. The same grid and the same seven pitches as the theme, so the port
+# plays them from the same table; what differs is the shape. Level 3 and
+# on take theirs by the building's position in the cycle of names.
+
+JINGLE_BARS = {
+    "The Severn Depot": ((A3, C4, E4), (E4, C4, A3)),        # up the stair and back
+    "Marrow Street Baths": ((E4, G4, A4), (G4, E4, C4)),     # the water rising, then not
+    "The Hollins Hotel": ((A2, A3, A4), (G4, E4, A3)),       # the octave leap, the fall
+    "Blackwell Mill": ((C4, E4, G4), (A4, G4, E4)),
+    "Cutter's Yard": ((G2, A3, E4), (C4, A3, G2)),
+    "The Vane Institute": ((A3, A4, A3), (E4, C4, A2)),
+    "Ashgrove Sanatorium": ((E4, C4, A3), (C4, E4, G4)),
+    "The Old Assize": ((A2, A2, E4), (A2, A2, A4)),
+    "Parade Picture House": ((G4, E4, G4), (A4, E4, C4)),
+    "The Kessler Works": ((A3, G2, A3), (E4, G4, A4)),
+    "St Jude's Infirmary": ((C4, A3, C4), (E4, A3, A2)),
+    "The Granary": ((G2, G2, A3), (C4, E4, A3)),
+    "Lowry's Printworks": ((A4, G4, E4), (C4, E4, A4)),
+}
+JINGLES = {name: Tune(name, bars, loops=False)
+           for name, bars in JINGLE_BARS.items()}
+#: Under a building whose name has no tune of its own.
+DEFAULT_JINGLE = Tune("a building", ((A3, E4, A4), (A4, E4, A3)), loops=False)
+
+
+def jingle_for(name: str | None) -> Tune:
+    """The tune a building opens on."""
+    return JINGLES.get(name or "", DEFAULT_JINGLE)
+
+
 SIREN = Siren("siren")
 THEME = Tune("theme", THEME_BARS)
 OPENING = Tune("opening", OPENING_BARS, loops=False)
 
-TUNES = {"siren": SIREN, "theme": THEME, "opening": OPENING}
+TUNES = {"siren": SIREN, "theme": THEME, "opening": OPENING,
+         **{f"jingle:{name}": tune for name, tune in JINGLES.items()}}
 
 
 # --- the frame's leftover ---------------------------------------------------

@@ -32,12 +32,14 @@ where you are.)
 
 ## The opening
 
-A level opens on two seconds of black with the SPOTLIGHT logo centred on it,
-then three one-frame flashes of the room and the people in it -- not the
-flies -- with a crack of noise on each, five dark frames apart, then two
-seconds more of black and the logo, then play. The game is held throughout,
-the room is whole for sixty milliseconds in all, and nothing is remembered
-afterwards. The opening is the window's; a session driven by the driver or a
+Every building opens the same way, the first and every one after it (issue
+#126): two bars of black with the building's name building up out of scattered pixels -- The Severn Depot,
+Marrow Street Baths, The Hollins Hotel, and ten more for Level 4 on -- and a
+tune of its own under it; then three one-frame flashes of that building's
+plan, every room of it, with the strobe's crack on each; then two seconds of
+black; then play. The rooms roll from the seed, so the plan is never the same
+twice, and the name and the plan are never on screen at once. The game is
+held throughout: nothing steps, nothing is lit or remembered, and a headless
 test starts at frame one.
 
 ## The old looks, for comparison

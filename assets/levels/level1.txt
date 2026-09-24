@@ -11,6 +11,7 @@
 
 level: 1
 name: Dark
+building: The Severn Depot
 blood: 64
 spray: 3          ; the only button, taught with one fly at stake
 lives: 3
