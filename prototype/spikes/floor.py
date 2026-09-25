@@ -149,6 +149,53 @@ def stipple(screen, cx: int, cy: int, level: int) -> None:
                 screen.pixels[base + dx] = 1
 
 
+#: The beam's pool, authored as one picture in `assets/tiles/beam.txt`
+#: (issue #128): the 7x7 cells of the disc at radius 3 in reading order,
+#: the ring drawn through 24 of them and the rest empty. Indexed by the
+#: cell's offset in the disc, `(dy + 3) * 7 + (dx + 3)`.
+BEAM = tuple(BITMAPS[f"BEAM_{i:02d}"] for i in range(49))
+
+#: The radius the pool is authored at. A beam of another radius draws no
+#: ring: the picture is the shape, and a shape nobody drew has no edge.
+BEAM_RADIUS = 3
+
+
+def beam_tile(dx: int, dy: int):
+    """The ring's pixels for the cell `(dx, dy)` from the beam's centre, or
+    None outside the authored pool."""
+    if not (-BEAM_RADIUS <= dx <= BEAM_RADIUS and -BEAM_RADIUS <= dy <= BEAM_RADIUS):
+        return None
+    return BEAM[(dy + BEAM_RADIUS) * (2 * BEAM_RADIUS + 1) + dx + BEAM_RADIUS]
+
+
+def ring(screen, beams, field, is_solid, painted=()) -> None:
+    """Draw the edge of every beam's pool (issue #128).
+
+    **The edge is a rule**: the ten-second magnet fires on exactly the
+    cells the beam lights, and until this was drawn the player could not
+    see whether it had fired. One OR per beam cell from the authored tile;
+    no attribute is written, so the ring wears the cell's own ink like the
+    stipple; skipped on solid, painted and unlit cells, and drawn before
+    the sprites so a figure standing in the pool still clears its halo
+    through it.
+    """
+    for beam in beams:
+        if beam is None or not beam.enabled or beam.radius != BEAM_RADIUS:
+            continue
+        for dy in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
+            for dx in range(-BEAM_RADIUS, BEAM_RADIUS + 1):
+                cx, cy = beam.x + dx, beam.y + dy
+                if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+                    continue
+                if is_solid(cx, cy) or (cx, cy) in painted:
+                    continue
+                if field.level_at(cx, cy) not in TABLES:
+                    continue
+                tile = beam_tile(dx, dy)
+                if tile is not None:
+                    blit(screen, cx, cy, tile)
+
+
 def draw(screen, field, is_solid, painted=(), gratings=()) -> None:
     """Stipple every lit, non-solid, unpainted cell according to its level.
 

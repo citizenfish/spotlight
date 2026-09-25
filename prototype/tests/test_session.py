@@ -703,7 +703,9 @@ def test_a_follower_is_dark_behind_you_and_lit_when_the_beam_finds_them():
     _walk_away(run, worker)
     assert run._lit_people(run.place) == [], "walking away, the tail is in the dark"
     _turn_round(run, worker)
-    assert run._lit_people(run.place) == [worker], "the beam lit them up"
+    # In the list, not alone in it: the disc is 37 cells since issue #127
+    # and the parked beam can reach a second person standing near.
+    assert worker in run._lit_people(run.place), "the beam lit them up"
 
 
 def test_prey_is_exactly_who_is_drawn_so_the_rule_can_be_seen():
@@ -971,6 +973,10 @@ def test_a_body_lies_on_screen_for_its_whole_lifetime():
     run = Session(seed=1, lives=99)
     while run.frame < 12000 and not run.rescue.bodies():
         run.step()
+    # The beam off from here: its ring (issue #128) is drawn wherever the
+    # pool is, and what is watched here is the body.
+    for place in run.places:
+        place.roaming.enabled = False
     body = run.rescue.bodies()[0]
     fell_at = (body.x, body.y)
     assert not body.turning, "it turned before it had lain there at all"

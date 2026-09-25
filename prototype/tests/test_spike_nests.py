@@ -245,6 +245,10 @@ def test_a_burnt_out_nest_leaves_nothing_on_screen():
     never left -- seven on screen at once in a losing room's last minute."""
     run = Session(seed=1, lives=99)
     assert _run_until(run, lambda: bool(run.rescue.bodies(run.here)))
+    # The beam off: its ring (issue #128) is drawn wherever the pool is,
+    # and what is under test is the body, not the light.
+    for place in run.places:
+        place.roaming.enabled = False
     body = run.rescue.bodies(run.here)[0]
     where = (body.x, body.y)
 

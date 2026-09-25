@@ -43,7 +43,7 @@ import statistics
 
 import pytest
 
-from levelplay import SEEDS, play, lives_lost, MOVING
+from levelplay import SEEDS, WIDE_SEEDS, play, lives_lost, MOVING
 from spikes import levels, session as S
 
 pytestmark = pytest.mark.skipif(
@@ -105,11 +105,16 @@ def test_started_in_the_room_the_oracle_gets_everyone_out(pair, seed):
 
 @pytest.fixture(scope="module")
 def from_the_exit():
-    """One run per bot per seed per level, shared by the gates and the ramp."""
+    """One run per bot per seed per level, shared by the gates and the ramp.
+
+    The listener is played over `WIDE_SEEDS` because every gate stated in
+    its take is a mean, and a mean of four seeds of a rolled room is a coin
+    (issue #130).
+    """
     return {(level, bot, seed): play(level, bot, seed)
             for level in LEVELS + BEYOND
             for bot in ("oracle", "listener", "statue")
-            for seed in SEEDS}
+            for seed in (WIDE_SEEDS if bot == "listener" else SEEDS)}
 
 
 @pytest.mark.parametrize("level", LEVELS)
@@ -124,34 +129,44 @@ def test_from_the_exit_the_oracle_gets_everyone_out(from_the_exit, level, seed):
 def test_from_the_exit_level_one_the_listener_loses_no_life(from_the_exit):
     """No life lost on any seed and 3.8 of 4 on the mean (issue #124): the
     one it loses is to the clock, in a room it never hears from."""
-    runs = [from_the_exit[(1, "listener", seed)] for seed in SEEDS]
+    runs = [from_the_exit[(1, "listener", seed)] for seed in WIDE_SEEDS]
     assert all(lives_lost(r) == 0 and r.over != S.FRAME_LIMIT for r in runs)
     assert statistics.mean(r.rescued for r in runs) >= 3.5
 
 
 @MOVING
-def test_from_the_exit_level_two_the_listener_gets_six_of_seven(from_the_exit):
-    runs = [from_the_exit[(2, "listener", seed)] for seed in SEEDS]
+def test_from_the_exit_level_two_the_dark_listener_gets_most_of_them_out(
+        from_the_exit):
+    """5.9 of 7 on the round disc, 6.4 before it (issue #130). The
+    spraying listener, which is the human proxy, is unmoved at 6.5."""
+    runs = [from_the_exit[(2, "listener", seed)] for seed in WIDE_SEEDS]
     assert all(r.over != S.FRAME_LIMIT for r in runs)
-    assert statistics.mean(r.rescued for r in runs) >= 6
+    assert statistics.mean(r.rescued for r in runs) >= 5.5
     assert statistics.mean(lives_lost(r) for r in runs) <= 1.5
 
 
 @MOVING
-def test_from_the_exit_level_three_the_listener_gets_six_of_seven(from_the_exit):
-    runs = [from_the_exit[(3, "listener", seed)] for seed in SEEDS]
+def test_from_the_exit_level_three_the_dark_listener_gets_most_of_them_out(
+        from_the_exit):
+    """6.0 of 7 on the round disc, 6.9 before it (issue #130); the
+    spraying listener gets 7 of 7 on every seed."""
+    runs = [from_the_exit[(3, "listener", seed)] for seed in WIDE_SEEDS]
     assert all(r.over != S.FRAME_LIMIT for r in runs)
-    assert statistics.mean(r.rescued for r in runs) >= 6
+    assert statistics.mean(r.rescued for r in runs) >= 5.5
 
 
 @MOVING
-def test_beyond_level_three_the_listener_takes_no_more_out(from_the_exit):
-    """Level 4 is Level 3 with the clocks six seconds shorter, Level 6 with
-    them at the floor: the listener's mean take must not rise."""
+def test_at_the_clock_floor_the_listener_takes_no_more_out(from_the_exit):
+    """Level 6 is Level 3 with every clock at the 44-second floor, and the
+    listener's mean take there must not beat Level 3's. **Level 4 is not
+    asserted**: one clock step of six seconds is inside the spread a rolled
+    room gives (issue #130 measured 6.0, 6.4 and 5.8 at levels 3, 4 and 6
+    over eight seeds), so a monotone claim there would be a test of the
+    roll rather than of the ramp."""
     take = {level: statistics.mean(from_the_exit[(level, "listener", seed)].rescued
-                                   for seed in SEEDS)
+                                   for seed in WIDE_SEEDS)
             for level in (3,) + BEYOND}
-    assert take[4] <= take[3] and take[6] <= take[4], take
+    assert take[6] <= take[3], take
 
 
 @MOVING

@@ -69,3 +69,100 @@ size: 8x8
 ########
 ........
 ........
+
+; **The housing aims** (issue #129, from the user: *"it needs to look more
+; like a searchlight"*). One tile per octant of the direction from the
+; fixture to its pool: the same ring with the lens pushed to that side, so
+; the corner says which way the beam is pointing and the fixture and the
+; pool read as one object. Two compares choose the tile; the housing stays
+; a fixture and never becomes a light. `HOUSING` above is the lens-centred
+; ring it was, kept for the gallery's sheet and for a beam with nowhere to
+; point.
+
+name: HOUSING_N
+size: 8x8
+..####..
+.#.##.#.
+#..##..#
+#......#
+#......#
+#......#
+.#....#.
+..####..
+
+name: HOUSING_NE
+size: 8x8
+..####..
+.#...##.
+#....###
+#......#
+#......#
+#......#
+.#....#.
+..####..
+
+name: HOUSING_E
+size: 8x8
+..####..
+.#....#.
+#......#
+#....###
+#....###
+#......#
+.#....#.
+..####..
+
+name: HOUSING_SE
+size: 8x8
+..####..
+.#....#.
+#......#
+#......#
+#......#
+#....###
+.#...##.
+..####..
+
+name: HOUSING_S
+size: 8x8
+..####..
+.#....#.
+#......#
+#......#
+#......#
+#..##..#
+.#.##.#.
+..####..
+
+name: HOUSING_SW
+size: 8x8
+..####..
+.#....#.
+#......#
+#......#
+#......#
+###....#
+.##...#.
+..####..
+
+name: HOUSING_W
+size: 8x8
+..####..
+.#....#.
+#......#
+###....#
+###....#
+#......#
+.#....#.
+..####..
+
+name: HOUSING_NW
+size: 8x8
+..####..
+.##...#.
+###....#
+#......#
+#......#
+#......#
+.#....#.
+..####..

@@ -93,8 +93,8 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1581 tests, headless-safe
-SPOTLIGHT_SLOW=1 pytest    # + 120 room runs (tests/test_rooms.py), ~50 s
+pytest                     # 1597 tests, headless-safe
+SPOTLIGHT_SLOW=1 pytest    # + 120 room runs (tests/test_rooms.py), ~60 s
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -163,6 +163,17 @@ and on is Level 3 tightening; the demo's listener sprays. The game starts at
 Level 1 (`DEFAULT_LEVEL`); `scene.py` stays a view of Level 3 (`SCENE_LEVEL`)
 for the tests. The sixteen baseline hashes were re-taken once, at the end
 (*2026-09-17 The light round baseline*). See *The light round* §11.
+
+**The searchlight's look** (2026-09-24, #127–#130), from the user: the
+beam's disc was `dx*dx + dy*dy <= r*r`, which at radius 3 is a cross with a
+fat middle, and nothing drew its edge although the edge is where the magnet
+fires. The disc is now a table (`sources.disc_widths`, `3 5 7 7 7 5 3`, 37
+cells) that both the light and the hit test read; the pool is authored art
+(`assets/tiles/beam.txt`) whose one-pixel ring `floor.ring` draws over the
+stipple and under every sprite; and the housing wears one of eight tiles so
+it points at its own beam. It is a rule change, re-baselined in
+*2026-09-24 The searchlight baseline*, which also records that a gate stated
+as a mean now runs over eight seeds: a mean of four rolled seeds is a coin.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

@@ -275,6 +275,43 @@ LAMP_ON = BITMAPS["LAMP_ON"]
 #: **Empty is dark, filled is burning, a lens is bolted down.**
 HOUSING = BITMAPS["HOUSING"]
 
+#: **The housing aims** (issue #129): the same ring with its lens pushed to
+#: whichever of the eight sides its pool is on, so the fixture in the corner
+#: and the light crossing the room read as one object. The user's words:
+#: *"it needs to look more like a searchlight."* Indexed by octant,
+#: clockwise from north, which is what `housing_octant` returns.
+HOUSING_AIMED = tuple(BITMAPS[f"HOUSING_{name}"] for name in
+                      ("N", "NE", "E", "SE", "S", "SW", "W", "NW"))
+
+
+def housing_octant(dx: int, dy: int) -> int:
+    """Which of the eight the pool lies in, from the housing. Two compares
+    a side and no division; a pool on the housing's own cell points north,
+    which is where it last was.
+
+    Screen coordinates, so `dy` grows downwards: north is negative.
+    """
+    if dx == 0 and dy == 0:
+        return 0
+    # The diagonals are the band where |dx| and |dy| are within a half of
+    # each other; two compares by doubling rather than a ratio.
+    wide, tall = abs(dx) * 2 > abs(dy), abs(dy) * 2 > abs(dx)
+    if tall and not wide:
+        return 0 if dy < 0 else 4
+    if wide and not tall:
+        return 2 if dx > 0 else 6
+    if dy < 0:
+        return 1 if dx > 0 else 7
+    return 3 if dx > 0 else 5
+
+
+def housing_for(housing, beam) -> tuple[int, ...]:
+    """The tile a housing wears, given the beam it belongs to."""
+    if beam is None:
+        return HOUSING
+    return HOUSING_AIMED[housing_octant(beam.x - housing[0],
+                                        beam.y - housing[1])]
+
 #: The ceiling fixture over an authored room light: a strip light seen from
 #: above. Deliberately **not** an octagon, because a thing you walk under must
 #: not look like a thing you can pick up.
@@ -330,6 +367,15 @@ SPRITES = {
     "lamp_off": LAMP_OFF, "lamp_on": LAMP_ON, "door_locked": DOOR_LOCKED,
     "housing": HOUSING, "batten": BATTEN, "door_open": DOOR_OPEN,
 }
+
+#: The whole cast, for the tests that ask what the game draws: the sheet's
+#: `SPRITES` plus the eight the housing aims with (issue #129), which are
+#: one object seen eight ways and so are named on the sheet once, as
+#: `housing`.
+DRAWN = {**SPRITES,
+         **{f"housing_{name.lower()}": tile
+            for name, tile in zip(("n", "ne", "e", "se", "s", "sw", "w", "nw"),
+                                  HOUSING_AIMED)}}
 
 #: Every sprite-sheet entry that is a person, and so is captioned as one: the
 #: eight standing frames, and the body lying down.

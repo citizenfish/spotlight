@@ -483,6 +483,36 @@ DWELL, DWELL_SPREAD, DWELL_EVERY = 20, 30, 6
 #: (issue #116, the never list's rule 4): ten seconds, as the list says.
 SAFE_ENTRY_FRAMES = 500
 
+
+def disc_widths(radius: int) -> tuple[int, ...]:
+    """The beam's disc, as a half-width per row (issue #127).
+
+    **The shape is a rule, not a decoration**: the magnet fires on exactly
+    the cells the beam lights, so the drawn edge has to be the rule's edge
+    and one table has to serve both. `Roaming.emit` lights by this and
+    `Roaming.covers` answers by it; neither computes an inequality.
+
+    The old test was `dx*dx + dy*dy <= r*r`, which at radius 3 gives row
+    widths `1 5 5 7 5 5 1` -- 29 cells with a one-cell spike on each axis,
+    a cross with a fat middle, and the user said so: *"it looks a bit of a
+    mess, it needs to look more circular."* `<= r*r + r` gives
+    `3 5 7 7 7 5 3`, 37 cells, and that is the one set a drawn circle
+    agrees with cell for cell.
+
+    On the Z80 this is seven bytes read off a table, not a multiply per
+    cell.
+    """
+    return tuple(_half_width(radius, dy)
+                 for dy in range(-radius, radius + 1))
+
+
+def _half_width(radius: int, dy: int) -> int:
+    limit = radius * radius + radius
+    width = 0
+    while (width + 1) * (width + 1) + dy * dy <= limit:
+        width += 1
+    return width
+
 #: The searchlight's stations: a grid, inset from the walls, spaced closely
 #: enough that a beam sitting on one lights out past its neighbours.
 #:
@@ -696,6 +726,9 @@ class Roaming(Source):
         super().__init__(level, memory)
         self.x, self.y = x, y
         self.radius = radius
+        #: The disc, as a half-width a row (issue #127). Derived once here
+        #: and re-derived by `reshape`; on the Z80 it is seven bytes.
+        self.widths = disc_widths(radius)
         self.inset = inset
         #: The room's solidity, or None (issue #117): a disc cell that is
         #: wall is written into memory at `CHARGE_WALL`, floor at the wake.
@@ -835,6 +868,7 @@ class Roaming(Source):
         """
         if radius is not None:
             self.radius = radius
+            self.widths = disc_widths(radius)
         if inset is not None:
             self.inset = inset
         if self.mode in (self.SWEEP, self.ARC):
@@ -850,9 +884,13 @@ class Roaming(Source):
     # --- the never list's rule 4 (issue #116) --------------------------------
 
     def covers(self, cx: int, cy: int) -> bool:
-        """Is the cell inside the disc? The same inequality `emit` lights by."""
+        """Is the cell inside the disc? **The same table `emit` lights by**
+        (issue #127), so the magnet's hit test and the picture cannot
+        drift."""
         dx, dy = cx - self.x, cy - self.y
-        return dx * dx + dy * dy <= self.radius * self.radius
+        if not -self.radius <= dy <= self.radius:
+            return False
+        return abs(dx) <= self.widths[dy + self.radius]
 
     def safe_entry(self, start_cell: tuple[int, int],
                    frames: int = SAFE_ENTRY_FRAMES) -> int:
@@ -1024,18 +1062,17 @@ class Roaming(Source):
         return self.x, self.y
 
     def emit(self, field: LightField) -> None:
-        r2 = self.radius * self.radius
         solid = self.is_solid
-        for dy in range(-self.radius, self.radius + 1):
-            for dx in range(-self.radius, self.radius + 1):
-                # Squared distance keeps this integer -- no square roots.
-                if dx * dx + dy * dy <= r2:
-                    cx, cy = self.x + dx, self.y + dy
-                    if solid is not None and solid(cx, cy):
-                        # **The beam remembers walls** (issue #117): one
-                        # solidity test per disc cell, and the wall the
-                        # beam has passed is known for the whole fade.
-                        field.add(cx, cy, self.level, CHARGE_WALL,
-                                  self.reveals, self.prey)
-                    else:
-                        self.light(field, cx, cy)
+        # The disc, a row at a time off its table (issue #127): no multiply
+        # per cell, and the same shape `covers` answers by.
+        for dy, half in zip(range(-self.radius, self.radius + 1), self.widths):
+            for dx in range(-half, half + 1):
+                cx, cy = self.x + dx, self.y + dy
+                if solid is not None and solid(cx, cy):
+                    # **The beam remembers walls** (issue #117): one
+                    # solidity test per disc cell, and the wall the
+                    # beam has passed is known for the whole fade.
+                    field.add(cx, cy, self.level, CHARGE_WALL,
+                              self.reveals, self.prey)
+                else:
+                    self.light(field, cx, cy)

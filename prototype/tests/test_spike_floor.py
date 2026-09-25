@@ -20,7 +20,8 @@ import pytest
 
 from spikes import floor, lighting as L, scene, session as session_mod
 from spikes import spike_gallery as gallery
-from spotlight.core.constants import CELL, COLS
+from spikes.layout import PLAY_ROWS
+from spotlight.core.constants import CELL, COLS, SCREEN_W
 from spotlight.core.screen import Screen
 
 ASSET = pathlib.Path(__file__).resolve().parents[2] / "assets" / "tiles" / \
@@ -370,3 +371,60 @@ def test_the_sheet_shows_the_whole_tile_at_both_densities():
                         assert got == want, f"{level} block {cy * 4 + cx}"
     # The plan and the tile do not overlap, and the plan is still there.
     assert len(gallery.PLAN[0]) <= left - 1
+
+
+# --- the beam's edge (issue #128) --------------------------------------------
+
+def _ringed(beam_at=(15, 11), level=L.LIT, solid=(), painted=()):
+    """A screen with one beam's ring drawn on it, and the beam."""
+    from spikes import floor as F, sources as S
+    from spotlight.core.screen import Screen
+    beam = S.Roaming(0, 0, radius=3, mode=S.Roaming.DRIFT)
+    beam.x, beam.y = beam_at
+    field = L.LightField()
+    field.begin()
+    beam.apply(field)
+    field.commit()
+    screen = Screen()
+    F.ring(screen, [beam], field, lambda cx, cy: (cx, cy) in solid, painted)
+    return screen, beam
+
+
+def test_the_ring_is_drawn_on_every_lit_cell_of_the_pool_and_nowhere_else():
+    from spikes import floor as F
+    screen, beam = _ringed()
+    for cy in range(PLAY_ROWS):
+        for cx in range(COLS):
+            ink = any(screen.pixels[(cy * CELL + r) * SCREEN_W + cx * CELL + c]
+                      for r in range(CELL) for c in range(CELL))
+            tile = F.beam_tile(cx - beam.x, cy - beam.y)
+            wanted = tile is not None and any(tile)
+            assert ink == wanted, (cx, cy)
+
+
+def test_the_ring_writes_no_attribute():
+    """It wears the cell's own ink, like the stipple: light decides
+    brightness and contents decide hue, and the ring is neither."""
+    from spotlight.core.screen import Screen
+    before = Screen()
+    attrs = bytes(before.attrs)
+    screen, _beam = _ringed()
+    assert bytes(screen.attrs) == attrs
+
+
+def test_the_ring_is_skipped_on_solid_and_painted_and_unlit_cells():
+    from spikes import floor as F
+    solid = {(15, 9)}
+    painted = {(16, 9)}
+    screen, beam = _ringed(solid=solid, painted=painted)
+    for cell in (*solid, *painted):
+        assert not any(
+            screen.pixels[(cell[1] * CELL + r) * SCREEN_W + cell[0] * CELL + c]
+            for r in range(CELL) for c in range(CELL)), cell
+    # And a beam that is switched off draws nothing at all.
+    from spotlight.core.screen import Screen
+    beam.enabled = False
+    dark = Screen()
+    field = L.LightField()
+    F.ring(dark, [beam], field, lambda cx, cy: False)
+    assert not any(dark.pixels)

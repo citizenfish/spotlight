@@ -69,15 +69,28 @@ def test_the_oracle_gets_everyone_out_inside_forty_five_seconds(seed):
 
 
 @MOVING
-def test_the_listener_gets_six_of_seven_out_on_the_mean_and_never_times_out():
-    """6.4 of 7 over eight seeds, 0.6 lives (the light round baseline,
-    issue #124); on the four here 6.0 and 0.5. Asserted on the mean: a
+def test_the_dark_listener_gets_most_of_them_out_and_never_times_out():
+    """5.9 of 7 over eight seeds and 5.88 over sixteen, 1.2 lives (the
+    searchlight baseline, issue #130); it was 6.4 and 0.6 on the 29-cell
+    disc. The round disc catches more, which is what it is for. **The
+    human proxy is the spraying listener** and it is unmoved: 6.5 of 7
+    with a quarter of a life -- the test below. Asserted on the mean: a
     rolled room and a beam the listener cannot see make any one seed a
     coin."""
     runs = [play(LEVEL, "listener", seed) for seed in SEEDS]
     assert all(r.over != S.FRAME_LIMIT for r in runs)
-    assert statistics.mean(r.rescued for r in runs) >= 6
+    assert statistics.mean(r.rescued for r in runs) >= 5.5
     assert statistics.mean(lives_lost(r) for r in runs) <= 1.5
+
+
+@MOVING
+def test_the_spraying_listener_still_gets_six_of_seven_out():
+    """The bot nearest a person: one button, pressed at a fly two cells
+    ahead. 6.5 of 7 over eight seeds with a quarter of a life and no death
+    (issue #130), unmoved by the round disc."""
+    runs = [play(LEVEL, "listener", seed, spray=True) for seed in SEEDS]
+    assert statistics.mean(r.rescued for r in runs) >= 6
+    assert not any(r.over == S.NO_LIVES for r in runs)
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -89,7 +102,8 @@ def test_a_statue_at_the_start_is_found_and_dies_in_about_two_minutes(seed):
     Before the light round it was never bitten at all."""
     run = play(LEVEL, "statue", seed)
     assert run.over == S.NO_LIVES
-    assert 100 <= run.seconds <= 150
+    # 106-155 s over eight seeds on the round disc (issue #130).
+    assert 100 <= run.seconds <= 160
     first = next(e.frame for e in run.log if e.kind == S.BITTEN)
     assert 500 <= first <= 40 * 50
 

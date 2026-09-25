@@ -30,6 +30,8 @@ with no host at all. Sound is the one thing it cannot do; it reports `click`
 and lets the host make the noise.
 """
 
+import copy
+
 from spotlight.core.constants import BLACK, CELL, COLS, CYAN, GREEN, RED, WHITE
 from spotlight.core.screen import Screen, attr_byte
 
@@ -2042,6 +2044,19 @@ class Session:
             if self.wall_fade == 2 and not held and self.frame % 2 == 0:
                 place.field.linger(place.solid_mask)
 
+    def _rings(self, place: Place):
+        """Every beam whose pool is drawn in this room: its own, and any
+        next door reaching through a doorway (issue #128). The neighbour's
+        is offered at the column its cells land on, which is what the
+        spill lights."""
+        out = [place.roaming]
+        for door, other in self._spilling(place):
+            if any(other.covers(door.landing, cy) for cy in door.rows):
+                shifted = copy.copy(other)
+                shifted.x = other.x + (door.column - door.landing)
+                out.append(shifted)
+        return out
+
     def _spill(self, place: Place) -> None:
         """This room's beam, through its doorways, into the rooms beyond
         (issue #116). Each doorway cell the disc covers is written into the
@@ -2243,6 +2258,13 @@ class Session:
         # does not fall between the letters the way the lattice happened to.
         # A grating cell draws its grille instead of the stipple (issue #74).
         floor.draw(screen, field, is_solid, painted, place.grating_cells)
+        # **The beam's edge** (issue #128), over the stipple and under every
+        # sprite: the pool's own ring, from the picture in
+        # `assets/tiles/beam.txt`. This room's beam, and any beam next door
+        # whose disc spills through a doorway (issue #116) -- the one place
+        # the beam crosses a threshold is not the one place its edge is
+        # undrawn.
+        floor.ring(screen, self._rings(place), field, is_solid, painted)
 
         # Sprites set and clear pixels only -- each clears its one-pixel halo
         # and sets its ink (issue #70). Their colour comes from whichever
@@ -2254,7 +2276,9 @@ class Session:
         # `Place.housing`.
         housing = place.housing
         if housing is not None:
-            sprites.draw(screen, sprites.HOUSING,
+            # **It points at its pool** (issue #129): the lens on the side
+            # the beam is on, so the fixture and the light are one object.
+            sprites.draw(screen, sprites.housing_for(housing, place.roaming),
                          housing[0] * CELL, housing[1] * CELL)
         # People are only drawn where a light is on them, and only if they are
         # in this room. A body is not a person any more: it is part of the

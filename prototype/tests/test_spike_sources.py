@@ -917,3 +917,92 @@ def test_a_dark_listener_comes_to_know_most_of_the_main_room():
     floor = [c for c in cells if not room.is_solid(*c)]
     assert len(seen & set(floor)) / len(floor) >= 0.9
     assert len(seen & set(walls)) / len(walls) >= 0.9
+
+
+# --- the disc is a table, and the table is a circle (issue #127) -------------
+
+def test_the_disc_is_a_circle_and_not_a_cross():
+    """The user: *"it needs to look more circular."* `<= r*r` at radius 3
+    is `1 2 3 3 3 2 1` half-widths -- a one-cell spike on each axis, which
+    is a cross with a fat middle. `<= r*r + r` is `1 2 3 3 3 2 1` widened
+    at the poles to three cells: 37 cells, and the one set a drawn circle
+    agrees with cell for cell."""
+    widths = S.disc_widths(3)
+    assert widths == (1, 2, 3, 3, 3, 2, 1)
+    assert [2 * w + 1 for w in widths] == [3, 5, 7, 7, 7, 5, 3]
+    assert sum(2 * w + 1 for w in widths) == 37
+    # The poles are the change: the old test gave one cell there.
+    assert widths[0] == widths[-1] == 1
+    assert all(w >= 1 for w in widths)
+    # And it is a disc at every radius: monotone out from the middle.
+    for radius in range(1, 8):
+        w = S.disc_widths(radius)
+        assert len(w) == 2 * radius + 1
+        assert w == w[::-1], "the disc is not symmetric"
+        middle = radius
+        assert all(w[i] <= w[i + 1] for i in range(middle)), w
+
+
+def test_the_magnet_and_the_light_read_the_same_table():
+    """`covers` is the ten-second magnet's hit test and `emit` is the
+    light; one table serves both, so the rule and the picture cannot
+    drift (issue #127)."""
+    for radius in (2, 3, 4):
+        beam = S.Roaming(0, 0, radius=radius, mode=S.Roaming.DRIFT)
+        beam.x, beam.y = 15, 11
+        field = L.LightField()
+        field.begin()
+        beam.apply(field)
+        field.commit()
+        lit = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
+               if field.level_at(cx, cy) > L.DARK}
+        covered = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
+                   if beam.covers(cx, cy)}
+        assert lit == covered, radius
+        assert len(lit) == sum(2 * w + 1 for w in beam.widths)
+
+
+def test_reshaping_the_beam_rebuilds_its_table():
+    beam = S.Roaming(0, 0, radius=3)
+    assert beam.widths == S.disc_widths(3)
+    beam.reshape(radius=5)
+    assert beam.widths == S.disc_widths(5)
+    assert beam.covers(beam.x, beam.y + 5) and not beam.covers(beam.x, beam.y + 6)
+
+
+def test_the_authored_pool_and_the_disc_table_are_the_same_shape():
+    """The picture in `assets/tiles/beam.txt` and the table the rules read
+    are one shape (issue #128): every cell the ring is drawn in is a cell
+    the beam lights, and the ring touches 24 of the disc's 37."""
+    from spikes import floor
+    widths = S.disc_widths(floor.BEAM_RADIUS)
+    inside = {(dx, dy) for dy in range(-3, 4)
+              for dx in range(-widths[dy + 3], widths[dy + 3] + 1)}
+    drawn = {(dx, dy) for dy in range(-3, 4) for dx in range(-3, 4)
+             if any(floor.beam_tile(dx, dy))}
+    assert drawn <= inside, drawn - inside
+    assert len(drawn) == 24 and len(inside) == 37
+    # The ring is one pixel wide and closed: every row of the pool that has
+    # any ink has exactly two runs of it, the left edge and the right.
+    rows = []
+    for dy in range(-3, 4):
+        for r in range(8):
+            bits = 0
+            for dx in range(-3, 4):
+                bits = (bits << 8) | floor.beam_tile(dx, dy)[r]
+            rows.append(bits)
+    lit_rows = [b for b in rows if b]
+    assert len(lit_rows) == 45, len(lit_rows)
+    # Two runs on every row but the crown and the keel, where the circle's
+    # top and bottom are one unbroken span.
+    runs_per_row = []
+    for bits in lit_rows:
+        runs, was = 0, 0
+        for i in range(56):
+            now = (bits >> (55 - i)) & 1
+            runs += now and not was
+            was = now
+        runs_per_row.append(runs)
+    assert runs_per_row.count(1) == 2, "the circle has no crown and keel"
+    assert all(n in (1, 2) for n in runs_per_row), \
+        f"the ring is not a closed circle: {runs_per_row}"

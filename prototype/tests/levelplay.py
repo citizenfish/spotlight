@@ -20,18 +20,25 @@ MOVING = pytest.mark.light_round
 #: the three after it, the same four the sixteen baseline hashes use.
 SEEDS = tuple(S.DEFAULT_SEED + i for i in range(4))
 
+#: The seeds a **mean** is taken over: eight, because a rolled room can
+#: hand one seed a catastrophe -- the Level 3 listener takes 0 of 7 on two
+#: seeds in sixteen -- and a mean of four is then a coin rather than a
+#: measurement (issue #130).
+WIDE_SEEDS = tuple(S.DEFAULT_SEED + i for i in range(8))
+
 #: Three minutes, the longest clock in any level.
 THREE_MINUTES = 180 * 50
 
 
 def play(level: int, bot: str, seed: int, room: int | None = None,
-         solo: bool = False, frames: int = THREE_MINUTES) -> S.Session:
+         solo: bool = False, frames: int = THREE_MINUTES,
+         spray: bool = False) -> S.Session:
     """A run to its end, or to `frames`, on `level` from `room`, the rooms
-    rolled for `seed` (issue #121)."""
+    rolled for `seed` (issue #121). `spray` arms the bot (issue #122)."""
     building, start = levels.pick(level, room, solo, seed=seed)
     run = S.Session(seed=seed, sound=False, building=building,
                     start_room=start)
-    player = bots.make(bot, seed=seed)
+    player = bots.make(bot, seed=seed, spray=spray)
     while run.over is None and run.frame < frames:
         run.step(player.intent(run))
     if run.over is None:

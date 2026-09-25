@@ -30,6 +30,16 @@ for the flyspray. `ESC` quits. (There was a torch on `T` until issue #119;
 what shows you the room now is the searchlight, which also shows the flies
 where you are.)
 
+## The searchlight
+
+Every room has one, bolted in a corner and sweeping a knight's tour. Its
+pool is a circle of 37 cells with a one-pixel ring drawn round it (issue
+#128), and that ring is exactly the cells the beam lights: stand inside it
+and the whole building comes for you for the level's magnet seconds, so the
+edge you can see is the rule. The housing wears one of eight tiles and
+points at its own pool. The disc, the ring and the housings are authored
+art in `assets/`, and one table serves both the picture and the rule.
+
 ## The opening
 
 Every building opens the same way, the first and every one after it (issue

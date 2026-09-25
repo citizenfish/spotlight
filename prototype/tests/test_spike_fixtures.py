@@ -94,7 +94,8 @@ def test_every_room_draws_its_searchlights_housing():
         run, screen = lit_room(index)
         housing = run.place.housing
         assert housing is not None, f"room {index} has no housing"
-        assert drawn_at(screen, housing[0], housing[1], sprites.HOUSING)
+        assert drawn_at(screen, housing[0], housing[1],
+                        sprites.housing_for(housing, run.place.roaming))
 
 
 def test_the_housing_is_white_at_full_brightness():

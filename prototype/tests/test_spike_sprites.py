@@ -618,13 +618,18 @@ def test_no_sprite_is_blank():
 #: reason: a burning lamp sits inside the pool of light it is making, a housing
 #: is bolted to a wall corner and never lies on the floor, and neither of those
 #: cues is in the eight bytes. See `assets/sprites/lamp.txt`.
-LAMP_FAMILY = ("lamp_off", "lamp_on", "housing")
+#: The lamp family: one ring, and the eight the housing aims with (issue
+#: #129) -- they are one object seen pointing eight ways and are meant to
+#: be told apart by the lens's side, not by their silhouettes.
+LAMP_FAMILY = ("lamp_off", "lamp_on", "housing") + tuple(
+    f"housing_{name}" for name in
+    ("n", "ne", "e", "se", "s", "sw", "w", "nw"))
 
 
 def test_silhouettes_differ_by_more_than_a_row_or_two():
     """Exact inequality is too weak. Shapes carrying all the information have
     to be distinguishable at a glance, not by one pixel."""
-    same_size = [(n, s) for n, s in SP.SPRITES.items()
+    same_size = [(n, s) for n, s in SP.DRAWN.items()
                  if len(s) == 8 and SP.width_of(s) == 8
                  and n not in LAMP_FAMILY]
     for i, (name_a, a) in enumerate(same_size):
@@ -637,7 +642,7 @@ def test_silhouettes_differ_by_more_than_a_row_or_two():
 
 def test_no_sprite_is_a_solid_block():
     """A filled rectangle reads as a blob, not a thing."""
-    for name, sprite in SP.SPRITES.items():
+    for name, sprite in SP.DRAWN.items():
         assert not all(b == 0xFF for b in octets(sprite) if b), name
 
 
@@ -822,7 +827,7 @@ def test_the_assets_directory_holds_nothing_the_game_does_not_draw():
     building -- nothing in it is locked -- but it is on the sprite sheet, which
     is a draw call like any other.
     """
-    drawn = {name.upper() for name in SP.SPRITES}
+    drawn = {name.upper() for name in SP.DRAWN}
     assert _authored() == drawn, "art nobody draws, or a sprite with no source"
 
 
@@ -979,3 +984,55 @@ def test_the_body_always_keeps_the_cell_it_fell_in():
             assert (cx, 7) in cells, (cx, cells)
             assert 1 <= len(cells) <= 2
             assert all(cy == 7 for _cx, cy in cells), "a body lies in one row"
+
+
+# --- the housing aims at its pool (issue #129) --------------------------------
+
+def test_there_are_eight_housings_and_they_differ_only_in_the_lens():
+    """One tile an octant, the same ring with the lens pushed to that
+    side: the fixture in the corner says which way its beam is pointing."""
+    assert len(SP.HOUSING_AIMED) == 8
+    for tile in SP.HOUSING_AIMED:
+        assert len(tile) == 8 and all(0 <= row <= 0xFF for row in tile)
+    assert len(set(SP.HOUSING_AIMED)) == 8, "two housings are the same picture"
+    # The ring is the same in all eight: every pixel of the plain housing's
+    # outline is set in each of them.
+    ring = SP.BITMAPS["HOUSING"]
+    outline = [(r, b) for r in range(8) for b in range(8)
+               if ring[r] & (0x80 >> b) and r in (0, 7) or
+               (b in (0, 7) and ring[r] & (0x80 >> b))]
+    for tile in SP.HOUSING_AIMED:
+        for r, b in outline:
+            assert tile[r] & (0x80 >> b), "a housing lost part of its ring"
+
+
+def test_the_octant_covers_every_direction_and_never_runs_off_the_table():
+    """Two compares a side, no division, and a pool on the housing's own
+    cell points north."""
+    seen = set()
+    for dy in range(-21, 22):
+        for dx in range(-31, 32):
+            octant = SP.housing_octant(dx, dy)
+            assert 0 <= octant < len(SP.HOUSING_AIMED), (dx, dy)
+            seen.add(octant)
+    assert seen == set(range(8)), "some direction is never pointed"
+    assert SP.housing_octant(0, 0) == 0
+    for (dx, dy), want in (((0, -5), 0), ((4, -4), 1), ((5, 0), 2), ((4, 4), 3),
+                           ((0, 5), 4), ((-4, 4), 5), ((-5, 0), 6), ((-4, -4), 7)):
+        assert SP.housing_octant(dx, dy) == want, (dx, dy)
+
+
+def test_the_housing_a_room_draws_follows_its_beam():
+    from spikes import levels, session as session_mod
+    run = session_mod.Session(seed=1, building=levels.level(3), sound=False)
+    housing = run.place.housing
+    beam = run.place.roaming
+    beam.mode = beam.DRIFT
+    seen = set()
+    for cell in ((housing[0], housing[1] + 8), (housing[0] + 8, housing[1]),
+                 (housing[0] + 8, housing[1] + 8)):
+        beam.x, beam.y = cell
+        seen.add(SP.housing_for(housing, beam))
+    assert len(seen) == 3, "the housing did not turn"
+    # A room with no beam keeps the plain ring.
+    assert SP.housing_for(housing, None) is SP.HOUSING
