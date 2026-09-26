@@ -596,12 +596,51 @@ class Cleg:
         was, as it always did. **While a slide is held the
         other axis is not tried before it**: a fly one cell along the wall would
         otherwise step straight back to where it was stuck, and the two cells
-        would trade places for ever. Dropped the frame the wanted axis is taken.
+        would trade places for ever.
         One byte per fly on the port, and two more tries only on a frame the
         fly was already refused twice.
+
+        **And the slide is held across the axis it began across** (issue #131).
+        It used to be dropped "the frame the wanted axis is taken", and the
+        wanted axis was recomputed every step as *whichever is longest now* --
+        two rules that make a limit cycle beside any long wall. A fly at column
+        14 with a wall down column 13 and its gap near the bottom, steering at
+        the far top corner: above a crossover row the horizontal distance is the
+        longer, so it wants x, x is brick, it slides up and bounces off the
+        border; **at** the crossover row the vertical distance becomes the
+        longer, so it wants y, y is open, it steps -- and the slide is dropped;
+        one step later x is longest again and the slide restarts upward. Four
+        hundred steps in fourteen cells of one column, never arriving.
+
+        So while a slide is held, the wanted axis is **the one the slide is
+        across from** and not whichever is longest at this instant: the
+        horizontal step if the slide is vertical, the vertical step if it is
+        horizontal. Taken, the slide clears as before. If that axis's delta has
+        gone to zero the fly has arrived on it, the slide clears and the
+        ordinary rule decides. With no slide held nothing changes at all.
+
+        In today's open halls this is inside the noise, because every wall is
+        short and there are approaches from every side; it is the rule that
+        makes a room with architecture in it playable, and it is **cheaper** on
+        the Z80 -- a test of one byte in place of an `abs` compare of two.
         """
         dx = (tx > self.cx) - (tx < self.cx)
         dy = (ty > self.cy) - (ty < self.cy)
+        if self.slide != (0, 0):
+            # Held: the wanted axis is the one the slide is across from, and
+            # the deltas do not get a vote on which that is.
+            wanted = (dx, 0) if self.slide[1] else (0, dy)
+            if wanted == (0, 0):
+                self.slide = (0, 0)         # arrived on that axis
+            elif self._try(*wanted, is_solid, avoid):
+                self.slide = (0, 0)
+                return
+            else:
+                if self._try(*self.slide, is_solid, avoid):
+                    return
+                self.slide = (-self.slide[0], -self.slide[1])
+                self._try(*self.slide, is_solid, avoid)
+                return
         if abs(tx - self.cx) >= abs(ty - self.cy):
             first, second = (dx, 0), (0, dy)
         else:
@@ -609,21 +648,20 @@ class Cleg:
         if first != (0, 0) and self._try(*first, is_solid, avoid):
             self.slide = (0, 0)
             return
-        if self.slide == (0, 0):
-            if second != (0, 0) and self._try(*second, is_solid, avoid):
-                return
-            if first == (0, 0):
-                return                      # already there
-            if not is_solid(self.cx + first[0], self.cy + first[1]):
-                # Refused by a fly and not by a wall -- the threshold held
-                # from next door, the personal-space rule -- and a fly that
-                # is queued waits, as it always did. A slide is for brick.
-                return
-            # Start a slide: across the wanted axis, toward the goal if the
-            # goal says which way, and by a coin if it does not.
-            across = (0, 1) if first[0] else (1, 0)
-            sign = (second[0] + second[1]) or (1 if self._random() & 1 else -1)
-            self.slide = (across[0] * sign, across[1] * sign)
+        if second != (0, 0) and self._try(*second, is_solid, avoid):
+            return
+        if first == (0, 0):
+            return                          # already there
+        if not is_solid(self.cx + first[0], self.cy + first[1]):
+            # Refused by a fly and not by a wall -- the threshold held from
+            # next door, the personal-space rule -- and a fly that is queued
+            # waits, as it always did. A slide is for brick.
+            return
+        # Start a slide: across the wanted axis, toward the goal if the goal
+        # says which way, and by a coin if it does not.
+        across = (0, 1) if first[0] else (1, 0)
+        sign = (second[0] + second[1]) or (1 if self._random() & 1 else -1)
+        self.slide = (across[0] * sign, across[1] * sign)
         if self._try(*self.slide, is_solid, avoid):
             return
         self.slide = (-self.slide[0], -self.slide[1])

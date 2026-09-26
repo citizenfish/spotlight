@@ -66,7 +66,8 @@ def _level_templates():
                 band=keys.get("band", (4, 30)), away=keys.get("away", 6),
                 workers=spec.workers, clegs=keys.get("clegs", 0),
                 doorways=[(s, r) for s, r, _t, _l in spec.doors],
-                start=spec.start, exit=i == 0, lights=spec.lights)
+                start=spec.start, exit=i == 0, lights=spec.lights,
+                shells=[rows for _name, rows in spec.shells])
     return out
 
 
@@ -80,9 +81,24 @@ def _room(template, rolled) -> B.Room:
                   doorways=doorways, searchlight=B.Searchlight(3, False))
 
 
+#: What the **roll** puts down: segments are pipes and risers, pieces are
+#: crates, desks and cabinets. A shell's own walls are `WALL` and nothing the
+#: roller places ever is, which is what lets the clearance rule be read off the
+#: finished rows without knowing which shell was chosen (issue #132).
+ROLLED_SOLIDS = frozenset((B.PIPE_H, B.PIPE_V, B.CRATE,
+                           B.DESK_L, B.DESK_R, B.CABINET))
+
+
 def _solids(rolled) -> set:
+    """Every cell a **rolled** solid stands on.
+
+    Not every solid cell: since issue #132 a template may be built from an
+    authored shell whose walls reach the border on purpose, and the clearance
+    rule has never applied to them. Reading `B.SOLID` here counted the shell's
+    walls and called them rolled solids hugging the border.
+    """
     return {(cx, cy) for cy in range(1, PLAY_ROWS - 1) for cx in range(1, COLS - 1)
-            if rolled.rows[cy][cx] in B.SOLID}
+            if rolled.rows[cy][cx] in ROLLED_SOLIDS}
 
 
 def _cheb(a, b) -> int:
@@ -115,7 +131,15 @@ def test_every_seed_of_every_template_rolls_a_fair_room(name):
         for cx, cy in solids:
             assert 3 <= cx <= COLS - 4 and 3 <= cy <= PLAY_ROWS - 4, \
                 f"{name} seed {seed:#x}: a solid at {(cx, cy)} hugs the border"
-            assert not (8 <= cy <= 14 and (cx <= 5 or cx >= COLS - 6)), \
+            # **The landing follows the doorway** (issue #135). This used to
+            # assert the middle rows of *both* walls, which was the rule while
+            # every doorway sat at rows 10-12; a room with only a west doorway
+            # was keeping five columns of its east wall clear for a doorway
+            # that was not there. The band is now the exit's plus each
+            # authored doorway's, and it is read off the template rather than
+            # written out here, so the two cannot drift.
+            band = roller._Roll(template, roller._Dice(1)).landing_band()
+            assert (cx, cy) not in band, \
                 f"{name} seed {seed:#x}: a solid at {(cx, cy)} on a landing"
             assert _cheb((cx, cy), feet) >= 3 and _cheb((cx, cy), head) >= 3, \
                 f"{name} seed {seed:#x}: a solid at {(cx, cy)} crowds the start"

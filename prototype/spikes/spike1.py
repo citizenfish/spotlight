@@ -270,7 +270,8 @@ class Shell:
                  seed: int = session_mod.DEFAULT_SEED,
                  luminous: bool = True, trail: bool = False,
                  strobe: bool = True, building=None,
-                 start_room: int | None = None, wall_fade: int = 1,
+                 start_room: int | None = None,
+                 wall_fade: int | None = None,
                  level: int | None = None, room: int | None = None,
                  solo: bool = False) -> None:
         self.screen = screen
@@ -577,9 +578,16 @@ def seed_from(argv: list[str]) -> int:
         raise ValueError(f"{SEED_FLAG} needs a number") from None
 
 
-def wall_fade_from(argv: list[str]) -> int:
+def wall_fade_from(argv: list[str]) -> int | None:
+    """The `--wall-fade` override, or None for the level's own `fade:`.
+
+    It returned 1 until issue #137, which was the same thing while every level
+    faded at full rate; now the levels that teach hold a wall for six seconds
+    and Level 4 on for three, so a driver or a window that forced 1 was
+    measuring a game nobody plays.
+    """
     if WALL_FADE_FLAG not in argv:
-        return 1
+        return None
     try:
         rate = int(argv[argv.index(WALL_FADE_FLAG) + 1])
     except (IndexError, ValueError):

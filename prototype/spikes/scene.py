@@ -1,4 +1,4 @@
-"""The playtest building: two rooms, one doorway, and no key.
+"""The playtest building: three rooms, two doorways, and no key.
 
 **Since issue #107 this module is a view.** The building is authored in
 `assets/levels/level3.txt` and loaded by `levels.py`; every name here --
@@ -73,7 +73,14 @@ def building(level: int, seed: int = levels_mod.DEFAULT_SEED):
     return levels_mod.level(level, seed)
 
 #: Which room is which, as indices. Room A is 0 because the player starts there.
-NEAR, FAR = 0, 1
+#:
+#: **`NEAR` and `FAR` are the pair, and the building has a third room beyond
+#: them** since issue #137. They keep their indices and their names on purpose:
+#: they are the two rooms every test walks between and every figure in the
+#: vault was measured in, and the third went *past* the far room rather than
+#: between the two, so that `FAR` does not come to mean a room nobody has ever
+#: called the far one. `BEYOND` is the new one.
+NEAR, FAR, BEYOND = 0, 1, 2
 
 #: **The floor carries the room and the walls carry the building** (issue #47).
 #:
@@ -354,20 +361,36 @@ SEARCHLIGHT_VARY = _LEVEL[NEAR].searchlight.vary
 #: during a run -- on the Z80 it is ROM.
 BUILDING = _LEVEL
 
-#: The two rooms by name, for the code and the tests that want to say which.
+#: The rooms by name, for the code and the tests that want to say which.
 ROOM_NEAR = BUILDING[NEAR]
 ROOM_FAR = BUILDING[FAR]
+ROOM_BEYOND = BUILDING[BEYOND]
+
+#: The third room's people and flies, for symmetry with A and B.
+WORKERS_C = _LEVEL[BEYOND].workers
+CLEGS_C = _LEVEL[BEYOND].clegs
 
 
 def validate() -> None:
     """The building must line up, or nothing else does."""
-    BUILDING.validate()
-    if len(WORKERS_A) + len(WORKERS_B) != 7:
-        raise ValueError("the playtest building is seven people")
+    _LEVEL.validate()
+    # **Counted over the building and not over rooms A and B** (issue #137).
+    # It was `WORKERS_A + WORKERS_B` while there were only two rooms, which
+    # made the check quietly wrong the moment a third arrived: it read five of
+    # seven and refused to load at all.
+    #
+    # It reads `_LEVEL` and **not** `BUILDING`, which is the same object and a
+    # different name: tests monkeypatch `scene.BUILDING` to stand a hand-built
+    # house in front of the session, and this check is about the authored level
+    # rather than about whatever is being substituted for it.
+    if _LEVEL.roster != 7:
+        raise ValueError(
+            f"the playtest building is seven people, not {_LEVEL.roster}")
 
 
 __all__ = [
-    "BUILDING", "building", "CLEGS_A", "CLEGS_B", "CONSTANT_INK", "DOOR_ROWS",
+    "BEYOND", "BUILDING", "building", "CLEGS_A", "CLEGS_B", "CLEGS_C",
+    "CONSTANT_INK", "DOOR_ROWS", "ROOM_BEYOND", "WORKERS_C",
     "ENTITIES",
     "EXIT",
     "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",

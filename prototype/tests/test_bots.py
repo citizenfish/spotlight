@@ -17,8 +17,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from spikes import (bots, report, rescue as rescue_mod, scene, session,
-                    sources, spray as spray_mod)
+import statistics
+
+from spikes import (bots, levels, report, rescue as rescue_mod, scene,
+                    session, sources, spray as spray_mod)
 from spikes.session import Intent, Session
 from spotlight.core.constants import CELL
 
@@ -26,7 +28,18 @@ LIMIT = 12000
 
 
 def play(bot, seed=1, frames=LIMIT):
-    run = Session(seed=seed)
+    """A run on the building **rolled for the same seed**.
+
+    `Session(seed=s)` on its own takes `scene.BUILDING`, which is rolled for
+    the default seed, so the people stood where one seed put them while the
+    flies and the beams hunted on another. That was harmless while the rooms
+    were fixed bytes and merely odd afterwards -- until the building gained a
+    third room (issue #137) and the mismatch cost the oracle one of seven on
+    every bot seed, which read as an unwinnable level and was not one: over
+    eight consistent seeds the oracle is 7 of 7. A bot is measured against a
+    coherent run or it is measured against nothing.
+    """
+    run = Session(seed=seed, building=levels.level(3, seed))
     while run.over is None and run.frame < frames:
         intent = bot.intent(run)
         assert isinstance(intent, Intent), "a bot may only press keys"
@@ -78,8 +91,15 @@ def test_the_listener_finds_people_in_the_dark():
     clearing the room after tuning, this assertion is the thing to revisit
     -- and the reason it was written down.
     """
-    run = play(bots.make("listener", seed=5))
-    assert run.rescued >= 1
+    # **Over eight seeds, not one** (issue #130's lesson applied here by
+    # #137). A rolled building hands one seed in eight a catastrophe, and this
+    # read 3, 3, 7 on three seeds before the third room and 0, 7, 4 after --
+    # the same coin, landing differently. What the finding actually says is
+    # that a dark listener clears people, so that is what is asserted.
+    runs = [play(bots.make("listener", seed=5), seed=s) for s in range(1, 9)]
+    got = [r.rescued for r in runs]
+    assert statistics.mean(got) >= 3, got
+    assert sum(1 for n in got if n >= 1) >= 6, got
 
 
 def test_the_listener_only_goes_where_it_has_heard_somebody():
@@ -357,8 +377,11 @@ def test_the_scout_gets_people_out():
     playtest building and everyone out of Level 1 on every seed, which is a
     player's game and not a ceiling's.
     """
-    run = play(bots.make("scout", seed=1))
-    assert run.rescued >= 3
+    # Over eight seeds since issue #137, for the reason above: on one rolled
+    # seed this bot gets nobody out, and on another it gets four.
+    runs = [play(bots.make("scout", seed=1), seed=s) for s in range(1, 9)]
+    got = [r.rescued for r in runs]
+    assert statistics.mean(got) >= 2, got
     from spikes import levels
     dark = Session(seed=1, building=levels.level(1))
     bot = bots.make("scout", seed=1)

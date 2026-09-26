@@ -99,6 +99,44 @@ def _reached(room, places, budget: int) -> set[tuple[int, int]]:
     return out
 
 
+def strands_a_shell(rows, doorways, budget: int = BUDGET) -> list[tuple[int, int]]:
+    """Every floor cell of a **bare shell** the swarm cannot get to.
+
+    Issue #133, and the argument is the retro-gamer's. It is a theorem rather
+    than a sample, which is the whole reason the walls stopped rolling:
+
+        Run the check on the walls and the doorways alone, with the doorway
+        cells as the only origins. If nothing is stranded, **nothing a roll
+        puts inside that shell can strand anything either.**
+
+    Why that holds. `_reached` takes the union over starts, and its second
+    pass spreads from ground the first pass reached, so **adding a start can
+    only grow the reached set**. A rolled fly is an extra start and never a
+    wall; rolled furniture is solid, but `unswarmable` asks only about floor
+    cells and a cell that furniture stands on is no longer floor. So
+    doorway-only reachability on the bare walls is the pessimistic case, and
+    a shell that passes it passes on every seed -- without running a seed.
+
+    That is worth more than any number of sampled seeds, because it does not
+    depend on the seed at all. It is also forty milliseconds a shell against
+    the four core-hours exhausting a sixteen-bit seed space would cost, which
+    is why the gate can live in `pytest` instead of in a tool somebody has to
+    remember to run.
+
+    **It is a floor and not a promise about the furniture.** A roll that
+    walls a cell off with its own pieces is still the clearance rule's
+    business (`roller.CLEAR`), and `unswarmable` on the finished room is
+    still run over seeds. This says the *shape* is sound.
+
+    `rows` are the shell's 22 strings; `doorways` the `Doorway` objects the
+    level file authors, which is where a fly comes in from.
+    """
+    from .building import Room
+    shell = Room("a shell", rows, doorways=tuple(doorways),
+                 player_start=(24, 96))
+    return unswarmable(shell, budget)
+
+
 def unswarmable(room, budget: int = BUDGET) -> list[tuple[int, int]]:
     """Every floor cell in the room the swarm cannot get to. Sorted.
 

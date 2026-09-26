@@ -171,14 +171,19 @@ class LightField:
     per-room colour.
     """
 
-    __slots__ = ("charge", "display",
-                 "_illum", "_memory", "_reveal", "_prey", "_touched")
+    __slots__ = ("charge", "_display",
+                 "_illum", "_memory", "_reveal", "_prey", "_touched", "_stale")
 
     def __init__(self) -> None:
         self.charge = bytearray(_CELLS)
         #: The level each cell actually shows: the fade, overridden by any
-        #: source shining on it now. Rebuilt by `commit`.
-        self.display = bytearray(_CELLS)
+        #: source shining on it now. Rebuilt by `commit` -- **lazily, for a
+        #: room nobody is looking at** (issue #136). Read it through the
+        #: `display` property, never through this.
+        self._display = bytearray(_CELLS)
+        #: True when `charge` has moved and `_display` has not been rebuilt
+        #: from it yet. See `commit`.
+        self._stale = False
         self._illum = bytearray(_CELLS)
         self._memory = bytearray(_CELLS)
         #: Cells a revealing light is on this frame. Never remembered.
@@ -240,13 +245,22 @@ class LightField:
         cell (issue #117, the `--wall-fade` experiment). Called on even
         frames for a half-rate decay, so three seconds of wall memory
         becomes six. `solid` is one byte per cell, non-zero where the room
-        is solid."""
+        is solid.
+
+        It runs **after** `commit`, so what a cell shows has always been the
+        charge as it stood at commit time and not after this bump. With a
+        deferred rebuild (issue #136) that has to be said out loud: if the
+        picture is still owed, it is built here from the charge before the
+        bump, exactly as it would have been.
+        """
+        if self._stale:
+            self._show()
         charge = self.charge
         for idx in range(len(charge)):
             if solid[idx] and 0 < charge[idx] < 0xFF:
                 charge[idx] += 1
 
-    def commit(self, decay: bool = True) -> None:
+    def commit(self, decay: bool = True, shown: bool = True) -> None:
         """Decay everything, top up what was lit, then work out what shows.
 
         A cell that already remembers more than the source can give it -- the
@@ -256,6 +270,23 @@ class LightField:
         `decay=False` is a held frame (issue #94, the opening strobe): the
         game has not moved, so the fade must not either, or eighteen held
         frames would age every memory in the building and move every log.
+
+        **`shown=False` defers the second half** (issue #136): the decay is
+        done, and what the cells *show* is left to be worked out the first
+        time somebody asks. It is not an approximation. `display` is a pure
+        function of `charge`, `_illum` and `_touched`, and none of those moves
+        again until the next `begin()` or `commit()` -- so rebuilding it later
+        in the same frame gives the same bytes, and `_stale` is what makes
+        sure it is rebuilt before it is read.
+
+        It matters because `commit` is two passes over 704 cells and only one
+        of them is needed by a room nobody is looking at. A far room still has
+        to be stepped: its searchlight is still sweeping, and **that is what
+        makes the people you left behind in it prey**, which is what the
+        swarm in that room baits onto. What a far room does not need is the
+        picture. `catch_up` cannot take the place of this -- decaying by N in
+        one pass only equals decaying by one N times if nothing wrote to the
+        field in between, and a sweeping searchlight writes every frame.
         """
         if decay:
             self.charge[:] = self.charge.translate(_DECAY)
@@ -266,14 +297,30 @@ class LightField:
         # A held frame leaves the charge exactly as it was: no decay and no
         # top-up either, or the beam at its first station would be remembered
         # eighteen frames before the game had shown it.
+        if shown:
+            self._show()
+        else:
+            self._stale = True
 
-        # What the player sees is the fade, except where a light is shining
-        # now. Only the cells a source touched this frame can differ, so this
-        # walks the touched list rather than the field.
-        self.display[:] = self.charge.translate(_LEVEL_OF)
+    def _show(self) -> None:
+        """Rebuild `display` from the charge and this frame's sources.
+
+        What the player sees is the fade, except where a light is shining now.
+        Only the cells a source touched this frame can differ, so this walks
+        the touched list rather than the field.
+        """
+        self._display[:] = self.charge.translate(_LEVEL_OF)
         for idx in self._touched:
-            if self._illum[idx] > self.display[idx]:
-                self.display[idx] = self._illum[idx]
+            if self._illum[idx] > self._display[idx]:
+                self._display[idx] = self._illum[idx]
+        self._stale = False
+
+    @property
+    def display(self) -> bytearray:
+        """The level each cell shows, rebuilt first if a commit deferred it."""
+        if self._stale:
+            self._show()
+        return self._display
 
     # --- reading -----------------------------------------------------------
 
@@ -333,12 +380,29 @@ class LightField:
         exactly equivalent to having decayed it every frame, and it costs
         nothing at all while you are away.
 
-        This building has two rooms, so both fields are resident and this is
-        never called with a gap by the game itself -- it is called with zero
-        every time the player crosses. It is built and tested now because the
-        equivalence is the whole of the argument, and a rule that is only true
-        in a comment is a rule nobody can check. It stops being free if the
-        player ever moves faster than a walk, or if rooms ever get smaller.
+        **This is not on the game's path, and issue #136 is where it was
+        worked out why not.** The paragraph above used to end *"this building
+        has two rooms, so both fields are resident"*, which stopped being true
+        the day levels became files: Levels 1 and 2 have had three rooms since
+        they were authored, and buildings now go to six.
+
+        The reason it still is not called is better than the old one. A far
+        room is **fully simulated** -- its searchlight goes on sweeping, and
+        that is what makes the people you left behind in it prey, which is
+        what the swarm in that room baits onto. So its field is written every
+        frame, and ageing it by N in one pass equals ageing it by one N times
+        only if *nothing wrote to it in between*. Something does.
+
+        What was available instead is in `commit`: a far room's charge is
+        decayed every frame as it always was, and only the picture -- what each
+        cell shows -- is deferred until somebody asks for it. That is half of
+        `commit`'s work saved for every room not on screen, and it is provably
+        the same bytes rather than nearly the same.
+
+        It is kept, built and tested, because the equivalence is worth having
+        written down and because it is exactly what a build that *does* stop
+        simulating far rooms would need. It stops being free if the player
+        ever moves faster than a walk, or if rooms ever get smaller.
         """
         if frames <= 0:
             return
@@ -347,7 +411,8 @@ class LightField:
         else:
             table = bytes(max(0, c - frames) for c in range(256))
             self.charge[:] = self.charge.translate(table)
-        self.display[:] = self.charge.translate(_LEVEL_OF)
+        self._display[:] = self.charge.translate(_LEVEL_OF)
+        self._stale = False
         # Nothing is shining on the room you were not in, so nothing reveals
         # anybody in it either. Clearing this is what stops a worker who was
         # standing in your cone as you walked out being prey for ever.

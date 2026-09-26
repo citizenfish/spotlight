@@ -555,7 +555,9 @@ def test_the_swarm_is_the_same_size_across_a_run_with_deaths():
     # rooms up, so this now also catches a fly being dropped on the floor
     # between two swarms while it walks through a doorway -- which is the same
     # bug in a new place, and the one thing a per-room count would miss.
-    authored = len(scene.CLEGS_A) + len(scene.CLEGS_B)
+    # Counted over the building: three rooms since issue #137, so A and B are
+    # no longer the whole of it.
+    authored = sum(len(r.clegs) for r in scene.BUILDING.rooms)
     assert sizes[0] == authored
     assert sizes == sorted(sizes), f"the swarm shrank: {sorted(set(sizes))}"
     hatched = sum(1 for e in run.log if e.kind == session.HATCHED)
@@ -1008,6 +1010,19 @@ def test_a_body_lies_on_screen_for_its_whole_lifetime():
     while not body.gone and run.over is None:
         run.step()
     assert body.gone, "the run ended before the nest burnt out"
+    # **Nothing else may be standing there.** A fly is drawn on dark ground by
+    # design (issues #92 and #106) and a corpse is what a swarm gathers on, so
+    # on some layouts a Cleg is sitting in the body's own cell when it goes and
+    # the pixels found would be the fly's. Step on until the two cells are
+    # clear; bounded, so a swarm that never leaves fails rather than hangs.
+    cells = {(body.x // CELL, body.y // CELL),
+             (body.x // CELL, body.y // CELL + 1)}
+    for _ in range(2000):
+        if not cells & {(c.cx, c.cy) for c in run.place.swarm.clegs}:
+            break
+        run.step()
+    else:
+        raise AssertionError("the swarm never got off the cells the body was in")
     run.draw(screen)
     assert not any(screen.point(body.x + dx, body.y + dy)
                    for dy in range(2 * CELL) for dx in range(CELL)), \

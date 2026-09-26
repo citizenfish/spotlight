@@ -242,23 +242,59 @@ def draw_big(screen: Screen, text: str, top: int, ink: int = YELLOW,
 PLAN_SCALE = 2
 PLAN_GUTTER = 8
 
+#: How many rooms fit across the plan and down it, which is therefore the cap
+#: on a building (issue #134). Three by three is 208 x 148 pixels of the
+#: 256 x 176 play area at the scale and gutter above; a fourth column is 280
+#: pixels and does not fit a 256-pixel screen at all.
+#:
+#: It was a single row until the buildings grew. A row of four came back from
+#: `plan_origin` at x = -12 with the first room sliced off the left edge, and
+#: nothing raised and nothing warned -- which is the whole reason the loader
+#: now checks the grid.
+from .building import PLAN_COLS, PLAN_ROWS, PLAN_MOST      # noqa: F401,E402
+
+
+def plan_grid(building) -> list[tuple[int, int]]:
+    """Each room's (column, row) in the plan, in room order.
+
+    The building's authored grid when it has one, and otherwise a single row
+    in chain order -- which is what every building was before `at:`, and what
+    a building put together by hand in a test still gets.
+    """
+    if all(room.at is not None for room in building.rooms):
+        return [room.at for room in building.rooms]
+    return [(i, 0) for i in range(len(building))]
+
+
+def plan_extent(building) -> tuple[int, int, int, int]:
+    """The plan's `(columns, rows, width, height)` in cells and pixels."""
+    from .layout import PLAY_ROWS
+    grid = plan_grid(building)
+    cols = max(c for c, _r in grid) + 1
+    rows = max(r for _c, r in grid) + 1
+    width = cols * COLS * PLAN_SCALE + (cols - 1) * PLAN_GUTTER
+    height = rows * PLAY_ROWS * PLAN_SCALE + (rows - 1) * PLAN_GUTTER
+    return cols, rows, width, height
+
 
 def plan_origin(building) -> tuple[int, int]:
     """Where the plan's top-left pixel goes, centred in the play area."""
     from .layout import PLAY_ROWS
-    rooms = len(building)
-    width = rooms * COLS * PLAN_SCALE + (rooms - 1) * PLAN_GUTTER
-    height = PLAY_ROWS * PLAN_SCALE
+    _cols, _rows, width, height = plan_extent(building)
     return (SCREEN_W - width) // 2, (PLAY_ROWS * CELL - height) // 2
 
 
 def draw_plan(screen: Screen, building) -> None:
     from .building import DOOR, FLOOR, SOLID
     from .layout import PLAY_ROWS
-    x0, y0 = plan_origin(building)
+    x0, y0top = plan_origin(building)
     stride = COLS * PLAN_SCALE + PLAN_GUTTER
+    down = PLAY_ROWS * PLAN_SCALE + PLAN_GUTTER
+    grid = plan_grid(building)
     for i, room in enumerate(building.rooms):
-        left = x0 + i * stride
+        col, row = grid[i]
+        left = x0 + col * stride
+        y0 = y0top + row * down
         hue = room.ink[FLOOR]
         # The room's hue on every attribute cell the plan of it touches.
         for cy in range(y0 // CELL, (y0 + PLAY_ROWS * PLAN_SCALE - 1) // CELL + 1):

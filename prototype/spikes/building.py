@@ -304,6 +304,20 @@ EXIT = DOOR
 #: by the playtest building; a doorway in a horizontal wall is the *easier*
 #: case (a person is one cell wide, so one cell across fits) and is left until
 #: a room wants one.
+#: How many rooms fit across the opening's plan and down it, and therefore how
+#: many rooms a building may have (issue #134). Three by three is 208 x 148
+#: pixels of the 256 x 176 play area at `screens.PLAN_SCALE` and
+#: `screens.PLAN_GUTTER`; a fourth column is 280 pixels and does not fit a
+#: 256-pixel screen at all.
+#:
+#: **It lives here and not in `screens` so the loader can refuse a building
+#: that will not draw.** A row of four used to come back from `plan_origin` at
+#: x = -12 with the first room sliced off the left edge, and nothing raised and
+#: nothing warned. The number is the screen's, and the rule it implies is the
+#: building's.
+PLAN_COLS, PLAN_ROWS = 3, 3
+PLAN_MOST = PLAN_COLS * PLAN_ROWS
+
 EAST, WEST = 0, 1
 
 #: How wide a person is, in pixels. Used only to decide when a figure has
@@ -395,8 +409,15 @@ class Room:
     def __init__(self, name: str, rows, *, ink=None, workers=(), clegs=(),
                  searchlight: Searchlight | None = None,
                  lights=(), player_start: tuple[int, int] | None = None,
-                 doorways=()) -> None:
+                 doorways=(), at: tuple[int, int] | None = None) -> None:
         self.name = name
+        #: Where this room sits in the building's plan, as (column, row) of
+        #: the grid the opening's flash draws (issue #134). `None` means the
+        #: building has no authored grid, and the plan falls back to one row
+        #: in chain order -- which is what every building was until the
+        #: buildings grew past three rooms and a single row stopped fitting
+        #: the screen. The level file's `at:` is the only place it is set.
+        self.at = tuple(at) if at is not None else None
         self.rows = tuple(rows)
         #: **The room owns its palette** (issue #47). It used to be one global
         #: map from cell kind to ink, which meant every room in the building
@@ -696,6 +717,19 @@ class Budget(NamedTuple):
     #: magnet is the whole of the loss.
     magnet: int = 10
     wake: bool = True
+    #: **How long a wall the beam has passed is remembered**, as the rate
+    #: divisor `--wall-fade` has always taken: 1 is the fade as built, three
+    #: seconds, and 2 is half rate, six (issue #137). The level's own since the
+    #: plateau round, because it is the dial that decides whether a room's
+    #: authored walls are ever actually *seen*: the retro-gamer's played frames
+    #: showed an inner box and an open hall as near-identical pictures, because
+    #: the beam had not been over the box and the memory was three seconds.
+    #:
+    #: Six for the levels that teach and three from Level 4, which is ruling 9.
+    #: It is a divisor and not a duration on purpose: a middle rung would be a
+    #: third fade path, and if play ever wants one it is a `fade:` in frames
+    #: and a slice of its own.
+    fade: int = 1
     #: What the building is called (issue #126). The level file's own.
     building: str = "The Building"
 

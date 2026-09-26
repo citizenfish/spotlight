@@ -51,22 +51,27 @@ def test_the_driver_uses_the_real_constants():
     """Not a smaller room or a shorter clock. The numbers have to be about the
     game a tester will be handed."""
     run = driver.drive(bots.make("statue"), seed=1, frames=10)
-    assert run.total == len(scene.WORKERS_A) + len(scene.WORKERS_B) == 7
+    # Counted over the building: three rooms since issue #137, so A and B are
+    # no longer the whole of it.
+    assert run.total == scene.BUILDING.roster == 7
     assert run.blood_full == session.BLOOD_FULL
     assert run.lives == session.LIVES
     # The authored ladder, not a fallback and not a computed one. A driver run
     # on `rescue.WORKER_BLOOD` for everybody would be measuring the game that
     # issue #18 removed.
     assert [w.start_blood for w in run.rescue.workers] == \
-        [blood for _x, _y, blood in scene.WORKERS_A + scene.WORKERS_B]
+        [blood for room in scene.BUILDING.rooms
+         for _x, _y, blood in room.workers]
     # ...and the room each of them is in, which is the other half of the
     # authored line. Clocks are assigned by **journey, not by room** (issue
-    # #21): the nearest is the least urgent, so the two shortest are in the
-    # near room and the four longest are in the far one.
+    # #21): the nearest is the least urgent. Written over the building's rooms
+    # since issue #137, so a fourth would be picked up without editing this.
     assert [w.room for w in run.rescue.workers] == \
-        [scene.NEAR] * len(scene.WORKERS_A) + [scene.FAR] * len(scene.WORKERS_B)
+        [i for i, room in enumerate(scene.BUILDING.rooms)
+         for _ in room.workers]
     assert len(set(w.start_blood for w in run.rescue.workers)) == run.total
-    assert len(run.swarm.clegs) == len(scene.CLEGS_A) + len(scene.CLEGS_B)
+    assert len(run.swarm.clegs) == sum(
+        len(r.clegs) for r in scene.BUILDING.rooms)
 
 
 def test_the_same_seed_gives_the_same_numbers():
@@ -171,7 +176,7 @@ def test_a_death_records_which_room_it_happened_in():
     """
     run = driver.drive(bots.make("statue"), seed=1)
     names = {r.name for r in scene.BUILDING.rooms}
-    assert len(names) == 2
+    assert len(names) == len(scene.BUILDING)
     seen = set()
     for person in report.results(run)["people"]:
         assert person["room"] in names

@@ -75,7 +75,7 @@ def drive(bot=None, seed: int = session_mod.DEFAULT_SEED,
           metrics: bool = True, on_sound=None,
           magnet: bool = True, building=None,
           start_room: int | None = None,
-          wall_fade: int = 1) -> session_mod.Session:
+          wall_fade: int | None = None) -> session_mod.Session:
     """Play one session to its end, or to the frame limit. Returns the run.
 
     The whole driver, and it is six lines, because everything that makes a run
@@ -352,9 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spray", action="store_true",
                         help="arm the bot: a listener or an oracle presses "
                              "fire at a fly within two cells ahead (#122)")
-    parser.add_argument("--wall-fade", type=int, default=1, choices=(1, 2),
+    parser.add_argument("--wall-fade", type=int, default=None, choices=(1, 2),
                         help="how slowly the beam's memory of a wall fades: "
-                             "1 as built (three seconds), 2 half rate (six)")
+                             "1 three seconds, 2 half rate (six). Left off, "
+                             "the level's own `fade:` decides -- six seconds "
+                             "on Levels 1 to 3 and three from Level 4")
     parser.add_argument("--no-magnet", dest="magnet", action="store_false",
                         help="run without the searchlight magnet (issue #82): "
                              "the pin that the rule off is the tree before it")

@@ -286,7 +286,8 @@ class Place:
     expensive part, and that is what makes the split affordable on a Z80.
     """
 
-    def __init__(self, index: int, room, clegs, beam_seed: int) -> None:
+    def __init__(self, index: int, room, clegs, beam_seed: int,
+                 mount_seed: int = 0) -> None:
         self.index = index
         self.room = room
         #: One light field per room, and **that is what stops light crossing a
@@ -309,7 +310,17 @@ class Place:
                 0, 0, radius=room.searchlight.radius,
                 vary=room.searchlight.vary, seed=beam_seed,
                 is_solid=room.is_solid, step_every=room.searchlight.pace)
-            self.roaming.mount = room.searchlight.mount
+            # **The corner the housing is bolted to rolls with the beam**
+            # (issue #137, ruling 10). It was an authored `mount:` that no
+            # level file ever set, so every searchlight in the game hung in
+            # the same corner; the beam's own seed already varies per room and
+            # per run, and the corner is exactly the sort of thing that should
+            # differ between two runs of the same room. The building draws one
+            # corner and each room takes the next one round, so neighbours
+            # never share a corner and the whole set rotates with the run --
+            # see `seeds.MOUNT_TAG` for why that is stated rather than drawn
+            # per room.
+            self.roaming.mount = (mount_seed + index) & 0b11
         #: One byte per cell, non-zero where the room is solid, for the
         #: `--wall-fade` experiment (issue #117).
         self.solid_mask = bytes(
@@ -388,13 +399,18 @@ class Place:
 
         The fade in a room you are not in **keeps running**, because time
         passes everywhere: duck out and back and your memory is still warm,
-        come back two minutes later and it has gone. In a building of two rooms
-        that costs nothing, because both fields are resident and both decay
-        every frame. A larger building keeps a field for the room you are in
-        and the one you just left and no others, and catches the second one up
-        from a frame stamp on re-entry -- see `LightField.catch_up`, which is
-        built and tested and is not yet on this path because with two rooms
-        there is never a room to catch up.
+        come back two minutes later and it has gone. **Every room's field
+        decays every frame and always has**, however many rooms the building
+        has -- the line that used to be here said *"with two rooms there is
+        never a room to catch up"*, and Levels 1 and 2 have had three since
+        they were authored.
+
+        `LightField.catch_up` is still not on this path, and issue #136 says
+        why: a far room is fully simulated, its searchlight writes to its field
+        every frame, and ageing a field by N in one pass is only equivalent if
+        nothing wrote to it in between. What #136 did take is the other half of
+        the cost -- a room that is not on screen no longer has its *picture*
+        rebuilt, only its charge decayed. See `LightField.commit`.
         """
         first = not self.seen
         self.seen = True
@@ -410,7 +426,8 @@ class Session:
                  sound: bool = True, magnet: bool = True,
                  luminous: bool = True, trail: bool = False,
                  strobe: bool = False, building=None,
-                 start_room: int | None = None, wall_fade: int = 1) -> None:
+                 start_room: int | None = None,
+                 wall_fade: int | None = None) -> None:
         self.seed = seed
         #: Two looks the user tried and ruled on (issue #91, then #92), both
         #: now the default. `luminous`: Clegs are drawn wherever they are,
@@ -424,10 +441,18 @@ class Session:
         #: the old looks back for comparison.
         self.luminous = luminous
         self.trail = trail
-        #: `--wall-fade N` (issue #117): 1 is the fade as it is, three
-        #: seconds of wall memory behind the beam; 2 tops every remembered
-        #: wall cell up by one on even frames, so it fades at half rate and
-        #: lasts six. An experiment for the keyboard, not a level key.
+        #: How long a wall the beam has passed is remembered (issue #117):
+        #: 1 is the fade as it is, three seconds; 2 tops every remembered wall
+        #: cell up by one on even frames, so it fades at half rate and lasts
+        #: six.
+        #:
+        #: **It became the level's since issue #137** and is no longer only an
+        #: experiment for the keyboard: it is the dial that decides whether a
+        #: room's authored walls are ever actually seen, so the levels that
+        #: teach get six seconds and Level 4 on gets three. `--wall-fade N`
+        #: still overrides it, which is what the flag is for; left alone, the
+        #: building's budget decides, and a run with no building gets the
+        #: default.
         self.wall_fade = wall_fade
         #: **A run takes a building** (issue #108). Left out, it is the one
         #: `scene` shows, which is Level 3; given, it is whatever the driver
@@ -457,6 +482,7 @@ class Session:
         cleg_seed = seeds.stream(level_seed, seeds.CLEG_TAG)
         beam_seeds = [seeds.stream(level_seed, seeds.BEAM_TAG + i)
                       for i in range(len(self.building))]
+        mount_seed = seeds.stream(level_seed, seeds.MOUNT_TAG)
 
         #: Which room the player is standing in. **The whole of the screen
         #: transition**: `draw` paints this room and no other, so stepping
@@ -497,6 +523,9 @@ class Session:
         #: since #117 leaves the walls it passes in memory; what the player
         #: carries is the glow, with a nose. One button: the spray.
         budget = self.building.budget
+        # The level's wall memory, unless `--wall-fade` overrode it.
+        if self.wall_fade is None:
+            self.wall_fade = budget.fade
         self.spray = spray_mod.Spray(charges=budget.spray)
         #: How long a hit keeps the magnet on (issue #118): the level's
         #: seconds, ten on Level 3 as the rule was made.
@@ -512,7 +541,8 @@ class Session:
             flies = [clegs_mod.Cleg(cx, cy, seed=cleg_seed + made + n)
                      for n, (cx, cy) in enumerate(room.clegs)]
             made += len(flies)
-            self.places.append(Place(i, room, flies, beam_seeds[i]))
+            self.places.append(Place(i, room, flies, beam_seeds[i],
+                                     mount_seed))
         #: **The never list's rule 4** (issue #116): the beam in the room the
         #: player begins in never opens on the start. `Roaming.safe_entry`
         #: walks the route and moves the entry station on until the first ten
@@ -1665,6 +1695,9 @@ class Session:
         to, x = crossed
         left = self.room
         self.player.x = x
+        # The walk counter is re-based rather than fed: the crossing moves `x`
+        # the width of a room, which is not travel. See `Walk.carried_to`.
+        self.player.walk.carried_to(self.player.x, self.player.y)
         self.here = to
         self.crossings += 1
         self._record(CROSSED, count=to, room=left)
@@ -2039,8 +2072,23 @@ class Session:
             if housing is not None:
                 field.add(*housing, level=lighting.LIT, memory=1,
                           reveals=False)
+        # **Only the room being drawn needs its picture worked out** (issue
+        # #136). `commit` is two passes over 704 cells: the charge's decay,
+        # which every room needs every frame because the fade keeps running
+        # while you are out of one, and the rebuild of what each cell *shows*,
+        # which is only ever read for the room on screen. `shown=False` defers
+        # the second; `LightField.display` rebuilds it on the first read, so a
+        # far room that does get asked -- a moment raised where somebody died
+        # two rooms away -- answers exactly what it always did.
+        #
+        # **It is the whole saving that was available.** The retro-gamer's
+        # costing assumed a far room's field could be left un-stepped and
+        # caught up on re-entry, and it cannot: its searchlight is still
+        # sweeping, that is what makes the people left behind in it prey, and
+        # `catch_up`'s decay-by-N only equals decaying-by-one-N-times if
+        # nothing wrote to the field in between. See the note in `commit`.
         for place in self.places:
-            place.field.commit(decay=not held)
+            place.field.commit(decay=not held, shown=place.index == self.here)
             if self.wall_fade == 2 and not held and self.frame % 2 == 0:
                 place.field.linger(place.solid_mask)
 

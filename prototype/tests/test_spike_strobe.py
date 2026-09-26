@@ -3,7 +3,7 @@ whole room, five dark frames between, the game held, nothing remembered."""
 
 from spikes import lighting, session as S
 from spikes.session import Intent, Session
-from spotlight.core.constants import COLS
+from spotlight.core.constants import CELL, COLS, SCREEN_H, SCREEN_W
 from spikes.layout import PLAY_ROWS
 
 
@@ -265,3 +265,155 @@ def test_the_name_builds_up_from_pixels_and_is_whole_before_the_plan():
     # its own build.
     assert screens.big_pixels("THE HOLLINS HOTEL", 10) == \
         screens.big_pixels("THE HOLLINS HOTEL", 10)
+
+
+# --- the plan is a grid (issue #134) ----------------------------------------
+#
+# The opening drew every room side by side in one row at two pixels a cell,
+# which is `rooms * 64 + (rooms - 1) * 8` pixels: 208 for three and **280 for
+# four on a 256-pixel screen**. `plan_origin` came back at x = -12, the first
+# room was sliced off the left edge, and nothing raised and nothing warned.
+# The round that follows takes buildings to six rooms, so the plan became a
+# grid and the loader gained the geometry check it never had.
+
+import pytest
+
+from spikes import building as B, levels, screens
+from spotlight.core.screen import Screen
+
+
+def _plan_room(name, hue, at, doorways=()):
+    rows = [["#"] * COLS]
+    rows += [["#"] + ["."] * (COLS - 2) + ["#"] for _ in range(PLAY_ROWS - 2)]
+    rows.append(["#"] * COLS)
+    return B.Room(name, ("".join(r) for r in rows), ink=B.palette(hue),
+                  player_start=(24, 96), at=at, doorways=doorways,
+                  searchlight=B.Searchlight(3, False))
+
+
+def _grid_building(n):
+    """`n` rooms laid out across the plan's grid, three to a row."""
+    from spotlight.core.constants import CYAN, YELLOW
+    rooms = []
+    for i in range(n):
+        col, row = i % screens.PLAN_COLS, i // screens.PLAN_COLS
+        hue = YELLOW if (col + row) % 2 == 0 else CYAN
+        rooms.append(_plan_room(f"room {i}", hue, (col, row)))
+    return B.Building(rooms)
+
+
+@pytest.mark.parametrize("rooms", [1, 2, 3, 4, 6, 9])
+def test_a_plan_of_any_allowed_size_draws_wholly_inside_the_play_area(rooms):
+    """The acceptance: no pixel outside the play area and no negative origin.
+
+    Four rooms is the size that used to walk off the left edge in silence;
+    nine is the cap, three rows of three, 208 x 148 of a 256 x 176 area.
+    """
+    building = _grid_building(rooms)
+    x0, y0 = screens.plan_origin(building)
+    assert x0 >= 0 and y0 >= 0, f"{rooms} rooms start at {(x0, y0)}"
+    _cols, _rows, width, height = screens.plan_extent(building)
+    assert x0 + width <= SCREEN_W, f"{rooms} rooms are {width}px wide"
+    assert y0 + height <= PLAY_ROWS * CELL, f"{rooms} rooms are {height}px tall"
+    screen = Screen()
+    screens.draw_plan(screen, building)
+    # Nothing is plotted in the strip, which the opening keeps black.
+    for y in range(PLAY_ROWS * CELL, SCREEN_H):
+        for x in range(SCREEN_W):
+            assert not screen.point(x, y), f"the plan reached the strip at {(x, y)}"
+
+
+def test_every_room_of_a_nine_room_plan_lands_on_its_own_patch():
+    """Nine rooms, and each one's walls are drawn where its `at:` says."""
+    building = _grid_building(9)
+    screen = Screen()
+    screens.draw_plan(screen, building)
+    x0, y0 = screens.plan_origin(building)
+    stride = COLS * screens.PLAN_SCALE + screens.PLAN_GUTTER
+    down = PLAY_ROWS * screens.PLAN_SCALE + screens.PLAN_GUTTER
+    for i, room in enumerate(building.rooms):
+        col, row = room.at
+        # The room's top-left border cell is a block at its own origin.
+        x = x0 + col * stride
+        y = y0 + row * down
+        assert screen.point(x, y), f"room {i} at {(col, row)} is not drawn"
+
+
+def test_a_building_with_no_positions_draws_the_single_row_it_always_did():
+    """A building put together by hand in a test is not refused and is not
+    rearranged: the fallback is chain order in one row."""
+    from spotlight.core.constants import CYAN, YELLOW
+    plain = B.Building([_plan_room("a", YELLOW, None),
+                        _plan_room("b", CYAN, None)])
+    assert screens.plan_grid(plain) == [(0, 0), (1, 0)]
+    assert screens.plan_extent(plain)[:2] == (2, 1)
+
+
+def test_the_shipped_levels_plans_are_the_pixels_they_always_were():
+    """Three rooms in a row is what their grid says, so nothing moved."""
+    for n in levels.levels():
+        building = levels.level(n)
+        rooms = len(building)
+        was = ((SCREEN_W - (rooms * COLS * screens.PLAN_SCALE
+                            + (rooms - 1) * screens.PLAN_GUTTER)) // 2,
+               (PLAY_ROWS * CELL - PLAY_ROWS * screens.PLAN_SCALE) // 2)
+        assert screens.plan_origin(building) == was, f"level {n} moved"
+
+
+# --- what the loader now refuses --------------------------------------------
+
+HEAD = "level: 9\nname: Test\nbuilding: The Test Works\n"
+
+
+def _room_text(name, hue, at=None, doors=()):
+    out = [f"room: {name}", f"floor: {hue}", "map:"]
+    out += ["#" * COLS]
+    out += ["#" + "." * (COLS - 2) + "#" for _ in range(PLAY_ROWS - 2)]
+    out += ["#" * COLS]
+    out += ["worker: 24 96 90", "searchlight: 3 repeat", "start: 24 96"]
+    if at is not None:
+        out.append(f"at: {at[0]} {at[1]}")
+    out += list(doors)
+    return "\n".join(out) + "\n"
+
+
+def test_a_room_whose_east_door_does_not_lead_east_is_refused():
+    text = (HEAD
+            + _room_text("a", "yellow", (0, 0), ("door: east 10-12 b",))
+            + _room_text("b", "cyan", (0, 1), ("door: west 10-12 a",)))
+    with pytest.raises(ValueError, match="which is not east of it"):
+        levels.build(levels.parse(text)[2], "t")
+
+
+def test_two_rooms_at_the_same_place_on_the_plan_are_refused():
+    text = (HEAD + _room_text("a", "yellow", (0, 0))
+            + _room_text("b", "cyan", (0, 0)))
+    with pytest.raises(ValueError, match="are both at 0 0"):
+        levels.build(levels.parse(text)[2], "t")
+
+
+def test_a_half_authored_grid_is_refused():
+    text = HEAD + _room_text("a", "yellow", (0, 0)) + _room_text("b", "cyan")
+    with pytest.raises(ValueError, match="either authored or it is not"):
+        levels.build(levels.parse(text)[2], "t")
+
+
+def test_a_position_off_the_plan_is_refused_at_the_line():
+    text = HEAD + _room_text("a", "yellow", (3, 0))
+    with pytest.raises(ValueError, match="off the plan"):
+        levels.parse(text)
+
+
+def test_a_building_of_ten_rooms_is_refused():
+    """Nine is the cap because nine is what the screen holds."""
+    from spotlight.core.constants import CYAN, YELLOW
+    text = HEAD
+    for i in range(10):
+        col, row = i % screens.PLAN_COLS, i // screens.PLAN_COLS
+        hue = "yellow" if (col + row) % 2 == 0 else "cyan"
+        # The tenth has nowhere left to stand, so `at:` refuses it first --
+        # which is the same rule arriving one line earlier.
+        at = (col, min(row, screens.PLAN_ROWS - 1))
+        text += _room_text(f"r{i}", hue, at)
+    with pytest.raises(ValueError, match="both at|off the plan|plan holds"):
+        levels.build(levels.parse(text)[2], "t")

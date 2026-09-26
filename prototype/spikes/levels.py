@@ -22,8 +22,9 @@ The format, in full:
     light: left top width height
     searchlight: radius repeat|vary      every room has one
     pace: n             frames per cell of the beam (default 6)
-    mount: n            the housing's corner, 0-3 (default 0)
     start: x y          pixels; every room has one
+    at: col row         where the room sits in the building's plan (issue #134)
+    fade: n             wall-memory rate divisor, 1 (3 s) or 2 (6 s); level's own
     door: east|west r-r <room name>      rows inclusive, the room it leads to
 
 Or, since issue #120, **a rolled interior** in place of `map:` -- an
@@ -38,6 +39,31 @@ run's seed by `roller.py` (*The light round* §2):
     away: n             no fly starts nearer the start than this
     worker: blood       one line per person: the clock only
     clegs: n            how many flies
+    shell: <name>       one or more; which authored shells this room may be
+
+And, since issue #132, **the walls are authored too**. A shell is a named
+grid declared before the first `room:`, and a `roll:` room names the shells
+it may be built from; the roll picks one and the contents still roll inside
+it. A room with no `shell:` gets the plain rectangle, as every room did
+before, so an unconverted template keeps loading.
+
+    shape: <name>       starts a shell; followed by 22 rows of 32
+    ####...####         walls, floor and doorways only -- no furniture, no
+    ...                 light, no person, no fly: those are the roll's
+
+A shell holds at most **two** internal structures, each a bay (a wall from
+one border stopping short of the opposite one), a division (a wall border to
+border with a gap of two or three) or a chamber (a rectangle with a door in
+each of two opposite walls). A chamber with **one** door is not authored: no
+room here is enterable only one way.
+
+That is a design rule and not a safety one, and the difference is worth
+keeping straight. The figure it was ruled on -- 17 unfair rooms in 256 -- was
+measured when the *chambers themselves rolled*, at a random size and position;
+an authored one-doored chamber strands nothing, on its bare walls or on 256
+rolled seeds. `tests/test_spike_shells.py` pins that so nobody reads a
+fairness reason into it later. What does the safety work is
+`swarming.strands_a_shell`, which gates every shell whatever shape it is.
 
 The first room of a level has the exit, in its west wall. A block with both
 `map:` and `roll:` is refused. `level(n, seed)` rolls a level for a run seed,
@@ -46,10 +72,13 @@ the same rooms on the window, the driver and the gallery.
 
 Blank lines and `;` comments go anywhere. A malformed line raises
 `ValueError` naming the line. On top of `Building.validate`, the loader
-refuses: a room with no `start:` or no `searchlight:`; a doorway whose rows
-are not 10-12; two adjacent rooms sharing a floor hue; a room reached only
+refuses: a room with no `start:` or no `searchlight:`; a doorway that is not
+three rows running together clear of the corners (they left the middle of the
+wall in #135); two adjacent rooms sharing a floor hue; a room reached only
 through a room with no worker (a silent room strands the listener -- shouts
-carry one doorway); `torch:` and `spotlight:`, which went with the torch.
+carry one doorway); a plan that is half authored, has two rooms in one place,
+holds more rooms than it can draw, or has an east door that does not lead east
+(#134); `torch:`, `spotlight:` and `mount:`, which are gone.
 """
 
 from functools import lru_cache
@@ -58,8 +87,8 @@ from pathlib import Path
 from spotlight.core.constants import CYAN, YELLOW
 
 from .building import (
-    DEFAULT_BUDGET, Budget, Building, Doorway, EAST, Room, Searchlight, WEST,
-    palette,
+    DEFAULT_BUDGET, PLAN_COLS, PLAN_MOST, PLAN_ROWS, Budget, Building, Doorway,
+    EAST, Room, Searchlight, WEST, palette,
 )
 
 #: The run seed a level is rolled for when none is given: the driver's
@@ -81,8 +110,8 @@ ROLL_KEYS = ("segments", "length", "pieces", "band", "away", "clegs")
 
 class _RoomSpec:
     __slots__ = ("name", "floor", "rows", "workers", "clegs",
-                 "lights", "searchlight", "pace", "mount", "start", "doors",
-                 "line", "roll")
+                 "lights", "searchlight", "pace", "start", "doors",
+                 "line", "roll", "shells", "at")
 
     def __init__(self, name: str, line: int) -> None:
         self.name = name
@@ -93,19 +122,24 @@ class _RoomSpec:
         self.clegs: list = []
         #: None for a `map:` room; for a `roll:` room the template's keys.
         self.roll: dict | None = None
+        #: The names of the shells this room may be built from (issue #132),
+        #: in the order the file lists them. Empty is the plain rectangle.
+        self.shells: list[str] = []
         self.lights: list = []
         self.searchlight = None
         self.pace = None
-        self.mount = None
         self.start = None
+        #: Where the room sits in the building's plan (issue #134).
+        self.at = None
         self.doors: list = []
 
 
-BUDGET_KEYS = ("blood", "spray", "lives", "magnet", "wake")
+BUDGET_KEYS = ("blood", "spray", "lives", "magnet", "wake", "fade")
 #: Keys the torch took with it (issue #119). Refused, not skipped, so a
 #: stale level file cannot carry a dead key for ever.
 DEAD_KEYS = {"torch": "the torch went with issue #119",
-             "spotlight": "the floor lamps went with the torch, issue #119"}
+             "spotlight": "the floor lamps went with the torch, issue #119",
+             "mount": "the housing's corner rolls with the beam since #137"}
 
 
 def parse(text: str, where: str = "<text>"
@@ -117,6 +151,8 @@ def parse(text: str, where: str = "<text>"
     number, name = None, None
     building_name = None
     budget = dict(DEFAULT_BUDGET._asdict())
+    #: The level's authored shells by name (issue #132), in declaration order.
+    shapes: dict[str, tuple] = {}
     rooms: list[_RoomSpec] = []
     lines = text.splitlines()
     i = 0
@@ -171,6 +207,29 @@ def parse(text: str, where: str = "<text>"
             if budget[key] < 0:
                 raise fail(i, f"{key} cannot be negative")
             continue
+        if key == "shape":
+            # An authored shell (issue #132). Declared before the first
+            # `room:`, because a shell is the level's vocabulary rather than
+            # one room's property -- two rooms may be built from the same one.
+            if rooms:
+                raise fail(i, "`shape:` is the level's, and goes before the "
+                              "first `room:`")
+            if not value:
+                raise fail(i, "a shape needs a name")
+            if value in shapes:
+                raise fail(i, f"there are two shapes called {value!r}")
+            rows = []
+            while len(rows) < ROWS:
+                if i >= len(lines):
+                    raise fail(i, f"shape {value!r} ended after {len(rows)} rows")
+                row = lines[i].rstrip("\n")
+                i += 1
+                if len(row) != COLS:
+                    raise fail(i, f"shape {value!r} row {len(rows)} is "
+                                  f"{len(row)} wide, not {COLS}")
+                rows.append(row)
+            shapes[value] = tuple(rows)
+            continue
         if key == "room":
             if not value:
                 raise fail(i, "a room needs a name")
@@ -205,6 +264,17 @@ def parse(text: str, where: str = "<text>"
             if room.rows:
                 raise fail(i, "a room has `map:` or `roll:`, not both")
             room.roll = {}
+        elif key == "shell":
+            if room.roll is None:
+                raise fail(i, "`shell:` belongs to a `roll:` room")
+            if value not in shapes:
+                raise fail(i, f"no shape called {value!r}; "
+                              f"the level declares {sorted(shapes) or 'none'}")
+            if any(named == value for named, _rows in room.shells):
+                raise fail(i, f"{room.name!r} names shell {value!r} twice")
+            # Resolved here rather than carried as a name, so `parse` keeps
+            # its four-value shape and a spec is self-contained.
+            room.shells.append((value, shapes[value]))
         elif key in ROLL_KEYS:
             if room.roll is None:
                 raise fail(i, f"`{key}:` belongs to a `roll:` room")
@@ -232,10 +302,14 @@ def parse(text: str, where: str = "<text>"
             room.pace = ints(i, parts, 1, "pace")[0]
             if not 1 <= room.pace <= 12:
                 raise fail(i, f"pace is frames per cell, 1 to 12, not {room.pace}")
-        elif key == "mount":
-            room.mount = ints(i, parts, 1, "mount")[0]
-            if not 0 <= room.mount <= 3:
-                raise fail(i, f"mount is a corner, 0 to 3, not {room.mount}")
+        elif key == "at":
+            col, row = ints(i, parts, 2, "at")
+            if not (0 <= col < PLAN_COLS
+                    and 0 <= row < PLAN_ROWS):
+                raise fail(i, f"at {col} {row} is off the plan, which is "
+                              f"{PLAN_COLS} across and "
+                              f"{PLAN_ROWS} down")
+            room.at = (col, row)
         elif key == "start":
             room.start = tuple(ints(i, parts, 2, "start"))
         elif key == "door":
@@ -255,6 +329,9 @@ def parse(text: str, where: str = "<text>"
         raise fail(0, "no rooms")
     if budget["lives"] < 1:
         raise fail(0, "a level needs at least one life")
+    if budget["fade"] not in (1, 2):
+        raise fail(0, f"fade is a rate divisor, 1 or 2, not {budget['fade']}; "
+                      "1 is the three-second wall memory and 2 is six")
     if building_name is not None:
         budget["building"] = building_name
     return number, name, rooms, Budget(**budget)
@@ -294,25 +371,76 @@ def build(specs: list, where: str = "<text>",
                              "`searchlight:`; every room has one")
         if spec.pace is not None:
             spec.searchlight.pace = spec.pace
-        if spec.mount is not None:
-            spec.searchlight.mount = spec.mount
         doorways = []
         for side, rows, to_name, line in spec.doors:
             if to_name not in index:
                 raise ValueError(f"{where}:{line}: door leads to unknown room {to_name!r}")
-            if tuple(rows) != DOOR_ROWS:
-                raise ValueError(f"{where}:{line}: a doorway's rows are {DOOR_ROWS[0]}-{DOOR_ROWS[-1]}")
+            # **A doorway may be anywhere in a vertical wall** (issue #135).
+            # It was pinned to rows 10-12 -- the exact middle -- in every room
+            # of every level, so a player had never once had to remember which
+            # way out of a room. What a doorway still has to be is three
+            # consecutive rows clear of the corners: a person is two cells
+            # tall, so two is the floor (`Room.validate` says so), and three is
+            # what a tail files through without queueing.
+            if len(rows) != len(DOOR_ROWS):
+                raise ValueError(
+                    f"{where}:{line}: a doorway is {len(DOOR_ROWS)} rows, "
+                    f"not {len(rows)}")
+            if tuple(rows) != tuple(range(rows[0], rows[0] + len(rows))):
+                raise ValueError(f"{where}:{line}: a doorway's rows run together")
+            if rows[0] < 1 or rows[-1] > ROWS - 2:
+                raise ValueError(
+                    f"{where}:{line}: a doorway at rows {rows[0]}-{rows[-1]} "
+                    f"runs into the corner; 1 to {ROWS - 2} is the wall")
             doorways.append(Doorway(side, rows, to=index[to_name]))
         rooms.append(Room(
             spec.name, spec.rows, ink=palette(spec.floor),
             workers=spec.workers, clegs=spec.clegs,
             searchlight=spec.searchlight, lights=spec.lights,
-            player_start=spec.start, doorways=doorways))
+            player_start=spec.start, doorways=doorways, at=spec.at))
     # Adjacent rooms never share a floor hue.
     for n, spec in enumerate(specs):
         for _side, _rows, to_name, line in spec.doors:
             if specs[index[to_name]].floor == spec.floor:
                 raise ValueError(f"{where}:{line}: {spec.name!r} and {to_name!r} share a floor hue")
+    # **The plan's grid, which the loader has never checked** (issue #134).
+    # Either every room says where it is or none does: a half-authored grid
+    # would draw some rooms on top of each other, and until now a building of
+    # four rooms drew off the left edge of the screen in silence.
+    placed = [spec for spec in specs if spec.at is not None]
+    if placed and len(placed) != len(specs):
+        missing = next(s for s in specs if s.at is None)
+        raise ValueError(f"{where}:{missing.line}: room {missing.name!r} has no "
+                         "`at:` and some rooms have one; a building's plan is "
+                         "either authored or it is not")
+    if placed:
+        seen = {}
+        for spec in specs:
+            if spec.at in seen:
+                raise ValueError(
+                    f"{where}:{spec.line}: {spec.name!r} and {seen[spec.at]!r} "
+                    f"are both at {spec.at[0]} {spec.at[1]}")
+            seen[spec.at] = spec.name
+        if len(specs) > PLAN_MOST:
+            raise ValueError(
+                f"{where}: {len(specs)} rooms, and a building's plan holds "
+                f"{PLAN_MOST} -- {PLAN_COLS} across and {PLAN_ROWS} down")
+        # **East leads east.** A doorway is authored twice, once on each side,
+        # and nothing has ever checked that the two agree with the shape of the
+        # building. With the plan drawn on a grid a lie here is visible, so it
+        # is worth refusing: the plan would show a door into the room next to
+        # it and the door would put the player somewhere else.
+        for spec in specs:
+            col, row = spec.at
+            for side, _rows, to_name, line in spec.doors:
+                want = (col + 1, row) if side == EAST else (col - 1, row)
+                got = specs[index[to_name]].at
+                if got != want:
+                    way = "east" if side == EAST else "west"
+                    raise ValueError(
+                        f"{where}:{line}: {spec.name!r} is at {col} {row} and "
+                        f"its {way} door leads to {to_name!r} at "
+                        f"{got[0]} {got[1]}, which is not {way} of it")
     # A room reached only through a room with no worker strands the listener.
     for n, spec in enumerate(specs[1:], start=1):
         ways_in = [m for m, other in enumerate(specs)
@@ -336,7 +464,8 @@ def _roll(spec, first: bool, roll_seed: int, where: str):
         away=keys.get("away", 6), workers=spec.workers,
         clegs=keys.get("clegs", 0),
         doorways=[(side, rows) for side, rows, _to, _line in spec.doors],
-        start=spec.start, exit=first, lights=spec.lights)
+        start=spec.start, exit=first, lights=spec.lights,
+        shells=[rows for _name, rows in spec.shells])
     rolled = roller.roll(template, roll_seed, f"{where} ({spec.name})")
     return list(rolled.rows), list(rolled.workers), list(rolled.clegs), rolled.seed
 
@@ -385,6 +514,27 @@ CLOCK_STEP, CLOCK_FLOOR = 3, 22
 VARY_FROM = 5
 MOST_FLIES = 9
 
+#: The rest of the ladder (issue #137, ruling 9). `pace:` moves one step and
+#: stops; the spray walks 5 -> 4 -> 3; doorways leave the middle of the wall.
+PACE_FROM, LATE_PACE = 4, 5
+SPRAY_FROM, SPRAY_AGAIN, LATE_SPRAY = 4, 7, 3
+DOORS_OFF_CENTRE = 4
+
+#: Where a doorway sits once it stops sitting in the middle. Cycled by level,
+#: so a level number names a building: the same rows every run of Level 6.
+#: Clear of the corners, three rows, running together -- which is what
+#: `build` refuses anything else for.
+#: **None of them is the middle**, or the ladder would hand a level back the
+#: room it had just stopped teaching: a five-band cycle that included 10-12
+#: put Level 9's doorways back in the centre.
+DOOR_BANDS = ((5, 6, 7), (15, 16, 17), (7, 8, 9), (13, 14, 15),
+              (4, 5, 6), (16, 17, 18))
+
+
+def _shifted(rows, n: int):
+    """The rows a doorway takes on level `n`, once they leave the middle."""
+    return DOOR_BANDS[(n - DOORS_OFF_CENTRE) % len(DOOR_BANDS)]
+
 
 def level(n: int, seed: int = DEFAULT_SEED) -> Building:
     """Level `n` for run `seed`, loaded once per pair. On the Z80 the
@@ -418,10 +568,42 @@ def _beyond(n: int, seed: int) -> Building:
                         for blood in spec.workers]
         if n >= VARY_FROM:
             spec.searchlight.vary = True
+        # **The dials that were frozen at Level 3** (issue #137, ruling 9).
+        # Six of the eight a level file can turn used to be identical at
+        # Level 3 and Level 400, and the whole of the progression was the clock
+        # and the fly count -- which is why Levels 2 to 6 measured 84, 86, 91
+        # and 83 per cent and felt like one level renamed.
+        #
+        # `pace:` moves **one** step and stops. Pace 4 costs +616 T-states a
+        # frame, which is affordable, and breaks the one local skill the beam
+        # teaches -- you learn a repeating route and time your crossing -- which
+        # is not. `magnet:` is refused outright: measured, it is not monotonic
+        # (55 of 56 saved at five seconds, **42** at ten, 55 at twenty), so a
+        # ladder up it walks a curve that is not one.
+        if n >= PACE_FROM:
+            spec.searchlight.pace = LATE_PACE
+        # Doorways stop sitting at the exact middle of the wall (#135, ruling
+        # 8). A player had never once had to remember which way out of a room.
+        # Which rows they move to is the level's, not a roll: the same level
+        # number gives the same building, and a doorway that moved per seed
+        # would be a room you cannot learn at all.
+        if n >= DOORS_OFF_CENTRE:
+            spec.doors = [(side, _shifted(rows, n), to, line)
+                          for side, rows, to, line in spec.doors]
     extra = max(0, n - floor_level)
     have = sum(spec.roll.get("clegs", 0) for spec in specs)
     specs[-1].roll["clegs"] = specs[-1].roll.get("clegs", 0) + \
         min(extra, max(0, MOST_FLIES - have))
+    budget = budget._replace(
+        # Six seconds of wall memory is for the levels that teach; from here
+        # the room goes out of your head in three (ruling 9). Free -- two
+        # T-states a frame -- and it is the dial that decides whether the walls
+        # this round authored are ever actually seen.
+        fade=1,
+        # The spray walks down as the building grows: five, then four, then
+        # three (ruling 9).
+        spray=max(LATE_SPRAY, budget.spray - (1 if n >= SPRAY_FROM else 0)
+                  - (1 if n >= SPRAY_AGAIN else 0)))
     building = build(specs, f"{path} as level {n}",
                      roll_seed=seeds.roll_seed(seed, n))
     building.level = n

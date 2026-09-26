@@ -93,8 +93,8 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1597 tests, headless-safe
-SPOTLIGHT_SLOW=1 pytest    # + 120 room runs (tests/test_rooms.py), ~60 s
+pytest                     # 1665 tests, headless-safe
+SPOTLIGHT_SLOW=1 pytest    # + 132 room runs (tests/test_rooms.py), ~21 min
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no
@@ -104,9 +104,12 @@ pyproject and the package is not installed — `prototype/pytest.ini` sets
 ## Current state
 
 A playable prototype with a face and a voice, tagged `look-3` (2026-09-13).
-Three levels of rolled rooms and a fourth that tightens for ever, a swarm, a
-searchlight in every room, and the light bargain the design rests on: the
-beam is how you see the room and the thing that gives you away. The look-and-feel round gave it textured walls, a colour per room,
+Three buildings of three rooms each and a fourth that tightens for ever, a
+swarm, a searchlight in every room, and the light bargain the design rests on:
+the beam is how you see the room and the thing that gives you away. Each room
+is built from an **authored shell** whose walls may reach the border -- so a
+room can have a bay, a division or a chamber in it -- with the furniture, the
+people and the flies still rolled from the run's seed inside it. The look-and-feel round gave it textured walls, a colour per room,
 redrawn sprites, fourteen announced moments, a one-voice beeper with effects and
 music, and the mains surge (since removed).
 
@@ -156,8 +159,9 @@ after watching the demo: the torch is gone; the searchlight is in every room,
 seeded per room, never opening on the start, spilling through doorways, and
 writing the walls it passes into the fade, which is how a room is now seen;
 every room is a template (`roll:` in the level file) whose walls, furniture,
-people and flies roll from the run's seed by `spikes/roller.py`, proved
-pocket-free over a thousand seeds a template; all out opens the next building
+people and flies rolled from the run's seed by `spikes/roller.py`, proved
+pocket-free over a thousand seeds a template (the walls stopped rolling in
+#132 and are authored now); all out opens the next building
 through a card with lives carried and a score, `BEST` on the title, Level 4
 and on is Level 3 tightening; the demo's listener sprays. The game starts at
 Level 1 (`DEFAULT_LEVEL`); `scene.py` stays a view of Level 3 (`SCENE_LEVEL`)
@@ -174,6 +178,43 @@ stipple and under every sprite; and the housing wears one of eight tiles so
 it points at its own beam. It is a rule change, re-baselined in
 *2026-09-24 The searchlight baseline*, which also records that a gate stated
 as a mean now runs over eight seeds: a mean of four rolled seeds is a coin.
+
+**The plateau and the rooms** (2026-09-25/26, #131–#139), from the user: *"Kick
+off a design round to fix the plateau and the rooms."* Measured, Levels 2 to 6
+did not get harder — 84, 86, 91 and 83 per cent of the people rescued, four
+level-ups a player would have felt as the same level renamed — and every room
+in the game was one open hall, because the roll's clearance rule made a wall
+that touches the border unrepresentable.
+
+Seven slices. **A fly follows a wall to its end** (#131): the slide is held
+across the axis it began across, where before it was dropped whenever the
+longest axis changed, so a fly beside a long wall ping-ponged for ever — 400
+steps in 14 cells of one column. That was also the whole of the #26 refuge, so
+the corner that was ninety-one times safer is ordinary floor now. **The walls
+are authored** (#132): `shape:` blocks in the level file, `shell:` in a room,
+the roll picking one; the clearance rule is kept and the border is the one
+exemption. **The gate is a theorem** (#133): `swarming.strands_a_shell` runs on
+the bare walls with the doorways as the only origins, and because adding a start
+can only grow what a fly reaches, a shell that passes passes on every seed —
+40 ms, in `pytest`, instead of four core-hours. **The plan is a grid** (#134),
+`at: col row` a room, capped at nine, because a row of four overflowed a
+256-pixel screen in silence. **Doorways leave the middle of the wall** (#135)
+from Level 4 and cycle through six bands. **A room nobody is looking at keeps
+its charge and not its picture** (#136) — 3.00 display rebuilds a frame down to
+1.00 on a three-room level, byte-identical. **Level 3 gained a third room**
+(#137), which is the round's fix: the same seven clocks and six flies over
+three rooms instead of two take a dark listener from 94 per cent to 63, at no
+cost to the 48K frame, because `worst_case()` scales with flies and people and
+not with rooms. The dials that were frozen at Level 3 now move: `pace:` 6→5,
+`spray:` 5→4→3, the wall memory six seconds early and three late (`fade:`),
+and `mount:` is gone — the housing's corner rotates round the building from the
+run's seed.
+
+**Buildings cap at three rooms until #139.** Rulings 6, 7 and 8 are not jointly
+satisfiable: rooms are only ever adjacent east–west, so a connected building
+runs along one row of a plan three wide. Doorways in horizontal walls are
+raised as #139 and the four-, five- and six-room rungs wait for it, as do the
+loop and the branch. See *The plateau and the rooms* and its issues note.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

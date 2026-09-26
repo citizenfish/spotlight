@@ -1,13 +1,19 @@
 ; assets/levels/level2.txt -- Level 2, Infested: three rooms, seven people,
 ; six Clegs.
 ;
-; The second level (issue #111, then re-authored as templates in the light
-; round, issue #121): the spray room with a light in the middle of the
-; floor, the beam room, and the wide dark with no fixed light at all. Two
-; flies a room, a searchlight in every room (issue #118). The walls, the
-; furniture, the people's cells and the flies' starts roll from the run's
-; seed (issue #120). The reasons are in the vault's "The rooms" and "The
-; light round". Format as level3.txt.
+; The second level (issue #111, templates in #121, shells in #137): the spray
+; room with a light in the middle of the floor, the beam room, and the wide
+; dark with no fixed light at all. Two flies a room, a searchlight in every
+; room (#118).
+;
+; **The walls are authored here and the contents still roll** (#137, rulings 2
+; to 5). Each room names the shells it may be built from and the roll picks
+; one; the furniture, the people and the flies roll inside it as they always
+; did. A shell may reach the border, which is what makes a corridor or a
+; chamber possible at all -- and it is gated on its bare walls by
+; `swarming.strands_a_shell`, which is seed-independent, rather than sampled.
+;
+; A shell holds at most two internal structures. `shape:` blocks below.
 
 level: 2
 name: Infested
@@ -17,6 +23,84 @@ spray: 5
 lives: 3
 magnet: 8
 wake: off
+fade: 2           ; still six seconds: this is the last level that teaches
+
+; spine: a division high up: border to border with a three-cell gap at
+;   rows 4-6, so the way through is nowhere near the doorways
+shape: spine
+################################
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............................#
+#..............................#
+#..............................#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+################################
+
+; spine-low: the same division with its gap low down, at rows 15-17, so two
+;   rooms built from the pair do not read as the same room
+shape: spine-low
+################################
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#..............................#
+#..............................#
+#..............................#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+################################
+
+; stubs: two bays, one in from the top border and one from the bottom
+shape: stubs
+################################
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+################################
 
 room: the spray
 floor: yellow
@@ -29,9 +113,12 @@ away: 16
 worker: 90
 worker: 80
 clegs: 2
+shell: spine
+shell: stubs
 light: 14 9 3 3
 searchlight: 3 repeat
 start: 24 96
+at: 0 0
 door: east 10-12 the beam
 
 room: the beam
@@ -46,8 +133,11 @@ worker: 70
 worker: 40
 worker: 80
 clegs: 2
+shell: spine-low
+shell: stubs
 searchlight: 3 repeat
 start: 16 80
+at: 1 0
 door: west 10-12 the spray
 door: east 10-12 the wide dark
 
@@ -62,6 +152,9 @@ away: 16
 worker: 60
 worker: 70
 clegs: 2
+shell: spine
+shell: spine-low
 searchlight: 3 repeat
 start: 16 80
+at: 2 0
 door: west 10-12 the beam

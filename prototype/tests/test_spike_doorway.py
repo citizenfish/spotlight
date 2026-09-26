@@ -227,7 +227,9 @@ def test_every_room_has_a_searchlight_and_the_far_rooms_varies():
     assert run.places[scene.NEAR].roaming is not None
     assert run.places[scene.FAR].roaming is not None
     assert run.places[scene.FAR].roaming.vary
-    assert len(run.searchlights) == 2
+    assert len(run.searchlights) == len(scene.BUILDING)
+    # Still the only varying one, with three rooms as with two.
+    assert [p.index for p in run.places if p.roaming.vary] == [scene.FAR]
 
 
 # --- first entry, and the fade across a room change -------------------------
@@ -279,7 +281,14 @@ def test_the_fade_keeps_running_in_the_room_you_have_left():
     assert sum(near.field.charge[cy * COLS + cx]
                for cx, cy in remembered) < warm, \
         "the room behind you stopped fading"
-    for _ in range(lighting.FADE_FRAMES + 40):
+    # **Long enough for the level's own wall memory** (issue #137). The wait
+    # was `FADE_FRAMES + 40`, which was right while every level faded at full
+    # rate; Levels 1 to 3 now hold a wall the beam has passed for six seconds
+    # rather than three, because that is the dial that decides whether their
+    # authored walls are ever seen. `linger` tops a remembered solid up on even
+    # frames, so at `wall_fade` 2 the wall cells in `remembered` take twice as
+    # long to go out.
+    for _ in range(lighting.FADE_FRAMES * run.wall_fade + 40):
         run.step()
     assert all(near.field.remembered_at(cx, cy) == lighting.DARK
                for cx, cy in remembered), "the memory never went out"
@@ -356,6 +365,13 @@ def test_the_building_never_loses_or_duplicates_a_fly():
     total = len(run.swarm.clegs)
     for _ in range(3000):
         run.step()
+        # **Up to the first death.** A nest hatches a brood, which adds flies
+        # on purpose, so past that point the count is not meant to be conserved
+        # and this would be measuring the wrong thing. Nobody died inside three
+        # thousand frames on this seed until the building gained a third room
+        # (issue #137) and the walk got long enough that somebody does.
+        if run.lost:
+            break
         assert len(run.swarm.clegs) == total
         assert len({id(c) for c in run.swarm.clegs}) == total
 
@@ -984,8 +1000,15 @@ def test_the_call_says_the_door_and_not_the_person():
         # where they are standing reaches this room.
         far_room = scene.BUILDING.rooms[scene.FAR]
         own = set(run.call_cells)          # the near room's own shouts
+        # **Asked with the arguments the session uses.** `call_cells` takes the
+        # cells people are standing on as well as the room's walls -- a shout
+        # may not be written over a person -- and this used to leave them out
+        # and agree with the session only because the geometry happened to put
+        # nobody in the way. With the far room's authored walls (issue #137) it
+        # stopped agreeing, which is the test being wrong rather than the game.
+        people = run._people_cells(run.places[scene.FAR])
         for cx, cy in {cell for w in who
-                       for cell in w.call_cells(is_solid=far_room.is_solid)}:
+                       for cell in w.call_cells(people, far_room.is_solid)}:
             assert run.places[scene.FAR].field.level_at(cx, cy) == lighting.LIT
             # A cell the near room lights for its own reasons -- its own
             # shouts, or a revealing light such as the beam -- proves nothing;

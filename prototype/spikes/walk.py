@@ -63,6 +63,23 @@ class Stride:
         # Where the figure was when the counter last advanced, or started.
         self._x, self._y = x, y
 
+    def carried_to(self, x: int, y: int) -> None:
+        """The figure was *put* here rather than having walked here.
+
+        Issue #137. The counter measures travel since the last stride, so a
+        discontinuity -- the only one there is, a doorway crossing, where `x`
+        goes from one edge of the room to the other -- looked like a stride's
+        worth of walking and advanced the frame on the step after, **on a frame
+        the figure had not moved at all**. That breaks the rule the repaint
+        budget rests on: the stride never dirties a cell of its own, because it
+        only ever advances on a frame the figure is already being redrawn on.
+
+        So a crossing re-bases the counter instead of feeding it: the walk goes
+        on from where the figure came out of the doorway, and the phase is kept,
+        which is what makes the stride continuous through a door.
+        """
+        self._x, self._y = x, y
+
     def moved_to(self, x: int, y: int) -> bool:
         """Tell the counter where the figure is now. Returns whether it strode.
 

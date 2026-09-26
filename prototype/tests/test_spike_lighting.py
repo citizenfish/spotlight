@@ -329,10 +329,16 @@ def test_the_field_holds_one_byte_per_cell_and_no_second_one():
     f = L.LightField()
     cells = COLS * layout.PLAY_ROWS
     per_cell = [name for name in L.LightField.__slots__
-                if len(getattr(f, name)) == cells]
-    assert sorted(per_cell) == ["_illum", "_memory", "_prey", "_reveal",
-                                "charge", "display"], \
+                if isinstance(getattr(f, name), (bytes, bytearray, list))
+                and len(getattr(f, name)) == cells]
+    assert sorted(per_cell) == ["_display", "_illum", "_memory", "_prey",
+                                "_reveal", "charge"], \
         "a new per-cell array in the light field: is it a byte a cell worth?"
+    # `_stale` (issue #136) is one flag for the whole field and not a byte a
+    # cell: it says whether `_display` has been rebuilt from the charge yet,
+    # which a room nobody is looking at leaves until somebody asks. On the Z80
+    # it is one bit beside the room's other flags.
+    assert isinstance(f._stale, bool)
     assert not hasattr(f, "hue")
     # The per-frame flags are all cleared by `begin`, so nothing but the
     # charge survives the frame.
@@ -417,3 +423,73 @@ def test_prey_is_never_remembered():
     f.begin(); f.commit()
     assert not f.prey_at(5, 5), "the light has gone; you are in the dark again"
     assert f.level_at(5, 5) == L.LIT, "even though the cell still looks lit"
+
+
+# --- a room nobody is looking at keeps its charge and not its picture --------
+#
+# Issue #136. `commit` is two passes over 704 cells: the charge's decay, which
+# every room needs every frame because the fade keeps running while you are
+# out of one, and the rebuild of what each cell *shows*, which is only ever
+# read for the room on screen. The second is deferred for every other room.
+#
+# It is not the saving the round asked for. That one assumed a far room could
+# be left un-stepped entirely and caught up on re-entry, and it cannot: a far
+# room's searchlight is still sweeping, that is what makes the people left
+# behind in it prey, and `catch_up`'s decay-by-N only equals decay-by-one-N-
+# times if nothing wrote in between. This is the half that is provable.
+
+def test_deferring_the_picture_gives_byte_for_byte_the_same_picture():
+    """The equivalence, on the field alone: `shown=False` then a read is the
+    same bytes as `shown=True`, because `display` is a pure function of state
+    that does not move again until the next `begin`."""
+    import random
+    rng = random.Random(1)
+    eager, lazy = L.LightField(), L.LightField()
+    for _frame in range(200):
+        cells = [(rng.randrange(COLS), rng.randrange(layout.PLAY_ROWS))
+                 for _ in range(12)]
+        for field, shown in ((eager, True), (lazy, False)):
+            field.begin()
+            for cx, cy in cells:
+                field.add(cx, cy, L.LIT, L.CHARGE_LIT)
+            field.commit(shown=shown)
+        assert bytes(lazy.display) == bytes(eager.display), f"frame {_frame}"
+        assert bytes(lazy.charge) == bytes(eager.charge), f"frame {_frame}"
+
+
+def test_the_picture_is_owed_until_it_is_asked_for():
+    """The flag says what it means, and reading clears it."""
+    f = L.LightField()
+    f.begin(); f.add(4, 4, L.LIT, L.CHARGE_LIT); f.commit(shown=False)
+    assert f._stale, "the picture was built when nobody had asked"
+    assert f.level_at(4, 4) == L.LIT
+    assert not f._stale, "reading it left the picture owed"
+
+
+def test_lingering_builds_the_owed_picture_before_it_bumps_the_charge():
+    """`linger` runs after `commit`, so what a cell shows has always been the
+    charge as it stood at commit time. With the rebuild deferred that has to
+    stay true, or a wall in a far room would read one frame ahead of a wall in
+    the room you are in."""
+    solid = bytes([1]) * (COLS * layout.PLAY_ROWS)
+    eager, lazy = L.LightField(), L.LightField()
+    for field, shown in ((eager, True), (lazy, False)):
+        field.begin(); field.add(6, 6, L.LIT, L.CHARGE_LIT)
+        field.commit(shown=shown)
+        field.linger(solid)
+    assert bytes(lazy.display) == bytes(eager.display)
+
+
+def test_only_the_room_on_screen_has_its_picture_rebuilt_each_frame():
+    """The saving, counted rather than asserted about. On a three-room level
+    one field is shown and the other two are left owing."""
+    from spikes import levels
+    from spikes.session import Session
+    run = Session(seed=1, sound=False, building=levels.level(1))
+    assert len(run.places) == 3
+    run.step()
+    owed = [p.index for p in run.places if p.field._stale]
+    assert run.here not in owed, "the room on screen was left owing a picture"
+    assert sorted(owed) == sorted(p.index for p in run.places
+                                  if p.index != run.here), \
+        "a room nobody is looking at had its picture rebuilt anyway"

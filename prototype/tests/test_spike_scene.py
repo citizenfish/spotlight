@@ -1,4 +1,4 @@
-"""The hand-built playtest building: two rooms and the doorway between them."""
+"""The playtest building: three rooms and the two doorways between them."""
 
 import pytest
 
@@ -19,10 +19,12 @@ def _room(name):
 
 @pytest.fixture(params=NAMES)
 def room(request):
-    """Every test that is about *a room* is run against both of them.
+    """Every test that is about *a room* is run against all of them.
 
-    Room B is new and room A moved, so a test that only ever looked at the room
-    it was written for would go on passing while the other one was broken.
+    Room B was new and room A moved, so a test that only ever looked at the
+    room it was written for would go on passing while the other one was broken.
+    The building gained a third room in issue #137 and the fixture picked it up
+    without being asked, which is the point of parametrising on the names.
     """
     return _room(request.param)
 
@@ -171,12 +173,18 @@ def test_outside_a_room_counts_as_solid(room):
 
 # --- the threshold (issue #21) ----------------------------------------------
 
-def test_the_two_rooms_are_joined_at_a_shared_wall():
-    near, far = _room(scene.NEAR_NAME), _room(scene.FAR_NAME)
+def test_the_rooms_are_joined_in_a_chain_at_shared_walls():
+    """Three rooms since issue #137, so the far room has a doorway on each
+    side: west to the main room and east to the one beyond it."""
+    near = _room(scene.NEAR_NAME)
+    far = _room(scene.FAR_NAME)
+    beyond = _room(scene.ROOM_BEYOND.name)
     assert [d.to for d in near.doorways] == [far.index]
-    assert [d.to for d in far.doorways] == [near.index]
+    assert sorted(d.to for d in far.doorways) == [near.index, beyond.index]
+    assert [d.to for d in beyond.doorways] == [far.index]
     assert near.doorways[0].side == B.EAST
-    assert far.doorways[0].side == B.WEST
+    assert beyond.doorways[0].side == B.WEST
+    assert {d.side for d in far.doorways} == {B.EAST, B.WEST}
 
 
 def test_the_doorway_is_at_the_same_rows_on_both_sides():
@@ -237,10 +245,12 @@ def test_a_doorway_cell_is_floor_in_every_mechanical_respect():
             assert B.DOORWAY not in B.SOLID
         assert not swarming.unswarmable(r), \
             f"{r.name}: the swarm cannot reach every floor cell"
-    assert found == 6, (
-        "the playtest building authors six doorway cells since its rooms "
-        "began to roll (issue #121): the three at room A's column 31 and the "
-        f"three at room B's column 0. This found {found}")
+    # Three rooms in a chain since issue #137, so two doorways, and each is
+    # authored on both sides: twelve cells rather than six.
+    assert found == 12, (
+        "the playtest building authors twelve doorway cells: two doorways, "
+        "three cells tall, cut on both sides of each. "
+        f"This found {found}")
 
 
 def test_the_cell_past_a_doorway_is_the_next_rooms_first_cell():
@@ -487,7 +497,9 @@ def test_the_swarm_starts_on_floor_and_spread_out(room):
     """Clegs are cell-dwellers, and they start where they have to travel."""
     from spikes.player import Player
     player = Player(*scene.PLAYER_START)
-    assert len(room.clegs) >= 3
+    # Two a room since the building gained a third (issue #137); the six are
+    # the building's and the split follows the rooms.
+    assert len(room.clegs) >= 2
     for cx, cy in room.clegs:
         assert not room.is_solid(cx, cy), f"Cleg in a wall at {cx},{cy}"
         if room.player_start is None:
@@ -499,20 +511,24 @@ def test_the_swarm_starts_on_floor_and_spread_out(room):
 def test_the_swarm_is_the_buildings_and_is_split_between_the_rooms():
     """Six, which is what the entity budget allows for two concurrent nests, a
     tail and the player -- and it is what the prototype has always had. Issue
-    #21 makes the split the vault asked for and #23 deferred: three each.
+    #21 made the split the vault asked for and #23 deferred: three each, and
+    two each over three rooms since #137.
 
     The counts are the **building's**. Clegs cross doorways and go to light, so
     a room's authored population is not its worst case: the whole swarm can be
     in the room you are standing in. What that comes to is counted in
     `building.py`, in T-states -- see `test_held_constants.py`.
     """
-    assert len(scene.CLEGS_A) == 3
-    assert len(scene.CLEGS_B) == 3
+    # **Six is the building's, and the split follows the rooms.** It was three
+    # and three; with the third room of issue #137 it is two, two and two. The
+    # count that the entity budget is sized against is the total, because the
+    # whole swarm can be in the room you are standing in.
+    assert [len(r.clegs) for r in ROOMS] == [2, 2, 2]
     assert sum(len(r.clegs) for r in ROOMS) == 6
 
 
 def test_a_cleg_starts_against_a_wall_and_another_does_not():
-    flies = scene.CLEGS_A + scene.CLEGS_B
+    flies = [c for r in ROOMS for c in r.clegs]
     touching = [c for r in ROOMS for c in r.clegs
                 if any(r.is_solid(c[0] + dx, c[1] + dy)
                        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))]
@@ -520,12 +536,16 @@ def test_a_cleg_starts_against_a_wall_and_another_does_not():
     assert len(touching) < len(flies), "every Cleg is against a wall"
 
 
-def test_the_near_room_is_worth_three_people_and_the_far_room_four():
+def test_the_near_room_is_still_worth_three_people_of_the_seven():
     """A first-timer who never finds the doorway ends on three of seven, which
     is the top of the target band. The near room is worth three by
-    construction."""
+    construction, and **it stayed worth three when the building gained a third
+    room** (issue #137): the new room took from the far room's four rather than
+    from the main room's three, so the number this band was tuned against is
+    unmoved."""
     assert len(scene.WORKERS_A) == 3
-    assert len(scene.WORKERS_B) == 4
+    assert [len(r.workers) for r in ROOMS] == [3, 2, 2]
+    assert scene.BUILDING.roster == 7
 
 
 # The floor lamps' three tests went with the torch (issue #119).
@@ -864,7 +884,8 @@ def test_the_room_uses_what_it_authors():
     run = Session(seed=1)
     assert run.roaming.vary is scene.SEARCHLIGHT_VARY
     assert run.roaming.radius == scene.SEARCHLIGHT_RADIUS
-    assert len(run.searchlights) == 2, "one searchlight a room (issue #118)"
+    assert len(run.searchlights) == len(ROOMS), \
+        "one searchlight a room (issue #118)"
 
 
 def test_two_runs_of_the_same_seed_start_the_beam_in_the_same_place():

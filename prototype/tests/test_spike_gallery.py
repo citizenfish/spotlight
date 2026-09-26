@@ -15,7 +15,7 @@ pinned below.
 
 import pygame
 
-from spikes import moments, scene, sources, sprites, tiles
+from spikes import levels, moments, scene, sources, sprites, tiles
 from spikes import spike_gallery as gallery
 from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import CELL, COLS, ROWS, SCREEN_H, SCREEN_W
@@ -777,13 +777,17 @@ def test_the_level_sheets_go_through_spike_snap(tmp_path, monkeypatch):
     paths = gallery.write_level(str(tmp_path), 3)
     assert sorted(paths) == sorted(written)
     names = {p.rsplit("/", 1)[-1] for p in paths}
-    assert names == {f"3-{i}-{k}_x{s}.png" for i in (1, 2)
+    # One set a room, and the room count is read off the level rather than
+    # written out: Level 3 gained a third room in issue #137.
+    rooms = len(levels.level(3))
+    assert names == {f"3-{i}-{k}_x{s}.png" for i in range(1, rooms + 1)
                      for k in ("lit", "flash", "seen") for s in (1, 3)} \
         | {"3-plan_x2.png"}
-    # The strip is the two rooms side by side with a one-pixel gutter, at x2.
+    # The strip is the rooms side by side with a one-pixel gutter, at x2.
     import pygame
     strip = pygame.image.load(str(tmp_path / "3-plan_x2.png"))
-    assert strip.get_size() == ((SCREEN_W * 2 + 1) * 2, SCREEN_H * 2)
+    assert strip.get_size() == (
+        (SCREEN_W * rooms + rooms - 1) * 2, SCREEN_H * 2)
 
 
 def test_the_gallery_command_line_takes_a_level(tmp_path, capsys):

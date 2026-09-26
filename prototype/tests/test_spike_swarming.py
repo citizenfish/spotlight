@@ -8,6 +8,18 @@ against the wall, because they steer and slide rather than pathfind.
 
 So the check has to run the Cleg's own rule. A flood fill asks whether a path
 exists, which is the wrong question about an animal that cannot find one.
+
+**Issue #131 took the original case away and the check is still needed.** The
+piling-against-the-wall the measurement saw was a limit cycle in `_toward`:
+the slide was dropped the moment the longest axis changed, so a fly beside a
+long wall oscillated and never came round the end. A fly that follows a wall
+to its end reaches row 18's corner, so that room passes now, and the test
+which used to assert it was flagged asserts the reverse and says why.
+
+What survives is the argument, not the example. `hook_room` below is a shape
+the fixed fly still cannot enter and a flood fill still calls connected --
+found by measuring the candidates after #131 rather than by reasoning about
+them -- and it is the class of mistake the bare-shell gate exists to catch.
 """
 
 import pytest
@@ -67,11 +79,59 @@ def test_the_playtest_building_can_be_swarmed_everywhere():
         assert swarming.unswarmable(room) == []
 
 
-def test_the_corner_the_measurement_found_is_flagged():
-    """Row 18's wall, put back: the pocket that was ninety-one times safer."""
-    stranded = swarming.unswarmable(pocket_room())
-    assert stranded, "the enclosed corner was not flagged"
-    assert all(cy > 18 and cx > 25 for cx, cy in stranded), stranded
+#: A pocket that survives a fly which **does** follow a wall to its end: a
+#: division down column 14, a bay along row 10 to the east border, and a lip
+#: along row 17 that closes the dogleg. The wedge north-east of the bay is
+#: joined to the rest of the room -- a flood fill walks into it -- and a
+#: greedy stepper cannot, because reaching it means going *west* past the
+#: division first, which is away from the target on both axes.
+#:
+#: Found by measurement after issue #131, not invented: the shapes that used
+#: to strand a fly (one wall with a gap, a spiral, two walls with opposed
+#: gaps) are all reachable now, and this is the class that is not. It is
+#: also exactly the authoring mistake the bare-shell gate exists to catch --
+#: three walls, which no shell is allowed anyway.
+HOOK_WALL = ([(cx, 10) for cx in range(14, COLS - 1)]
+             + [(14, cy) for cy in range(10, 18)]
+             + [(cx, 17) for cx in range(14, 24)])
+
+
+def hook_room():
+    """A bare shell with `HOOK_WALL` in it and one east doorway to come in by."""
+    rows = [[B.WALL] * COLS]
+    rows += [[B.WALL] + [B.FLOOR] * (COLS - 2) + [B.WALL]
+             for _ in range(PLAY_ROWS - 2)]
+    rows.append([B.WALL] * COLS)
+    for cx, cy in HOOK_WALL:
+        rows[cy][cx] = B.WALL
+    door_rows = (10, 11, 12)
+    for cy in door_rows:
+        rows[cy][COLS - 1] = B.DOORWAY
+    return B.Room("hook", ("".join(r) for r in rows), player_start=(24, 96),
+                  doorways=(B.Doorway(B.EAST, door_rows, 0),))
+
+
+def test_the_corner_the_measurement_found_is_reachable_since_the_slide_was_held():
+    """Row 18's wall, put back -- and **the pocket is not a pocket any more.**
+
+    This test asserted the opposite until issue #131, and the reversal is the
+    point. The #26 measurement found flies that *"got closer to the corner
+    than to the middle and then piled against the wall"*, and piling against
+    a wall is precisely the limit cycle #131 removed: the slide used to be
+    dropped the moment the longest axis changed, so a fly beside a long wall
+    ping-ponged in a band that never contained the gap. A fly that follows a
+    wall to its end walks round this one.
+
+    So the corner that was ninety-one times safer is ordinary floor now, and
+    it was a bug in the animal rather than a fact about the room. The check
+    below is still worth having -- `hook_room` is a shape the fixed fly still
+    cannot enter -- but the room this module was named for passes it.
+    """
+    assert swarming.unswarmable(pocket_room()) == []
+    # And so does the same wall with its gap four columns along, which used to
+    # be the contrast case: where the gap is no longer decides anything.
+    passable = [(cx, 18) for cx in range(20, COLS - 1) if cx != 28]
+    assert swarming.unswarmable(pocket_room(passable)) == []
 
 
 def test_a_pocket_a_flood_fill_calls_reachable_is_still_flagged():
@@ -79,22 +139,15 @@ def test_a_pocket_a_flood_fill_calls_reachable_is_still_flagged():
     *is there a path* and *can something that cannot find one get there*.
 
     Every cell flagged here is a cell a flood fill joins to the rest of the
-    room. The player walks in through the gap; the flies steer at it, meet the
-    wall, slide along it and never come round the end.
+    room. The fly comes in through the east doorway, steers at the wedge,
+    meets the bay, follows it to its end -- and the lip along row 17 puts the
+    end back where it started.
     """
-    room = pocket_room()
+    room = hook_room()
     stranded = set(swarming.unswarmable(room))
     assert stranded, "nothing was flagged at all"
     assert stranded <= flood(room), \
         "a flood fill agrees it is unreachable, so this proves nothing"
-
-
-def test_where_the_gap_is_decides_whether_it_is_a_pocket():
-    """The same wall with the same size of hole in it, four columns along, is
-    not a refuge -- which is exactly why this cannot be eyeballed by whoever
-    drew the room."""
-    passable = [(cx, 18) for cx in range(20, COLS - 1) if cx != 28]
-    assert swarming.unswarmable(pocket_room(passable)) == []
 
 
 def test_the_starts_are_where_flies_actually_are():
@@ -125,4 +178,4 @@ def test_the_check_is_not_a_flood_fill():
 def test_a_room_the_swarm_cannot_cover_will_not_load():
     """Level validation, not a script somebody remembers to run."""
     with pytest.raises(ValueError, match="swarm cannot reach"):
-        B.Building((pocket_room(),)).validate()
+        B.Building((hook_room(),)).validate()

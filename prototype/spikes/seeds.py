@@ -19,6 +19,22 @@ from .sources import xorshift16
 #: The tags. Rooms' beams take `BEAM_TAG + index`.
 ROLL_TAG, CLEG_TAG, BEAM_TAG, BROOD_TAG = 0x5A00, 0xC1E6, 0xBEA0, 0xB700
 
+#: The housings' corners (issue #137). **One stream for the building, not one
+#: per room**, and the room's index is added to it -- so the corners rotate
+#: round the building and two neighbours never share one, and which corner the
+#: first room gets is the run's.
+#:
+#: That is a design and not a shrug, because the obvious thing does not work:
+#: `xorshift16` is linear over GF(2), so a fixed difference between two seeds
+#: gives a fixed difference between their outputs. Taking two bits off
+#: `<TAG> + i` therefore yields only **four** arrangements of a three-room
+#: building however many rounds it is put through -- measured over 500 runs at
+#: six different bit positions and with one, two and three xorshifts: four
+#: patterns every time, with uniform marginals. Breaking that needs a
+#: non-linear step, which is a multiply or a table, and a cosmetic corner is
+#: not worth either on a Z80. So the rotation is stated instead of pretended.
+MOUNT_TAG = 0x4D10
+
 
 def level_seed(run_seed: int, level: int | None) -> int:
     """The seed a level's streams hang off: the run seed and the level."""

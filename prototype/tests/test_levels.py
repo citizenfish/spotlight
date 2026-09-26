@@ -12,8 +12,13 @@ from spotlight.core.constants import CYAN, YELLOW
 #: the door light, the start and the doorways. The maps that were pinned
 #: here byte for byte -- A's inner box, B's desks -- are the vault's *The
 #: Playtest Building* now, and nothing else.
+#: The clocks, room by room. Three rooms since issue #137: the main room keeps
+#: its three people, because a first-timer who never finds the doorway ending
+#: on three of seven is the top of a tuned band, and the third room took from
+#: the far room's four.
 PINNED_CLOCKS_A = (90, 40, 30)
-PINNED_CLOCKS_B = (50, 60, 70, 80)
+PINNED_CLOCKS_B = (50, 60)
+PINNED_CLOCKS_C = (70, 80)
 PINNED_LIGHTS_B = ((0, 10, 3, 3),)
 PINNED_START = (24, 96)
 PINNED_DOOR_ROWS = (10, 11, 12)
@@ -21,22 +26,30 @@ PINNED_DOOR_ROWS = (10, 11, 12)
 
 def test_level_three_is_the_playtest_buildings_shell():
     b = levels.level(3)
-    assert [r.name for r in b.rooms] == ["the main room", "the far room"]
-    near, far = b.rooms
+    assert [r.name for r in b.rooms] == [
+        "the main room", "the far room", "the boiler room"]
+    near, far, beyond = b.rooms
     assert tuple(w[2] for w in near.workers) == PINNED_CLOCKS_A
     assert tuple(w[2] for w in far.workers) == PINNED_CLOCKS_B
-    assert len(near.clegs) == 3 and len(far.clegs) == 3
+    assert tuple(w[2] for w in beyond.workers) == PINNED_CLOCKS_C
+    assert [len(r.clegs) for r in b.rooms] == [2, 2, 2]
     assert near.lights == () and far.lights == PINNED_LIGHTS_B
-    assert near.has_exit and not far.has_exit
+    assert beyond.lights == ()
+    assert near.has_exit and not far.has_exit and not beyond.has_exit
     assert near.ink == B.palette(YELLOW) and far.ink == B.palette(CYAN)
+    assert beyond.ink == B.palette(YELLOW)
     assert near.searchlight.radius == 3 and near.searchlight.vary is False
     # The far room's beam varies (issue #118): every room has one now.
     assert far.searchlight.radius == 3 and far.searchlight.vary is True
-    assert near.searchlight.pace == 6 and near.searchlight.mount == 0
+    assert near.searchlight.pace == 6
     assert near.player_start == PINNED_START
     assert b.start == (0, PINNED_START)
+    # Every room says where it is on the plan the opening flashes (issue #134).
+    assert [r.at for r in b.rooms] == [(0, 0), (1, 0), (2, 0)]
     assert [(d.side, d.rows, d.to) for d in near.doorways] == [(B.EAST, PINNED_DOOR_ROWS, 1)]
-    assert [(d.side, d.rows, d.to) for d in far.doorways] == [(B.WEST, PINNED_DOOR_ROWS, 0)]
+    assert sorted((d.side, d.rows, d.to) for d in far.doorways) == [
+        (B.EAST, PINNED_DOOR_ROWS, 2), (B.WEST, PINNED_DOOR_ROWS, 0)]
+    assert [(d.side, d.rows, d.to) for d in beyond.doorways] == [(B.WEST, PINNED_DOOR_ROWS, 1)]
     assert b.level == 3 and b.title == "Rescue"
 
 
@@ -122,11 +135,22 @@ def test_the_loaders_own_refusals():
     with pytest.raises(ValueError) as err:
         levels.build(levels.parse(same, "t.txt")[2], "t.txt")
     assert "share a floor hue" in str(err.value)
-    # A door whose rows are not 10-12: refused.
+    # **A door may now be anywhere in a vertical wall** (issue #135), so rows
+    # 5-7 are legal -- and the map has to have them cut, which `_room` does not
+    # do, so this is refused for the right reason instead of the old one.
     rows = head + _room("one", "yellow", ["east 5-7 two"], True) + _room("two", "cyan", ["west 5-7 one"])
     with pytest.raises(ValueError) as err:
         levels.build(levels.parse(rows, "t.txt")[2], "t.txt")
-    assert "10-12" in str(err.value)
+    assert "walled up at row 5" in str(err.value)
+    # What a doorway still has to be: three rows, running together, clear of
+    # the corners. A person is two cells tall and three is what a tail files
+    # through without queueing.
+    for door, why in (("east 10-11 two", "3 rows, not 2"),
+                      ("east 20-22 two", "runs into the corner")):
+        bad = head + _room("one", "yellow", [door], True) + _room("two", "cyan", ["west 10-12 one"])
+        with pytest.raises(ValueError) as err:
+            levels.build(levels.parse(bad, "t.txt")[2], "t.txt")
+        assert why in str(err.value), (door, str(err.value))
     # A door to a room that does not exist: refused, naming it.
     ghost = head + _room("one", "yellow", ["east 10-12 nowhere"], True)
     with pytest.raises(ValueError) as err:
@@ -140,13 +164,19 @@ def test_the_default_budget_is_the_constants_level_three_was_measured_with():
     from spikes import session
     assert B.DEFAULT_BUDGET[:5] == (session.BLOOD_FULL, 5, session.LIVES,
                                     session.MAGNET_FRAMES // 50, True)
+    # Level 3's wall memory is the level's own since issue #137: six seconds
+    # for the levels that teach, three from Level 4. `fade` is a rate divisor,
+    # so 2 is half rate, and the default stays 1 for a building built by hand.
     assert levels.level(3).budget == B.DEFAULT_BUDGET._replace(
-        building="The Hollins Hotel")
+        building="The Hollins Hotel", fade=2)
+    assert B.DEFAULT_BUDGET.fade == 1
     # The magnet's seconds and wake are the level's since issue #118; the
     # building's name rides on the budget since issue #126.
     assert levels.level(2).budget == B.Budget(64, 5, 3, magnet=8, wake=False,
+                                              fade=2,
                                               building="Marrow Street Baths")
     assert levels.level(1).budget == B.Budget(64, 3, 3, magnet=5, wake=False,
+                                              fade=2,
                                               building="The Severn Depot")
 
 
@@ -212,11 +242,15 @@ def test_a_room_without_a_searchlight_is_refused():
         levels.build(levels.parse(text)[2])
 
 
-def test_pace_and_mount_are_the_rooms_and_are_bounded():
+def test_pace_is_the_rooms_and_is_bounded():
+    """`mount:` went in issue #137: the housing's corner rotates round the
+    building from the run's seed, so it is not a thing a level authors. It is
+    a dead key now, refused rather than skipped -- see
+    `test_the_dead_keys_are_refused_not_skipped`."""
     text = "level: 9\nname: X\n" + _room("only", "yellow", []).replace(
-        "start: 40 40\n", "pace: 8\nmount: 2\nstart: 40 40\n")
+        "start: 40 40\n", "pace: 8\nstart: 40 40\n")
     room = levels.build(levels.parse(text)[2])[0]
-    assert room.searchlight.pace == 8 and room.searchlight.mount == 2
+    assert room.searchlight.pace == 8
     with pytest.raises(ValueError, match="pace is frames per cell"):
         levels.parse("level: 9\nname: X\n" + _room("only", "yellow", []).replace(
             "start: 40 40\n", "pace: 0\nstart: 40 40\n"))
@@ -246,15 +280,28 @@ def test_level_four_and_on_is_level_three_tightened():
     assert clocks(levels.level(4)) == [c - 3 for c in clocks(three)]
     assert min(clocks(levels.level(6))) == 22
     assert min(clocks(levels.level(20))) == 22
-    assert [len(r.clegs) for r in levels.level(6).rooms] == [3, 3]
-    assert [len(r.clegs) for r in levels.level(7).rooms] == [3, 4]
-    assert [len(r.clegs) for r in levels.level(9).rooms] == [3, 6]
-    assert [len(r.clegs) for r in levels.level(12).rooms] == [3, 6]
+    # Two, two and two over three rooms since issue #137, and the extra fly a
+    # level still lands in the last room, to nine in the building.
+    assert [len(r.clegs) for r in levels.level(6).rooms] == [2, 2, 2]
+    assert [len(r.clegs) for r in levels.level(7).rooms] == [2, 2, 3]
+    assert [len(r.clegs) for r in levels.level(9).rooms] == [2, 2, 5]
+    assert [len(r.clegs) for r in levels.level(12).rooms] == [2, 2, 5]
+    assert sum(len(r.clegs) for r in levels.level(9).rooms) == levels.MOST_FLIES
     assert not levels.level(4)[0].searchlight.vary
     assert all(r.searchlight.vary for r in levels.level(5).rooms)
     assert levels.level(5).level == 5 and levels.level(5).title == "Rescue"
+    # **The dials that were frozen now move** (issue #137, ruling 9), so the
+    # budget past the last file is no longer Level 3's: the wall memory halves,
+    # and the spray walks down from five to four and then to three.
     assert levels.level(5).budget._replace(building="") == \
-        three.budget._replace(building="")
+        three.budget._replace(building="", fade=1, spray=4)
+    assert [levels.level(n).budget.spray for n in (3, 4, 6, 7, 9, 20)] == \
+        [5, 4, 4, 3, 3, 3]
+    assert [levels.level(n).budget.fade for n in (3, 4, 9)] == [2, 1, 1]
+    assert [levels.level(n)[0].searchlight.pace for n in (3, 4, 9)] == [6, 5, 5]
+    # Doorways leave the middle of the wall from Level 4 and never return to it.
+    assert all(levels.level(n)[0].doorways[0].rows != (10, 11, 12)
+               for n in range(4, 24))
     # Each building past the last file has a name of its own (issue #126).
     assert levels.level(4).name == "Blackwell Mill"
     assert levels.level(5).name == "Cutter's Yard"

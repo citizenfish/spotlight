@@ -1,28 +1,34 @@
-; assets/levels/level3.txt -- Level 3, Rescue: the playtest building, as a
-; pair of templates.
+; assets/levels/level3.txt -- Level 3, Rescue: the playtest building.
 ;
 ; THIS FILE IS THE SOURCE and spikes/scene.py is a view of it (issue #107).
-; Until the light round (issue #121) the two rooms were the same bytes every
-; run -- A's inner box with its one-cell door, the wall turned on its side,
-; B's four desks -- and every number in the vault was measured in them; the
-; vault's "The Playtest Building" is the record. Now each is a shell: A
-; keeps its clocks, its three flies, its exit and its repeating beam; B its
-; four people, its three flies, the light on the doorway home and a beam
-; that varies. The walls, the furniture, the people's cells and the flies'
-; starts roll from the run's seed (issue #120).
+; Until the light round (#121) its two rooms were the same bytes every run and
+; every number in the vault was measured in them; the vault's "The Playtest
+; Building" is the record. The light round made each a shell with a rolled
+; interior; the plateau round (#137) authored the walls and **gave the building
+; a third room**.
 ;
-; Format: `level:` and `name:` once, with the budget -- `blood:`, `spray:`,
-; `lives:`, `magnet:` seconds, `wake: on|off` -- before the first room;
-; then `room:` blocks. `floor:` is yellow or cyan (adjacent rooms never
-; share). A room carries `map:` (22 rows of 32: `#` wall, `.` floor, `D` the
-; exit, `d` a doorway, the seven furniture characters `= | x [ ] c %`) with
-; `worker: x y blood` and `cleg: cx cy`; or `roll:` with `segments:`,
-; `length:`, `pieces:`, `band:` (min max), `away:`, `clegs:` and one
-; `worker: blood` a person. Every room has `searchlight: radius repeat|vary`
-; (with `pace:` and `mount:` beside it) and `start: x y` in pixels;
-; `light: left top width height` and `door: side rows-rows room` as
-; authored. The first room has the exit. Blank lines and `;` comments go
-; anywhere. (`spotlight:` and `torch:` went with the torch, issue #119.)
+; **The third room is the round's fix for the plateau.** Levels 2 to 6 measured
+; 84, 86, 91 and 83 per cent of the people rescued -- four level-ups a player
+; would have felt as the same level renamed. The same seven clocks and six
+; flies spread over three rooms instead of two takes a dark listener from 94
+; per cent to 63, at no cost to the 48K frame at all: `worst_case()` sizes the
+; swarm crowded into one room, so it scales with flies and people and not with
+; rooms. The clock had been tightening for five levels against a walk too
+; short for it to bite.
+;
+; Format: `level:`, `name:` and `building:` once, with the budget -- `blood:`,
+; `spray:`, `lives:`, `magnet:` seconds, `wake: on|off`, `fade:` 1 or 2 --
+; before the first `shape:` or `room:`; then `shape:` blocks, then `room:`
+; blocks. `floor:` is yellow or cyan (adjacent rooms never share). A room
+; carries `map:` (22 rows of 32) with `worker: x y blood` and `cleg: cx cy`;
+; or `roll:` with `segments:`, `length:`, `pieces:`, `band:`, `away:`,
+; `clegs:`, one `worker: blood` a person and one `shell:` a shell it may be
+; built from. Every room has `searchlight: radius repeat|vary` (with `pace:`
+; beside it), `start: x y` in pixels and `at: col row` on the plan;
+; `light: left top width height` and `door: side rows-rows room` as authored.
+; Blank lines and `;` comments go anywhere. (`spotlight:` and `torch:` went
+; with the torch, #119; `mount:` went in #137 -- the housing's corner rotates
+; round the building from the run's seed.)
 
 level: 3
 name: Rescue
@@ -32,6 +38,112 @@ spray: 5
 lives: 3
 magnet: 10
 wake: on
+fade: 2           ; the last level before the wall memory halves
+
+; spine: a division high up: border to border with a three-cell gap at
+;   rows 4-6, so the way through is nowhere near the doorways
+shape: spine
+################################
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............................#
+#..............................#
+#..............................#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+################################
+
+; spine-low: the same division with its gap low down, at rows 15-17, so two
+;   rooms built from the pair do not read as the same room
+shape: spine-low
+################################
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#..............................#
+#..............................#
+#..............................#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+################################
+
+; boxroom: a chamber with a door in each of two opposite walls. One door
+;   is refused: a wall that closes on itself has no end for a
+;   fly to follow, and no room here is enterable only one way
+shape: boxroom
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.........##########...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........#........#...........#
+#..................#...........#
+#.........#....................#
+#.........#........#...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........##########...........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; dogleg: a bay from the top and one from the bottom, offset, so the walk
+;   across the room bends twice
+shape: dogleg
+################################
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#........#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+################################
 
 room: the main room
 floor: yellow
@@ -44,9 +156,12 @@ away: 14
 worker: 90
 worker: 40
 worker: 30
-clegs: 3
+clegs: 2
+shell: spine
+shell: dogleg
 searchlight: 3 repeat
 start: 24 96
+at: 0 0
 door: east 10-12 the far room
 
 room: the far room
@@ -59,10 +174,30 @@ band: 14 28
 away: 14
 worker: 50
 worker: 60
-worker: 70
-worker: 80
-clegs: 3
+clegs: 2
+shell: boxroom
+shell: spine-low
 light: 0 10 3 3
 searchlight: 3 vary
 start: 16 80
+at: 1 0
 door: west 10-12 the main room
+door: east 10-12 the boiler room
+
+room: the boiler room
+floor: yellow
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+worker: 70
+worker: 80
+clegs: 2
+shell: dogleg
+shell: boxroom
+searchlight: 3 repeat
+start: 16 80
+at: 2 0
+door: west 10-12 the far room

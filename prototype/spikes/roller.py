@@ -12,8 +12,13 @@ lies where*, plus geometry.
 
 **What rolls, in order, from `roll_seed`** (*The light round* §2):
 
-1. The shell: the border, the exit's two `D` cells in the west wall if the
-   room has the exit, each doorway's three `d` cells. Never rolled.
+0. Which shell, if the template authors more than one (issue #132). One draw,
+   before anything else, so a template that gains a second shell does not
+   move the furniture in the first.
+1. The shell: its walls -- the plain rectangle, or one of the authored ones --
+   then the exit's two `D` cells in the west wall if the room has the exit,
+   and each doorway's three `d` cells. The walls do not roll; which of the
+   authored shells is used does.
 2. Segments: straight solid runs, a pipe lying down (`=`) or a riser
    standing up (`|`), count and length in the authored ranges, each placed
    at a drawn origin and refused if it breaks the clearance rule, sixteen
@@ -36,21 +41,49 @@ and the whole room re-rolled from the next seed**, at most four times, and
 then it is an error: a template that ever needs a fifth on any tested seed
 does not ship. Nothing is patched by moving a segment.
 
-**The clearance rule is the fairness**, and none of it is checked at run
-time: every rolled solid cell is two floor cells clear of the border (so in
+**The clearance rule used to be the fairness, and it was traded** (issue
+#132, ruling 2 of *The plateau and the rooms*). It is worth writing down what
+it bought, because it was a good rule and what replaces it is longer.
+
+Every rolled solid cell is still two floor cells clear of the border (so in
 columns 3-28 and rows 3-18), two clear of every cell of any other segment or
 piece, outside the doorway landings (rows 8-14, columns 1-5 and 26-30, which
 is also the exit's landing and where its sign hangs) and two clear of the
-start figure's two cells. An isolated straight run has two free ends and
-floor all round, a convex block the same, so a fly blocked by one slides to
-an end and goes round; two runs two cells apart leave a channel a one-cell
-fly walks through; two clear rows between horizontals and two clear columns
-between verticals fit a person. That is the argument that there is no
-pocket, and it is **proved rather than trusted**: `swarming.unswarmable`
-runs over every template on sixteen seeds in every `pytest`, 128 with
-`SPOTLIGHT_SLOW=1`, and a thousand in the tester's tool -- at test time,
-never here, because the check is a million steering calls and the port
-cannot afford it. A roller that leaned on it would be a prototype that lies.
+start figure's two cells -- and, since #132, two clear of the chosen shell's
+interior walls as well. An isolated straight run has two free ends and floor
+all round, a convex block the same, so a fly blocked by one slides to an end
+and goes round; two runs two cells apart leave a channel a one-cell fly walks
+through; two clear rows between horizontals and two clear columns between
+verticals fit a person.
+
+**What that rule also did was make a corridor impossible.** Nothing it let
+through could touch the border, so no seed on any level could produce a bay,
+a division, a chamber, a dead end or a room within a room: every room in the
+game was one open hall with furniture standing apart in it. The authored room
+that had an inner box with a one-cell door could not be reproduced by the
+roll on any seed -- and that box, measured, stranded nothing.
+
+So the border exemption is the trade, and the fairness argument moves with
+it, in three parts rather than one:
+
+1. **The shell's walls are authored and may touch the border**, and a shell
+   is gated once on its bare walls rather than sampled over seeds --
+   `swarming.strands_a_shell`, which is a theorem: adding a start can only
+   grow the set a fly can reach, and a rolled fly is an extra start, so a
+   bare shell that strands nothing strands nothing on any seed. See BJ.
+2. **A fly follows a wall to its end** (issue #131). Without that a wall that
+   reached the border was a shield rather than an obstacle: the slide was
+   dropped whenever the longest axis changed, so a fly beside a long wall
+   ping-ponged in a band that never contained the gap.
+3. **The clearance rule above still holds for everything that rolls**, the
+   shell's interior walls included, which is what keeps a division walkable
+   and keeps the furniture off it.
+
+None of it is checked at run time. `swarming.unswarmable` runs over every
+template on sixteen seeds in every `pytest`, 128 with `SPOTLIGHT_SLOW=1`, and
+the shell gate runs on every shell every time -- at test time, never here,
+because the check is a million steering calls and the port cannot afford it.
+A roller that leaned on it would be a prototype that lies.
 
 Portable: integers, lists and the xorshift the Z80 has. About five hundred
 bytes of code on the port against thirty-two a template.
@@ -69,11 +102,29 @@ from .sources import xorshift16
 INTERIOR_COLS = range(3, COLS - 3)          # 3 .. 28
 INTERIOR_ROWS = range(3, PLAY_ROWS - 3)     # 3 .. 18
 
-#: The doorway landings, kept clear of solids on both sides of the room
-#: whether or not a doorway is there, so a tail files through and the door
-#: light's patch has floor under it. Also the exit's landing and its sign.
-LANDING_ROWS = range(8, 15)
-LANDING_COLS = tuple(range(1, 6)) + tuple(range(COLS - 6, COLS - 1))
+#: The exit's two cells in the west wall, as `Building.solo` cuts them.
+EXIT_ROWS = (10, 11)
+
+#: How far a landing reaches: `LANDING_SPREAD` rows either side of the gap's
+#: own rows, and `LANDING_DEPTH` columns in from the wall.
+#:
+#: This used to be `range(8, 15)` of rows by columns 1-5 and 26-30, on both
+#: sides of every room whether a doorway was there or not -- which was the
+#: middle of the wall, hard-coded, and was only ever right because every
+#: doorway in the game sat at rows 10-12. Since issue #135 a doorway may be
+#: anywhere in a vertical wall, so **the landing follows the doorway** and is
+#: computed per room in `_Roll.landing_band`.
+LANDING_SPREAD = 2
+LANDING_DEPTH = 5
+
+#: The exit's own landing, which does not move: rows 8-14 of the west wall,
+#: the exit at rows 10-11 with the spread either side. It is kept clear whether
+#: or not the room has the exit, because that is what the rule was before the
+#: doorways were freed and a room's first five columns are where the tail
+#: files out.
+LANDING_ROWS = range(EXIT_ROWS[0] - LANDING_SPREAD,
+                     EXIT_ROWS[-1] + LANDING_SPREAD + 1)
+LANDING_COLS = tuple(range(1, 1 + LANDING_DEPTH))
 
 #: How many floor cells a solid keeps clear of the border, another solid and
 #: the start: two, which is the Chebyshev distance three below.
@@ -86,19 +137,36 @@ PEOPLE_TRIES = 64
 #: How many whole rooms a template may burn on one seed before it is an error.
 REROLLS = 4
 
-#: The exit's two cells in the west wall, as `Building.solo` cuts them.
-EXIT_ROWS = (10, 11)
+
+#: What a `shape:` block may contain (issue #132): walls, floor and doorways
+#: and nothing else. No furniture character, no light, no person, no fly --
+#: those are the roll's, and a shell that authored one would be authoring the
+#: thing the roll exists to vary.
+SHELL_ALPHABET = frozenset((WALL, FLOOR, DOOR, DOORWAY))
 
 
 class Template:
     """What a `roll:` block authors. Everything else is drawn."""
 
     __slots__ = ("segments", "length", "pieces", "band", "away", "workers",
-                 "clegs", "doorways", "start", "exit", "lights")
+                 "clegs", "doorways", "start", "exit", "lights", "shells")
 
     def __init__(self, *, segments=(0, 0), length=(4, 8), pieces=(0, 0),
                  band=(4, 30), away=6, workers=(), clegs=0, doorways=(),
-                 start=(24, 96), exit=False, lights=()) -> None:
+                 start=(24, 96), exit=False, lights=(), shells=()) -> None:
+        #: The authored shells this room's walls may be, as tuples of rows
+        #: (issue #132, ruling 5). Empty means the plain rectangle, which is
+        #: what every template was before the shells landed and what an
+        #: unconverted one still gets. The roll picks one; the furniture, the
+        #: people and the flies then roll inside it as they always did.
+        #:
+        #: **The walls stopped rolling so that fairness could stop being a
+        #: sample.** The old clearance rule made a pocket unrepresentable and
+        #: was checked over sixteen seeds a room; an authored shell can be
+        #: checked once, on the bare walls, and the answer holds for every
+        #: seed -- see `swarming.strands_a_shell` and BJ. A shell you can
+        #: learn with contents you cannot is also the better room.
+        self.shells = tuple(tuple(rows) for rows in shells)
         self.segments = tuple(segments)
         self.length = tuple(length)
         self.pieces = tuple(pieces)
@@ -132,6 +200,19 @@ class Template:
         for blood in self.workers:
             if blood <= 0:
                 raise ValueError(f"{where}: a worker starts dead")
+        for i, rows in enumerate(self.shells):
+            if len(rows) != PLAY_ROWS:
+                raise ValueError(f"{where}: shell {i} has {len(rows)} rows, "
+                                 f"need {PLAY_ROWS}")
+            for y, row in enumerate(rows):
+                if len(row) != COLS:
+                    raise ValueError(f"{where}: shell {i} row {y} is "
+                                     f"{len(row)} cells, need {COLS}")
+                bad = sorted(set(row) - SHELL_ALPHABET)
+                if bad:
+                    raise ValueError(
+                        f"{where}: shell {i} row {y} has {bad}, and a shell "
+                        f"holds walls, floor and doorways only")
 
 
 class Rolled:
@@ -174,11 +255,30 @@ def _chebyshev(a, b) -> int:
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
-def shell(template: Template) -> list[list[str]]:
-    """The border, the exit and the doorways: the part that never rolls."""
-    rows = [[WALL] * COLS]
-    rows += [[WALL] + [FLOOR] * (COLS - 2) + [WALL] for _ in range(PLAY_ROWS - 2)]
-    rows.append([WALL] * COLS)
+def shell(template: Template, dice: "_Dice | None" = None) -> list[list[str]]:
+    """The walls, the exit and the doorways: the part that never rolls.
+
+    With no authored shell this is the plain rectangle it has always been.
+    With one or more (issue #132) the roll picks between them -- one draw,
+    taken before any other, so a template that gains a second shell does not
+    move the furniture in the first -- and the exit and the doorways are then
+    cut into whichever was chosen.
+
+    **The doorways are cut here and not authored in the shell** even though a
+    shell is allowed to spell them: `door:` lines in the level file are the
+    one source of truth for where a doorway is and which room is beyond it,
+    and a shell that disagreed with them would be a second answer to a
+    question that already has one.
+    """
+    if template.shells:
+        pick = template.shells[dice.draw(len(template.shells))] if dice \
+            else template.shells[0]
+        rows = [list(row) for row in pick]
+    else:
+        rows = [[WALL] * COLS]
+        rows += [[WALL] + [FLOOR] * (COLS - 2) + [WALL]
+                 for _ in range(PLAY_ROWS - 2)]
+        rows.append([WALL] * COLS)
     if template.exit:
         for cy in EXIT_ROWS:
             rows[cy][0] = DOOR
@@ -204,7 +304,7 @@ class _Roll:
     def __init__(self, template: Template, dice: _Dice) -> None:
         self.template = template
         self.dice = dice
-        self.rows = shell(template)
+        self.rows = shell(template, dice)
         self.feet, self.head = start_cells(template.start)
         #: Cells a new solid may not take: outside the interior, on a
         #: landing, near the start, or within reach of a placed solid.
@@ -213,10 +313,51 @@ class _Roll:
             for cx in range(COLS):
                 if cx not in INTERIOR_COLS or cy not in INTERIOR_ROWS:
                     self.blocked.add((cx, cy))
-                elif cy in LANDING_ROWS and cx in LANDING_COLS:
-                    self.blocked.add((cx, cy))
+        self.blocked |= self.landing_band()
+        # **`CLEAR = 3` is kept and the border is the one exemption**
+        # (issue #132). A shell's own wall may run to the edge -- that is the
+        # whole point of authoring it -- but a *rolled* solid still keeps two
+        # floor cells clear of everything solid, and the shell's interior
+        # walls are now among the things it keeps clear of. So a division
+        # leaves a corridor either side of it wide enough for a person and
+        # for a fly to slide down, and the furniture stands off it exactly as
+        # it stands off another piece.
+        #
+        # This is what the retro-gamer's *architecture eats furniture* comes
+        # from: a corridor narrower than seven cells admits no piece at all,
+        # and that is the price of the shape rather than a bug in it.
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                if cx in INTERIOR_COLS and cy in INTERIOR_ROWS \
+                        and self.rows[cy][cx] == WALL:
+                    self._block_around((cx, cy))
         for cell in (self.feet, self.head):
             self._block_around(cell)
+
+    def landing_band(self) -> set:
+        """Every cell a rolled solid may not take because a doorway lands on it.
+
+        The exit's band in the west wall, which does not move, plus a band at
+        each authored doorway -- `LANDING_SPREAD` rows either side of the gap
+        and `LANDING_DEPTH` columns in from that wall.
+
+        **It follows the doorway** (issue #135). It used to be the middle rows
+        of both walls whether a doorway was there or not, which was right only
+        while every doorway in the game sat at rows 10-12; a doorway near a
+        corner would have had a solid rolled into the cells a tail has to file
+        through, and a doorway in the middle of a room with no doorway there
+        would have kept five columns clear for nothing.
+        """
+        out = {(cx, cy) for cy in LANDING_ROWS for cx in LANDING_COLS}
+        for side, door_rows in self.template.doorways:
+            cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
+                    else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
+            lo = min(door_rows) - LANDING_SPREAD
+            hi = max(door_rows) + LANDING_SPREAD
+            for cy in range(lo, hi + 1):
+                for cx in cols:
+                    out.add((cx, cy))
+        return out
 
     def _block_around(self, cell) -> None:
         cx, cy = cell

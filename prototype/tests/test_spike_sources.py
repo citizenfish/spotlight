@@ -915,8 +915,16 @@ def test_a_dark_listener_comes_to_know_most_of_the_main_room():
     cells = [(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)]
     walls = [c for c in cells if room.is_solid(*c)]
     floor = [c for c in cells if not room.is_solid(*c)]
+    # **Re-pinned by issue #131**, and the reason is not the light model. With
+    # the old fly this seed ended `nobody_left` at 2,304 frames and 92.4% of
+    # the walls had been seen; a fly that follows a wall to its end gets this
+    # run to `all_out` at 2,056 frames, and a run that ends better is a run
+    # with less of it to see the room in. The floor is unmoved at 96.4%, and
+    # seed 2 still reads 93.8% of walls -- this is a one-seed gate on a figure
+    # that varies by ten points across seeds, which is the same trap issue
+    # #130 named. BN re-takes it over eight.
     assert len(seen & set(floor)) / len(floor) >= 0.9
-    assert len(seen & set(walls)) / len(walls) >= 0.9
+    assert len(seen & set(walls)) / len(walls) >= 0.8
 
 
 # --- the disc is a table, and the table is a circle (issue #127) -------------

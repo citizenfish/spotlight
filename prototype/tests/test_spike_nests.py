@@ -259,6 +259,17 @@ def test_a_burnt_out_nest_leaves_nothing_on_screen():
     assert lit, "a body in its window was not drawn at all"
 
     assert _run_until(run, lambda: body.gone)
+    # **Nothing else may be standing there**, or this measures the wrong thing.
+    # A fly is drawn on dark ground on purpose (issues #92 and #106), and the
+    # corpse is exactly what a swarm gathers on -- so on some layouts two of
+    # them are sitting in the body's own two cells when it goes, and the
+    # pixels the test finds are theirs. Step on until the cells are clear;
+    # bounded, so a swarm that never leaves is a failure and not a hang.
+    cells = {(where[0] // CELL, where[1] // CELL),
+             (where[0] // CELL, where[1] // CELL + 1)}
+    assert _run_until(run, lambda: not (
+        cells & {(c.cx, c.cy) for c in run.place.swarm.clegs})), \
+        "the swarm never got off the cells the body was in"
     run.draw(screen)
     still = [(dx, dy) for dy in range(2 * CELL) for dx in range(CELL)
              if screen.point(where[0] + dx, where[1] + dy)]
@@ -285,7 +296,13 @@ def test_no_run_ends_with_a_screen_of_bodies():
                 break
             most = max(most, len(run.rescue.bodies()) + len(run.rescue.nests()))
         assert run.lost == run.total, f"seed {seed} did not lose everybody"
-        assert most <= 4, f"seed {seed} had {most} bodies and nests at once"
+        # Four became five on seed 1 with issue #131: a fly that follows a
+        # wall to its end reaches people it used to mill about beside, so the
+        # deaths land closer together and one more lifecycle overlaps. Seeds 2
+        # and 3 still read 3 and 4. The claim this test exists for is the one
+        # below it -- that the floor is never a screen of them -- and five of
+        # seven is still not that.
+        assert most <= 5, f"seed {seed} had {most} bodies and nests at once"
         assert most < run.total, "a screen of them is still a screen of them"
         assert not run.rescue.bodies() and not run.rescue.nests(), \
             f"seed {seed} ended with bodies still lying there"
@@ -312,12 +329,21 @@ def test_three_nests_are_live_at_once_because_the_deaths_are_not_spaced():
     it. Whether the ladder, the bite or the ceiling should move is a decision
     for the vault; target T13 is asked of bot runs, and this is the bot-less
     floor under it.
+
+    **The exact count is not the claim, and it is asserted as a floor now.**
+    It read three when this was written, four after issue #131 gave the fly a
+    slide it keeps, and three again after #135 moved the landings -- on the
+    same seed, because the number is a property of one layout and every round
+    that changes a room changes it. Pinning it exactly meant re-pinning it
+    twice in an afternoon while the thing it argues stayed true throughout:
+    **more than two nests are live at once, so the two-nest ceiling is not a
+    property of the clock ladder.** That is what is asserted.
     """
     run = Session(seed=1, lives=99)
     while run.frame < 20000 and run.over is None:
         run.step()
-    assert run.most_nests == 3, \
-        f"the idle run held {run.most_nests} nests at once, not three"
+    assert run.most_nests >= 3, \
+        f"the idle run held only {run.most_nests} nests at once"
 
 
 def test_nest_born_clegs_start_at_the_top_of_the_hunger_curve():

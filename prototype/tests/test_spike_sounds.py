@@ -849,7 +849,17 @@ def test_a_click_is_only_ever_lost_to_an_effect_that_owns_the_voice(bot):
 #: long silence at the edge of hearing and this test is not the place to find
 #: that out.
 MEASURED_WORST_QUIET = 44
-MEASURED_WORST_RUN = 3
+#: The worst run of lost clicks measured, over three bots and five seeds. It
+#: was 3 until issue #137, where the third room lengthened the walk and the
+#: wanderer lost a fourth on one seed of five: the bots now read 2, 2, 1, 1, 2
+#: (listener), 1 throughout (undertaker) and 3, 3, 4, 2, 2 (wanderer).
+#:
+#: **Re-measured, not relaxed.** The ruling this guards was made on a worst
+#: case, and the point of the figure is that it can regress -- so it is moved
+#: to what the build actually does and the grace window is asked about again in
+#: the round's re-baseline rather than here. Four lost clicks at contact is
+#: worth somebody's judgement; a bound that was quietly widened is not.
+MEASURED_WORST_RUN = 4
 QUIET_CEILING = 120
 
 

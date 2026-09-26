@@ -52,6 +52,42 @@ twice, and the name and the plan are never on screen at once. The game is
 held throughout: nothing steps, nothing is lit or remembered, and a headless
 test starts at frame one.
 
+## A room's walls are authored; what is in it is not
+
+Since issue #132 a level file declares **shells** -- named grids of 22 rows by
+32, walls and floor only -- and a room names the ones it may be built from:
+
+```
+shape: spine
+################################
+#..............#...............#
+...
+
+room: the main room
+roll:
+shell: spine
+shell: dogleg
+```
+
+The roll picks one, then the furniture, the people and the flies roll inside it
+from the run's seed exactly as they did before. A shell's wall may run to the
+border, which is what makes a bay, a division or a chamber possible at all; a
+*rolled* solid still keeps two floor cells clear of everything solid, the
+shell's own walls included, so a division stays walkable on both sides.
+
+A shell holds at most two internal structures, and every one is checked on its
+bare walls by `swarming.strands_a_shell` in `pytest`: run the swarm's own
+steering rule from the doorways alone, and if nothing is stranded then nothing a
+roll puts inside can strand anything either -- so the check holds for every seed
+without running one. That replaces the old clearance rule as the authoring net,
+and the rule it replaced is written out in `roller.py`'s docstring with what it
+bought, because it was a good rule.
+
+Two things had to be true first: a fly follows a wall to its end (#131),
+without which a wall that reached the border was shelter rather than an
+obstacle; and the walls stopped rolling (#132), because a seed-independent proof
+needs one shape to point at.
+
 ## The old looks, for comparison
 
 ```sh

@@ -212,6 +212,116 @@ def test_a_cleg_slides_along_a_wall_rather_than_pressing_into_it():
     assert (cleg.cx, cleg.cy) != (8, 8), "gave up instead of sliding"
 
 
+def _wall_with_a_gap(column: int, gap_row: int):
+    """A real room -- four walls -- with one wall down `column` from border to
+    border, one cell of it missing at `gap_row`.
+
+    The border matters: a slide only ever starts when **both** axes are
+    refused, and beside a wall the second axis is refused by the border. A
+    fixture without one is a plane with a stripe on it and never slides.
+    """
+    def solid(cx, cy):
+        if OPEN(cx, cy):
+            return True
+        if cx in (0, COLS - 1) or cy in (0, PLAY_ROWS - 1):
+            return True
+        return cx == column and cy != gap_row
+    return solid
+
+
+def test_a_cleg_follows_a_wall_to_its_end_instead_of_ping_ponging_beside_it():
+    """The limit cycle of issue #131, pinned so it cannot come back.
+
+    A wall down column 13 from border to border with its gap at row 18, a fly
+    at (14, 10) on the near side, and a target in the far top corner. The two
+    rules that used to make this unwinnable were that the slide is dropped
+    the frame the *wanted* axis is taken, and that the wanted axis is
+    recomputed every step as whichever is longest now:
+
+    - above a crossover row the horizontal distance is the longer, the fly
+      wants x, x is brick, it slides up and bounces off the border;
+    - **at** the crossover row the vertical distance becomes the longer, the
+      fly wants y, y is open, it steps -- and the slide is dropped;
+    - one step later x is longest again and the slide restarts upward.
+
+    Measured before the fix: four hundred steps, fourteen distinct cells, all
+    of them in column 14, never arriving. **If this test ever passes with a
+    step count in the hundreds, or fails to arrive, the old rule is back.**
+    """
+    solid = _wall_with_a_gap(13, 18)
+    fly = C.Cleg(14, 10)
+    target = (3, 2)
+    steps, columns = 0, set()
+    for _ in range(400):
+        if (fly.cx, fly.cy) == target:
+            break
+        was = (fly.cx, fly.cy)
+        fly._toward(*target, solid)
+        steps += 1
+        columns.add(fly.cx)
+        if (fly.cx, fly.cy) == was:
+            break
+    assert (fly.cx, fly.cy) == target, \
+        f"stuck at {(fly.cx, fly.cy)} after {steps} steps"
+    assert steps < 100, f"arrived, but in {steps} steps -- that is a detour"
+    assert len(columns) > 5, \
+        f"arrived without leaving columns {sorted(columns)}, which cannot be right"
+
+
+def test_the_slide_is_held_past_the_row_where_the_other_axis_gets_longer():
+    """The mechanism, stated on its own so the reason survives the fix.
+
+    A slide only starts when **both** axes are refused, which beside a wall
+    means at a border: from (14, 1) with the target at (3, 0), west is brick
+    and north is the top border, so the fly slides. The slide is signed
+    toward the goal, north, is refused by the border, flips once and runs
+    south.
+
+    Then it keeps running south **past row 12**, where the vertical distance
+    to a target on row 0 becomes the longer of the two. That is the crossover
+    the old rule broke on: it would have called north the wanted axis, found
+    it open, stepped, and dropped the slide -- and the fly would have spent
+    for ever between the crossover and the border. Here the wanted axis stays
+    the horizontal one, because that is the axis the slide is across from.
+    """
+    solid = _wall_with_a_gap(13, 18)
+    fly = C.Cleg(14, 1)
+    target = (3, 0)
+    fly._toward(*target, solid)
+    assert fly.slide == (0, 1), f"expected a slide flipped south, got {fly.slide}"
+    rows_seen = [fly.cy]
+    for _ in range(30):
+        if fly.cx != 14:
+            break                            # through the gap and heading west
+        assert fly.slide[0] == 0, \
+            f"the slide changed to the horizontal axis: {fly.slide}"
+        fly._toward(*target, solid)
+        rows_seen.append(fly.cy)
+    assert max(rows_seen) > 12, \
+        f"it never got past the crossover row; rows {rows_seen}"
+    assert fly.cx < 14, f"it never came round the wall; ended at {(fly.cx, fly.cy)}"
+
+
+def test_a_slide_is_dropped_when_the_fly_arrives_on_the_axis_it_wanted():
+    """If the held axis's delta goes to zero there is nothing left to wait
+    for, so the slide clears and the ordinary rule decides the next step."""
+    solid = _wall_with_a_gap(13, 18)
+    fly = C.Cleg(14, 10)
+    fly._toward(3, 10, solid)                # straight through the wall
+    assert fly.slide != (0, 0), "no slide started"
+    fly._toward(14, 2, solid)                # now the target is straight up
+    assert fly.slide == (0, 0), "the slide outlived the axis it was waiting on"
+
+
+def test_a_step_refused_by_another_fly_still_does_not_start_a_slide():
+    """A slide answers brick and nothing else: a queued fly waits."""
+    fly = C.Cleg(10, 10)
+    blocked = lambda cx, cy: (cx, cy) == (11, 10)        # noqa: E731
+    fly._toward(20, 10, OPEN, avoid=blocked)
+    assert fly.slide == (0, 0), "a fly in the way started a slide"
+    assert (fly.cx, fly.cy) == (10, 10), "it should have waited"
+
+
 def test_a_cleg_never_leaves_the_room():
     swarm = C.Swarm([C.Cleg(0, 0)])
     for target in ((-5, -5), (99, 99), (0, 99), (99, 0)):

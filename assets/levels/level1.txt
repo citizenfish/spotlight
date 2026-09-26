@@ -1,13 +1,21 @@
 ; assets/levels/level1.txt -- Level 1, Dark: three rooms, four people, one Cleg.
 ;
-; The first level (issue #110, then re-authored as templates in the light
-; round, issue #121). Three rooms in a chain, the exit in the first, one fly
-; in the second, a room light in each: on the exit, on the doorway home,
-; around the far person. A searchlight in every room at walking pace
-; (issue #118). The walls, the furniture, where each person stands and where
-; the fly begins roll from the run's seed (issue #120); the shell -- what is
-; written here -- is the lesson. The reasons are in the vault's "The rooms"
-; and "The light round". Format as level3.txt.
+; The first level (issue #110, then templates in the light round #121, then
+; the plateau round #137). Three rooms in a chain, the exit in the first, one
+; fly in the second, a room light in each: on the exit, on the doorway home,
+; around the far person. A searchlight in every room at walking pace (#118).
+;
+; **Level 1 keeps open halls in all three rooms** (#137, ruling 10). Every
+; other level's rooms are built from authored shells with walls that reach the
+; border; this is where the beam, the spray and the swarm are all met for the
+; first time, and an open hall is the room you can read while you learn them.
+;
+; `fade: 2` is six seconds of wall memory rather than three (#137, ruling 9):
+; the levels that teach hold the room in mind for twice as long. `at:` is the
+; room's place on the plan the opening flashes (#134).
+;
+; The walls, the furniture, where each person stands and where the fly begins
+; roll from the run's seed (#120); what is written here is the lesson.
 
 level: 1
 name: Dark
@@ -17,6 +25,7 @@ spray: 3          ; the only button, taught with one fly at stake
 lives: 3
 magnet: 5         ; caught in the beam, the flies come for five seconds
 wake: off         ; and a sated fly sleeps through it
+fade: 2           ; six seconds of wall memory while you are learning to look
 
 room: the glow
 floor: yellow
@@ -29,8 +38,9 @@ away: 12
 worker: 90
 light: 1 9 3 4
 searchlight: 3 repeat
-pace: 8           ; walking pace, so a stranger can step out of it
+pace: 8
 start: 24 96
+at: 0 0
 door: east 10-12 the buzz
 
 room: the buzz
@@ -48,6 +58,7 @@ light: 0 10 3 3
 searchlight: 3 repeat
 pace: 8
 start: 16 80
+at: 1 0
 door: west 10-12 the glow
 door: east 10-12 the lamp
 
@@ -64,4 +75,5 @@ light: 26 17 3 3
 searchlight: 3 repeat
 pace: 8
 start: 16 80
+at: 2 0
 door: west 10-12 the buzz

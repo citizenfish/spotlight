@@ -285,7 +285,13 @@ def test_a_follower_keeps_the_rooms_hue_and_a_fly_on_you_wins_the_cell():
     mine = sprites.ink_cells(sprites.PLAYER_FRAMES[run.player.stride], run.player.x, run.player.y)
     feet = (run.player.cx, run.player.cy)
     assert unpack_attr(screen.get_attr(*feet))[0] == 2, "the fly on you did not win its cell"
-    for cell in mine - {feet}:
+    # **Every cell a fly is standing in is the fly's**, not only the one this
+    # test put there: the red goes on last and wherever a fly is (issue #106).
+    # With the rooms the plateau round authored, a second fly can be on the
+    # head cell, and asserting white there was asserting the absence of a rule
+    # the game has.
+    flies = {(c.cx, c.cy) for c in run.place.swarm.clegs}
+    for cell in mine - {feet} - flies:
         assert unpack_attr(screen.get_attr(*cell))[0] == 7, "you are not white"
     tail = [c for w in run.rescue.tail if w.room == run.here for c in w.cells()
             if c not in mine and c != feet]
@@ -356,9 +362,16 @@ def test_a_white_cell_holds_only_the_player_and_a_red_cell_only_one_fly():
     beam.update = lambda: None
     run.step(Intent())
     assert run.beam_on_player()
+    # **Exactly one fly on him.** The claim is that a fly wins the cell it is
+    # standing in and that the player's *other* cell is still white, so any
+    # fly that has wandered onto his head cell is taken out of the picture
+    # first -- with the rooms the plateau round authored one sometimes has, and
+    # then he has no white cell at all and the test has nothing to assert.
+    on_him = set(sprites.cells_spanned(run.player.x, run.player.y, 16))
+    run.place.swarm.clegs[:] = [c for c in run.place.swarm.clegs
+                                if (c.cx, c.cy) not in on_him]
     fly = C.Cleg(run.player.cx, run.player.cy, seed=3)
     run.place.swarm.clegs.append(fly)
-    run.moments.raise_moment("freed", [run.player.body_cells()[1]], run.here) if hasattr(run.moments, "raise_moment") and False else None
     screen = Screen()
     run.draw(screen)
     figure = sprites.PLAYER_FRAMES[run.player.stride]
@@ -393,14 +406,25 @@ def test_a_follower_under_you_is_hidden_in_your_square_and_drawn_elsewhere():
     tail = [w for w in run.rescue.tail if w.room == run.here]
     assert tail
     w = tail[0]
-    # Stand the follower half a cell under the player.
-    w.x, w.y = run.player.x, run.player.y + 12
-    screen = Screen()
-    run.draw(screen)
     figure = sprites.PLAYER_FRAMES[run.player.stride]
     mine = sprites.ink_cells(figure, run.player.x, run.player.y)
+
+    # **Asked by comparison** rather than by a pixel subset. A cell the figure
+    # only partly covers keeps its own floor stipple -- the halo clears the
+    # figure's footprint, not the whole cell -- so "the player's cells hold only
+    # the player's pixels" was only ever true where he happened to sit square
+    # on the grid, and the rooms the plateau round authored stopped putting him
+    # there. What the claim actually is: putting the follower under him changes
+    # nothing in his cells.
+    away = Screen()
+    w.x, w.y = run.player.x, run.player.y - 200          # out of the picture
+    run.draw(away)
+    screen = Screen()
+    w.x, w.y = run.player.x, run.player.y + 12           # half a cell under him
+    run.draw(screen)
     for cx, cy in mine:
-        assert _pixels_in(screen, cx, cy) <= _sprite_pixels_in(figure, run.player.x, run.player.y, cx, cy) | set()
+        assert _pixels_in(screen, cx, cy) == _pixels_in(away, cx, cy), \
+            f"the follower showed through the player's square at {(cx, cy)}"
     below = {c for c in sprites.ink_cells(sprites.FOLLOWER_FRAMES[w.stride], w.x, w.y) if c not in mine}
     assert below and any(_pixels_in(screen, *c) for c in below), "the follower vanished entirely"
 

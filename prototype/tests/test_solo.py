@@ -38,7 +38,8 @@ def test_start_room_starts_the_player_in_that_room_at_its_own_start():
     run = Session(seed=1, start_room=scene.FAR)
     assert run.here == scene.FAR and run.start_room == scene.FAR
     assert (run.player.x, run.player.y) == LEVEL[scene.FAR].player_start
-    assert len(run.places) == 2, "the rest of the building is still there"
+    assert len(run.places) == len(LEVEL), \
+        "the rest of the building is still there"
 
 
 def test_a_death_puts_you_back_at_the_start_room_you_asked_for():
@@ -52,10 +53,15 @@ def test_a_death_puts_you_back_at_the_start_room_you_asked_for():
 
 
 def test_a_room_with_no_start_cannot_be_the_start_room():
+    # A two-room house cut out of the level, so **only the doorways that lead
+    # inside it**: the far room has a doorway east to the third room since
+    # issue #137, and carrying that over would point at a room this building
+    # has not got.
+    inward = tuple(d for d in LEVEL[1].doorways if d.to == 0)
     rooms = [B.Room("a", LEVEL[0].rows, ink=LEVEL[0].ink, clegs=LEVEL[0].clegs,
                     player_start=(140, 72), doorways=LEVEL[0].doorways),
              B.Room("b", LEVEL[1].rows, ink=LEVEL[1].ink, clegs=LEVEL[1].clegs,
-                    workers=LEVEL[1].workers, doorways=LEVEL[1].doorways)]
+                    workers=LEVEL[1].workers, doorways=inward)]
     building = B.Building(rooms)
     with pytest.raises(ValueError, match="no start"):
         Session(seed=1, building=building, start_room=1)
