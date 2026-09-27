@@ -92,8 +92,8 @@ bytes of code on the port against thirty-two a template.
 from spotlight.core.constants import COLS
 
 from .building import (
-    CABINET, CRATE, DESK_L, DESK_R, DOOR, DOORWAY, EAST, FLOOR, GRATING, PIPE_H,
-    PIPE_V, WALL, WEST,
+    CABINET, CRATE, DESK_L, DESK_R, DOOR, DOORWAY, EAST, FLOOR, GRATING, NORTH,
+    PIPE_H, PIPE_V, SOUTH, VERTICAL_SIDES, WALL, WEST,
 )
 from .layout import PLAY_ROWS
 from .sources import xorshift16
@@ -282,10 +282,17 @@ def shell(template: Template, dice: "_Dice | None" = None) -> list[list[str]]:
     if template.exit:
         for cy in EXIT_ROWS:
             rows[cy][0] = DOOR
-    for side, door_rows in template.doorways:
-        column = COLS - 1 if side == EAST else 0
-        for cy in door_rows:
-            rows[cy][column] = DOORWAY
+    for side, span in template.doorways:
+        # Either axis since issue #139: a vertical doorway is a run of rows in
+        # a fixed column, a horizontal one a run of columns in a fixed row.
+        if side in VERTICAL_SIDES:
+            column = COLS - 1 if side == EAST else 0
+            for cy in span:
+                rows[cy][column] = DOORWAY
+        else:
+            row = PLAY_ROWS - 1 if side == SOUTH else 0
+            for cx in span:
+                rows[row][cx] = DOORWAY
     return rows
 
 
@@ -349,14 +356,24 @@ class _Roll:
         would have kept five columns clear for nothing.
         """
         out = {(cx, cy) for cy in LANDING_ROWS for cx in LANDING_COLS}
-        for side, door_rows in self.template.doorways:
-            cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
-                    else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
-            lo = min(door_rows) - LANDING_SPREAD
-            hi = max(door_rows) + LANDING_SPREAD
-            for cy in range(lo, hi + 1):
-                for cx in cols:
-                    out.add((cx, cy))
+        for side, span in self.template.doorways:
+            lo = min(span) - LANDING_SPREAD
+            hi = max(span) + LANDING_SPREAD
+            if side in VERTICAL_SIDES:
+                cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
+                        else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
+                for cy in range(lo, hi + 1):
+                    for cx in cols:
+                        out.add((cx, cy))
+            else:
+                # The same band read on the other axis (issue #139): the rows
+                # just inside the wall the gap is cut through, across the
+                # columns the gap spans and the spread either side of them.
+                band = (range(1, 1 + LANDING_DEPTH) if side == NORTH
+                        else range(PLAY_ROWS - 1 - LANDING_DEPTH, PLAY_ROWS - 1))
+                for cy in band:
+                    for cx in range(lo, hi + 1):
+                        out.add((cx, cy))
         return out
 
     def _block_around(self, cell) -> None:

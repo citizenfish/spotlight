@@ -300,10 +300,6 @@ SOLID = frozenset({WALL, *SOLID_FURNITURE})
 #: door you cannot leave by is a strange room.
 EXIT = DOOR
 
-#: Which side of a room a doorway is in. Only the two vertical walls are needed
-#: by the playtest building; a doorway in a horizontal wall is the *easier*
-#: case (a person is one cell wide, so one cell across fits) and is left until
-#: a room wants one.
 #: How many rooms fit across the opening's plan and down it, and therefore how
 #: many rooms a building may have (issue #134). Three by three is 208 x 148
 #: pixels of the 256 x 176 play area at `screens.PLAN_SCALE` and
@@ -318,62 +314,186 @@ EXIT = DOOR
 PLAN_COLS, PLAN_ROWS = 3, 3
 PLAN_MOST = PLAN_COLS * PLAN_ROWS
 
-EAST, WEST = 0, 1
+#: Which side of a room a doorway is in. The two vertical walls were all the
+#: playtest building needed, and `building.py` used to call a doorway in a
+#: horizontal wall *"the easier case (a person is one cell wide, so one cell
+#: across fits)"*. That was half right and the half it got wrong is the half
+#: that matters (issue #139): a person **fits** through a narrower horizontal
+#: gap, and **clears** a horizontal threshold only after sixteen pixels of
+#: height rather than eight of width -- so the crossing needs more care, not
+#: less. Both are here now, because a building that turns a corner of the
+#: plan's grid needs one.
+EAST, WEST, NORTH, SOUTH = 0, 1, 2, 3
 
-#: How wide a person is, in pixels. Used only to decide when a figure has
-#: cleared a threshold entirely.
+#: The sides in a vertical wall, which is the pair that spans rows.
+VERTICAL_SIDES = (EAST, WEST)
+
+SIDE_NAMES = {EAST: "east", WEST: "west", NORTH: "north", SOUTH: "south"}
+
+#: Which side faces which, so the loader can say a doorway's partner is on the
+#: opposite wall and nothing else.
+OPPOSITE = {EAST: WEST, WEST: EAST, NORTH: SOUTH, SOUTH: NORTH}
+
+#: How wide and how tall a person is, in pixels. Used only to decide when a
+#: figure has cleared a threshold entirely -- a crossing fires when it has,
+#: which is what keeps the walk continuous.
 PERSON_WIDTH = 8
+PERSON_HEIGHT = 16
+
+#: The two cells of the way out, in the west wall. `roller.EXIT_ROWS` is the
+#: same pair and cuts them into a rolled room; this is here so `solo` can cut a
+#: way out of a room whose only doorways are horizontal (issue #139).
+EXIT_ROWS_SOLO = (10, 11)
+
+#: How many cells wide a doorway is, on either axis. Two would fit a person
+#: through a vertical gap and one through a horizontal one; three is the
+#: authoring kindness the vertical case was given (the movement assist nudges
+#: by up to a cell, and a door the player bounces off is the first thing this
+#: audience reads as broken) and the horizontal case is given the same, so a
+#: tail files through either without queueing.
+DOORWAY_CELLS = 3
 
 
 class Doorway:
-    """A gap in one of a room's vertical walls, and the room beyond it.
+    """A gap in one of a room's walls, and the room beyond it.
 
-    `rows` are the cell rows the gap occupies, in **both** rooms: the vault
-    puts the doorway at the same rows on each side, so the world is continuous
-    and only the view jumps.
+    `span` is the run of cells the gap occupies **along** that wall: rows for a
+    doorway in a vertical wall, columns for one in a horizontal wall. It is the
+    same span in *both* rooms, because the vault puts the doorway at the same
+    place on each side -- so the world is continuous and only the view jumps.
+
+    Both axes since issue #139. Everything that reads a doorway reads it through
+    `cells()`, `line`, `beyond` and `landing` rather than through a column,
+    because the only difference between the two axes is which coordinate is
+    fixed and the rest of the game does not care which.
     """
 
-    __slots__ = ("side", "rows", "to")
+    __slots__ = ("side", "span", "to")
 
-    def __init__(self, side: int, rows, to: int) -> None:
+    def __init__(self, side: int, span, to: int) -> None:
+        if side not in SIDE_NAMES:
+            raise ValueError(f"no such side: {side}")
         self.side = side
-        self.rows = tuple(rows)
+        self.span = tuple(span)
         #: Index of the room on the other side, within the same `Building`.
         self.to = to
 
     @property
+    def vertical(self) -> bool:
+        """Is the gap in a vertical wall -- the east or the west one?"""
+        return self.side in VERTICAL_SIDES
+
+    @property
+    def rows(self) -> tuple:
+        """The rows the gap occupies. Vertical doorways only.
+
+        Kept because a vertical doorway's span **is** rows and a great deal of
+        the game says so in as many words. Asking a horizontal doorway for its
+        rows is a bug rather than a question, so it raises.
+        """
+        if not self.vertical:
+            raise AttributeError(
+                f"{self!r} is in a horizontal wall: its span is columns")
+        return self.span
+
+    @property
+    def cols(self) -> tuple:
+        """The columns the gap occupies. Horizontal doorways only."""
+        if self.vertical:
+            raise AttributeError(
+                f"{self!r} is in a vertical wall: its span is rows")
+        return self.span
+
+    @property
+    def line(self) -> int:
+        """The fixed coordinate of the wall the gap is cut through: the column
+        for a vertical doorway, the row for a horizontal one."""
+        if self.side == EAST:
+            return COLS - 1
+        if self.side == WEST:
+            return 0
+        return PLAY_ROWS - 1 if self.side == SOUTH else 0
+
+    #: What `line` used to be called, when every doorway was in a vertical
+    #: wall. Vertical doorways only, for the same reason `rows` is.
+    @property
     def column(self) -> int:
         """The column, in this room, that the gap is cut through."""
-        return COLS - 1 if self.side == EAST else 0
+        if not self.vertical:
+            raise AttributeError(f"{self!r} is in a horizontal wall")
+        return self.line
 
     @property
     def beyond(self) -> int:
-        """The virtual column just past the threshold. Not in this room."""
-        return COLS if self.side == EAST else -1
+        """The virtual line just past the threshold. Not in this room."""
+        if self.side == EAST:
+            return COLS
+        if self.side == WEST:
+            return -1
+        return PLAY_ROWS if self.side == SOUTH else -1
 
     @property
     def landing(self) -> int:
-        """The column, in the room beyond, that `beyond` corresponds to."""
-        return 0 if self.side == EAST else COLS - 1
+        """The line, in the room beyond, that `beyond` corresponds to."""
+        if self.side == EAST:
+            return 0
+        if self.side == WEST:
+            return COLS - 1
+        return 0 if self.side == SOUTH else PLAY_ROWS - 1
 
     @property
     def middle(self) -> int:
-        """The row a word naming this doorway sits on.
+        """The middle of the span, where a word naming this doorway sits.
 
-        *Beside* it rather than over it since issue #59 -- the word is written
-        on this room's side of the gap, on this row, because a label that
-        covers the fixture it is naming has failed at the only job it has. The
-        column is chosen in `Session._calls_through_doors`; this is the row.
+        *Beside* the gap rather than over it since issue #59 -- the word is
+        written on this room's side, because a label that covers the fixture it
+        is naming has failed at the only job it has. For a vertical doorway this
+        is the row and `Session._calls_through_doors` chooses the column; for a
+        horizontal one it is the column.
         """
-        return self.rows[len(self.rows) // 2]
+        return self.span[len(self.span) // 2]
 
     def cells(self) -> list[tuple[int, int]]:
         """The gap, in this room's coordinates."""
-        return [(self.column, cy) for cy in self.rows]
+        if self.vertical:
+            return [(self.line, s) for s in self.span]
+        return [(s, self.line) for s in self.span]
+
+    def landing_cells(self) -> list[tuple[int, int]]:
+        """The cells the gap lands on, in the room beyond's coordinates."""
+        if self.vertical:
+            return [(self.landing, s) for s in self.span]
+        return [(s, self.landing) for s in self.span]
+
+    def holds(self, cx: int, cy: int) -> bool:
+        """Is `(cx, cy)` past this gap, in the room on the other side?
+
+        **Any distance past it, not only the first cell** (issue #139). A figure
+        is one cell wide and two tall, so leaving by a vertical wall never puts
+        it more than one column past the threshold -- but leaving by a
+        horizontal one puts its feet *two* rows past, and this answered for the
+        first row only, so a player walking south stopped dead one pixel short
+        of the crossing with nothing to say why.
+        """
+        if self.vertical:
+            if cy not in self.span:
+                return False
+            return cx >= COLS if self.side == EAST else cx < 0
+        if cx not in self.span:
+            return False
+        return cy >= PLAY_ROWS if self.side == SOUTH else cy < 0
+
+    def beyond_to(self, cx: int, cy: int) -> tuple[int, int]:
+        """`(cx, cy)`, which `holds` says is past this gap, in the room beyond's
+        own coordinates. The offset is one room, on the axis the gap crosses."""
+        if self.vertical:
+            return (cx - COLS if self.side == EAST else cx + COLS), cy
+        return cx, (cy - PLAY_ROWS if self.side == SOUTH else cy + PLAY_ROWS)
 
     def __repr__(self) -> str:
-        side = "east" if self.side == EAST else "west"
-        return f"Doorway({side}, rows {self.rows[0]}-{self.rows[-1]}, to {self.to})"
+        what = "rows" if self.vertical else "cols"
+        return (f"Doorway({SIDE_NAMES[self.side]}, {what} "
+                f"{self.span[0]}-{self.span[-1]}, to {self.to})")
 
 
 class Searchlight:
@@ -490,18 +610,25 @@ class Room:
                     and 0 <= top and top + height <= PLAY_ROWS):
                 raise ValueError(f"{self.name}: light {zone} is off the room")
         for door in self.doorways:
-            if len(door.rows) < 2:
-                # A person is two cells tall and one wide, so a doorway in a
-                # *vertical* wall needs two rows or nobody fits. The rule was
-                # written for horizontal walls, which is the only case the
-                # prototype had, and it does not carry over unchanged.
+            # **How many cells a person needs is not the same on both axes**
+            # (issue #139). A person is two cells tall and one wide, so a gap
+            # in a *vertical* wall needs two rows for anybody to fit and a gap
+            # in a *horizontal* one needs only a single column. Both are given
+            # `DOORWAY_CELLS` anyway, and the reason is the same on either
+            # axis: the movement assist nudges by up to a cell, and a door the
+            # player bounces off is the first thing this audience reads as
+            # broken.
+            least = 2 if door.vertical else 1
+            if len(door.span) < least:
                 raise ValueError(
-                    f"{self.name}: doorway {door} is {len(door.rows)} cells "
-                    f"tall; a vertical wall needs at least two")
-            for cy in door.rows:
-                if self.rows[cy][door.column] in SOLID:
+                    f"{self.name}: doorway {door} is {len(door.span)} cells "
+                    f"across; a {'vertical' if door.vertical else 'horizontal'}"
+                    f" wall needs at least {least}")
+            for cx, cy in door.cells():
+                if self.rows[cy][cx] in SOLID:
                     raise ValueError(
-                        f"{self.name}: doorway {door} is walled up at row {cy}")
+                        f"{self.name}: doorway {door} is walled up at "
+                        f"{cx},{cy}")
 
     def is_solid(self, cx: int, cy: int) -> bool:
         """Can nothing stand here?
@@ -511,9 +638,12 @@ class Room:
         past a doorway answer for the room next door is the whole of the
         crossing mechanism. Nothing else in the game knows a doorway exists.
         """
-        if not 0 <= cy < PLAY_ROWS:
-            return True
-        if 0 <= cx < COLS:
+        # **Symmetric in the two axes since issue #139.** The row test used to
+        # come first and answer True, so a cell past the top or bottom wall was
+        # solid before `across` was ever asked -- which was right while every
+        # doorway was in a vertical wall and made a horizontal one impossible to
+        # walk through. Either coordinate off the grid now asks the doorways.
+        if 0 <= cx < COLS and 0 <= cy < PLAY_ROWS:
             return self.rows[cy][cx] in SOLID
         beyond = self.across(cx, cy)
         if beyond is None:
@@ -566,13 +696,23 @@ class Room:
 
         Returns the room next door and the same point in *its* coordinates, or
         None if there is no doorway there -- which is nearly always, because a
-        doorway is three rows out of twenty-two.
+        doorway is three cells out of twenty-two or thirty-two.
+
+        Either axis since issue #139: a vertical doorway keeps the row and
+        moves the column, a horizontal one keeps the column and moves the row.
         """
         if self.building is None:
             return None
         for door in self.doorways:
-            if cx == door.beyond and cy in door.rows:
-                return self.building.rooms[door.to], door.landing, cy
+            if not door.holds(cx, cy):
+                continue
+            room = self.building.rooms[door.to]
+            ncx, ncy = door.beyond_to(cx, cy)
+            if not (0 <= ncx < COLS and 0 <= ncy < PLAY_ROWS):
+                # Past the room beyond as well: two thresholds in a row is not
+                # a crossing, it is off the building.
+                return None
+            return room, ncx, ncy
         return None
 
     def doorway_to(self, other: int) -> Doorway | None:
@@ -779,7 +919,14 @@ class Building:
                 if back is None:
                     raise ValueError(
                         f"{room.name}: {door} has no door back again")
-                if back.rows != door.rows:
+                if back.side != OPPOSITE[door.side]:
+                    # A doorway's partner is on the opposite wall and nowhere
+                    # else (issue #139). With only two sides this could not be
+                    # got wrong; with four it can.
+                    raise ValueError(
+                        f"{room.name}: {door} is answered by {back}, which is "
+                        f"not on the opposite wall")
+                if back.span != door.span:
                     # The world is continuous and only the view jumps, which is
                     # only true if the two sides line up. A doorway that landed
                     # you somewhere else would teleport a tail.
@@ -944,14 +1091,26 @@ class Building:
         exit_side = None
         if not room.has_exit:
             sides = {d.side for d in room.doorways}
-            exit_side = WEST if WEST in sides else EAST if sides else None
+            # A way out has to be in a **vertical** wall, because the exit is
+            # two cells of one and `exit_sign_cells` writes beside it along a
+            # row. A room whose only doorways are north and south is played on
+            # its own through whichever of those it has, bricked up, and needs
+            # one of the two vertical sides to cut a way out of -- so west is
+            # taken whether or not a doorway was there.
+            exit_side = (WEST if WEST in sides else EAST if EAST in sides
+                         else WEST if sides else None)
             if exit_side is None:
                 raise ValueError(f"{room.name}: no doorway and no exit, so "
                                  "there is no way out of it on its own")
         for door in room.doorways:
-            for n, cy in enumerate(sorted(door.rows)):
-                rows[cy][door.column] = (DOOR if door.side == exit_side and n < 2
-                                         else WALL)
+            for n, (cx, cy) in enumerate(sorted(door.cells())):
+                rows[cy][cx] = (DOOR if door.side == exit_side and n < 2
+                                else WALL)
+        if not room.has_exit and exit_side not in {d.side for d in room.doorways}:
+            # The room's doorways were all horizontal, so nothing above cut the
+            # way out: cut it into the west wall at the exit's own rows.
+            for cy in EXIT_ROWS_SOLO:
+                rows[cy][0] = DOOR
         alone = Room(
             room.name, ("".join(r) for r in rows), ink=room.ink,
             workers=room.workers, clegs=room.clegs,
@@ -991,13 +1150,25 @@ class Building:
         """
         room = self.rooms[index]
         if x >= COLS * CELL:
-            side, moved = EAST, x - COLS * CELL
+            side, nx, ny = EAST, x - COLS * CELL, y
         elif x + width <= 0:
-            side, moved = WEST, x + COLS * CELL
+            side, nx, ny = WEST, x + COLS * CELL, y
+        elif y >= PLAY_ROWS * CELL:
+            side, nx, ny = SOUTH, x, y - PLAY_ROWS * CELL
+        elif y + PERSON_HEIGHT <= 0:
+            side, nx, ny = NORTH, x, y + PLAY_ROWS * CELL
         else:
             return None
-        rows = range(y // CELL, (y + 2 * CELL - 1) // CELL + 1)
+        # **Which cells of the wall the figure is against.** A person is one
+        # cell wide and two tall, so leaving by a vertical wall is judged on the
+        # rows its height covers and leaving by a horizontal one on the columns
+        # its width covers -- and the second is the narrower test, which is the
+        # part `building.py` used to have backwards.
+        if side in VERTICAL_SIDES:
+            along = range(y // CELL, (y + PERSON_HEIGHT - 1) // CELL + 1)
+        else:
+            along = range(x // CELL, (x + width - 1) // CELL + 1)
         for door in room.doorways:
-            if door.side == side and any(cy in door.rows for cy in rows):
-                return door.to, moved
+            if door.side == side and any(c in door.span for c in along):
+                return door.to, nx, ny
         return None

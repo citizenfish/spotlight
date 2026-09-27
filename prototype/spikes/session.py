@@ -41,7 +41,7 @@ from . import (
     scene, screens, sounds, sources, spray as spray_mod, sprites,
     tally as tally_mod, tiles, tune as tune_mod, seeds,
 )
-from .building import EAST
+from .building import EAST, SOUTH
 from .layout import PLAY_BOTTOM, PLAY_TOP, PLAY_ROWS, STRIP_BOTTOM, STRIP_TOP
 from .lighting import LightField
 from .panel import Panel, bar_pips, blank_strip
@@ -848,10 +848,11 @@ class Session:
         # **The spill counts** (issue #116): a player standing in doorway
         # cells the far room's beam covers is as lit, and as found, as one
         # standing in that beam.
+        here = (self.player.cx, self.player.cy)
         for door, other in self._spilling(self.place):
-            if self.player.cx == door.column and self.player.cy in door.rows \
-                    and other.covers(door.landing, self.player.cy):
-                return True
+            for mine, theirs in zip(door.cells(), door.landing_cells()):
+                if here == mine and other.covers(*theirs):
+                    return True
         return False
 
     def _spilling(self, place):
@@ -1692,9 +1693,9 @@ class Session:
         crossed = self.building.cross(self.here, self.player.x, self.player.y)
         if crossed is None:
             return False
-        to, x = crossed
+        to, x, y = crossed
         left = self.room
-        self.player.x = x
+        self.player.x, self.player.y = x, y
         # The walk counter is re-based rather than fed: the crossing moves `x`
         # the width of a room, which is not travel. See `Walk.carried_to`.
         self.player.walk.carried_to(self.player.x, self.player.y)
@@ -2099,10 +2100,17 @@ class Session:
         spill lights."""
         out = [place.roaming]
         for door, other in self._spilling(place):
-            if any(other.covers(door.landing, cy) for cy in door.rows):
-                shifted = copy.copy(other)
-                shifted.x = other.x + (door.column - door.landing)
-                out.append(shifted)
+            if not any(other.covers(*c) for c in door.landing_cells()):
+                continue
+            shifted = copy.copy(other)
+            # Shift the neighbour's beam into this room's coordinates: along
+            # the axis the doorway crosses, which is the column for a vertical
+            # doorway and the row for a horizontal one (issue #139).
+            if door.vertical:
+                shifted.x = other.x + (door.line - door.landing)
+            else:
+                shifted.y = other.y + (door.line - door.landing)
+            out.append(shifted)
         return out
 
     def _spill(self, place: Place) -> None:
@@ -2116,9 +2124,9 @@ class Session:
             return
         for door in place.room.doorways:
             beyond = self.places[door.to].field
-            for cy in door.rows:
-                if beam.covers(door.column, cy):
-                    beam.light(beyond, door.landing, cy)
+            for (mx, my), (tx, ty) in zip(door.cells(), door.landing_cells()):
+                if beam.covers(mx, my):
+                    beam.light(beyond, tx, ty)
 
     def _people_cells(self, place) -> set:
         """Every cell a figure is drawn in, in one room (issue #59).
@@ -2200,6 +2208,22 @@ class Session:
         people = None
         for door in self.place.room.doorways:
             if not self.rescue.calling(self.frame, door.to):
+                continue
+            if not door.vertical:
+                # **A horizontal doorway is a gap in the floor or the ceiling**
+                # (issue #139), and the word is four cells wide along a row, so
+                # "beside it" cannot mean further along the same wall without
+                # covering the gap. It goes one row **inward** instead, centred
+                # on the gap's own columns -- the same rule read on the other
+                # axis: on this room's side of the threshold, never across it.
+                row = door.line + (-1 if door.side == SOUTH else 1)
+                left = door.middle - word // 2
+                if people is None:
+                    people = self._people_cells(self.place)
+                run = rescue_mod.clear_run(left, row, people,
+                                           rescue_mod.CALL_STEPS_INWARD)
+                runs.append(run if run is not None
+                            else rescue_mod.clear_run(left, row))
                 continue
             row = door.middle
             # **Beside the doorway, on this room's side of it, never across

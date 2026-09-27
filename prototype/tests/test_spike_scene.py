@@ -281,7 +281,7 @@ def test_a_doorway_in_a_vertical_wall_must_be_two_cells_tall():
     thin = B.Room("thin", ROOMS[0].rows,
                   doorways=(B.Doorway(B.EAST, (10,), to=0),))
     B.Building((thin,))
-    with pytest.raises(ValueError, match="at least two"):
+    with pytest.raises(ValueError, match="at least 2"):
         thin.validate()
 
 
@@ -306,9 +306,12 @@ def test_a_person_who_walks_off_the_edge_arrives_next_door():
     one, which is x=0 there. Nothing jumps but the view."""
     near = _room(scene.NEAR_NAME)
     y = scene.DOOR_ROWS[1] * CELL
+    # `cross` hands back the room and **both** coordinates since issue #139: a
+    # vertical crossing keeps the row and a horizontal one keeps the column, and
+    # the caller no longer has to know which kind it was.
     assert scene.BUILDING.cross(near.index, 255, y) is None
-    assert scene.BUILDING.cross(near.index, COLS * CELL, y) == (1, 0)
-    assert scene.BUILDING.cross(1, -8, y) == (near.index, (COLS - 1) * CELL)
+    assert scene.BUILDING.cross(near.index, COLS * CELL, y) == (1, 0, y)
+    assert scene.BUILDING.cross(1, -8, y) == (near.index, (COLS - 1) * CELL, y)
 
 
 def test_walking_off_an_edge_with_no_doorway_goes_nowhere():

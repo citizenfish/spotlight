@@ -88,6 +88,24 @@ without which a wall that reached the border was shelter rather than an
 obstacle; and the walls stopped rolling (#132), because a seed-independent proof
 needs one shape to point at.
 
+## A building can turn a corner
+
+A doorway may be in any of a room's four walls (#139). `door: east|west r-r`
+takes rows, `door: north|south c-c` takes columns, and each room says where it
+sits on the plan:
+
+```
+room: a
+at: 0 0
+door: east 10-12 b
+door: south 14-16 c
+```
+
+The loader checks the geometry: a north door leads to the room above, a south
+door to the room below, two rooms may not share a place, and nine is the most a
+plan holds. So a building can be a row, an L, a ring or a 3x3 block -- and the
+opening flashes its plan on the grid it actually has.
+
 ## The old looks, for comparison
 
 ```sh

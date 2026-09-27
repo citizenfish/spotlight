@@ -56,7 +56,7 @@ def origins(room) -> list[tuple[int, int]]:
     """
     places = [tuple(c) for c in room.clegs]
     for door in room.doorways:
-        places += [(door.column, cy) for cy in door.rows]
+        places += door.cells()
     return sorted(set(places))
 
 

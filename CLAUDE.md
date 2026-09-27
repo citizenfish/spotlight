@@ -93,7 +93,7 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1665 tests, headless-safe
+pytest                     # 1682 tests, headless-safe
 SPOTLIGHT_SLOW=1 pytest    # + 132 room runs (tests/test_rooms.py), ~21 min
 ```
 
@@ -210,11 +210,20 @@ not with rooms. The dials that were frozen at Level 3 now move: `pace:` 6→5,
 and `mount:` is gone — the housing's corner rotates round the building from the
 run's seed.
 
-**Buildings cap at three rooms until #139.** Rulings 6, 7 and 8 are not jointly
-satisfiable: rooms are only ever adjacent east–west, so a connected building
-runs along one row of a plan three wide. Doorways in horizontal walls are
-raised as #139 and the four-, five- and six-room rungs wait for it, as do the
-loop and the branch. See *The plateau and the rooms* and its issues note.
+**Doorways in horizontal walls** (#139) finished the round. Rulings 6, 7 and 8
+had not been jointly satisfiable: rooms were only ever adjacent east–west, so a
+connected building ran along one row of a plan three wide and capped at three
+rooms while ruling 6 asked for six. `Doorway` now carries a `side` in any of
+four and a `span` that is rows or columns, `NORTH`/`SOUTH` included; `cross`
+notices a figure walking off the top or bottom and hands back both coordinates;
+the loader takes `door: north|south c-c <room>` and checks north leads north.
+Two things fell out of it that the old comment about the "easier case" had
+backwards: `is_solid` answered True for any row off the grid *before* asking the
+doorways, and `across` resolved one cell past a threshold when a figure's feet
+reach two. A six-room building loads and a 2×2 ring can be walked in every
+direction; the sixteen hashes are byte-identical, because no shipped level file
+uses one yet. Level files may now author up to nine rooms, and ruling 6's ladder
+and ruling 8's loop and branch are unblocked.
 
 `core/game.py` is **not** a design — it is a walking skeleton that proves the
 loop runs end to end, and it should be replaced by the first real spec from the

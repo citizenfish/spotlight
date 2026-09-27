@@ -96,8 +96,26 @@ HOOK_WALL = ([(cx, 10) for cx in range(14, COLS - 1)]
              + [(cx, 17) for cx in range(14, 24)])
 
 
-def hook_room():
-    """A bare shell with `HOOK_WALL` in it and one east doorway to come in by."""
+def grid_room(name, doorways=()):
+    """A bare shell with nothing in it, to stand next door to something."""
+    rows = [[B.WALL] * COLS]
+    rows += [[B.WALL] + [B.FLOOR] * (COLS - 2) + [B.WALL]
+             for _ in range(PLAY_ROWS - 2)]
+    rows.append([B.WALL] * COLS)
+    for door in doorways:
+        for cx, cy in door.cells():
+            rows[cy][cx] = B.DOORWAY
+    return B.Room(name, ("".join(r) for r in rows), player_start=(24, 96),
+                  doorways=tuple(doorways))
+
+
+def hook_room(to: int = 0):
+    """A bare shell with `HOOK_WALL` in it and one east doorway to come in by.
+
+    `to` is the room the doorway leads to, which only matters when the room is
+    put in a building with a neighbour: a doorway's partner has to be on the
+    opposite wall since issue #139.
+    """
     rows = [[B.WALL] * COLS]
     rows += [[B.WALL] + [B.FLOOR] * (COLS - 2) + [B.WALL]
              for _ in range(PLAY_ROWS - 2)]
@@ -108,7 +126,7 @@ def hook_room():
     for cy in door_rows:
         rows[cy][COLS - 1] = B.DOORWAY
     return B.Room("hook", ("".join(r) for r in rows), player_start=(24, 96),
-                  doorways=(B.Doorway(B.EAST, door_rows, 0),))
+                  doorways=(B.Doorway(B.EAST, door_rows, to),))
 
 
 def test_the_corner_the_measurement_found_is_reachable_since_the_slide_was_held():
@@ -176,6 +194,14 @@ def test_the_check_is_not_a_flood_fill():
 
 
 def test_a_room_the_swarm_cannot_cover_will_not_load():
-    """Level validation, not a script somebody remembers to run."""
+    """Level validation, not a script somebody remembers to run.
+
+    Given a plain room next door to lead into, because a doorway's partner has
+    to be on the opposite wall since issue #139 -- a one-room building whose
+    doorway led back to itself used to validate, and is now refused before the
+    swarm is ever asked.
+    """
+    hook = hook_room(to=1)
+    plain = grid_room("plain", (B.Doorway(B.WEST, (10, 11, 12), 0),))
     with pytest.raises(ValueError, match="swarm cannot reach"):
-        B.Building((hook_room(),)).validate()
+        B.Building((hook, plain)).validate()

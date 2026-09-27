@@ -141,7 +141,7 @@ def test_the_loaders_own_refusals():
     rows = head + _room("one", "yellow", ["east 5-7 two"], True) + _room("two", "cyan", ["west 5-7 one"])
     with pytest.raises(ValueError) as err:
         levels.build(levels.parse(rows, "t.txt")[2], "t.txt")
-    assert "walled up at row 5" in str(err.value)
+    assert "walled up at 31,5" in str(err.value)
     # What a doorway still has to be: three rows, running together, clear of
     # the corners. A person is two cells tall and three is what a tail files
     # through without queueing.

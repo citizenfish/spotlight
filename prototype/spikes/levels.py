@@ -26,6 +26,8 @@ The format, in full:
     at: col row         where the room sits in the building's plan (issue #134)
     fade: n             wall-memory rate divisor, 1 (3 s) or 2 (6 s); level's own
     door: east|west r-r <room name>      rows inclusive, the room it leads to
+    door: north|south c-c <room name>    columns inclusive, for the room above
+                                         or below on the plan (issue #139)
 
 Or, since issue #120, **a rolled interior** in place of `map:` -- an
 authored shell whose walls, furniture, people and flies are drawn from the
@@ -87,8 +89,9 @@ from pathlib import Path
 from spotlight.core.constants import CYAN, YELLOW
 
 from .building import (
-    DEFAULT_BUDGET, PLAN_COLS, PLAN_MOST, PLAN_ROWS, Budget, Building, Doorway,
-    EAST, Room, Searchlight, WEST, palette,
+    DEFAULT_BUDGET, DOORWAY_CELLS, PLAN_COLS, PLAN_MOST, PLAN_ROWS,
+    VERTICAL_SIDES, Budget, Building, Doorway, EAST, NORTH, Room, Searchlight,
+    SIDE_NAMES, SOUTH, WEST, palette,
 )
 
 #: The run seed a level is rolled for when none is given: the driver's
@@ -100,7 +103,7 @@ DEFAULT_SEED = 0xBEEF
 LEVELS_DIR = Path(__file__).resolve().parents[2] / "assets" / "levels"
 
 FLOORS = {"yellow": YELLOW, "cyan": CYAN}
-SIDES = {"east": EAST, "west": WEST}
+SIDES = {"east": EAST, "west": WEST, "north": NORTH, "south": SOUTH}
 DOOR_ROWS = (10, 11, 12)
 ROWS, COLS = 22, 32
 
@@ -314,11 +317,28 @@ def parse(text: str, where: str = "<text>"
             room.start = tuple(ints(i, parts, 2, "start"))
         elif key == "door":
             if len(parts) < 3 or parts[0] not in SIDES or "-" not in parts[1]:
-                raise fail(i, "door wants `east|west r-r <room name>`")
+                raise fail(i, "door wants `east|west|north|south a-b "
+                              "<room name>`; east and west take rows, north "
+                              "and south take columns")
+            side = SIDES[parts[0]]
             lo, _, hi = parts[1].partition("-")
-            lo, hi = ints(i, [lo, hi], 2, "door rows")
-            room.doors.append((SIDES[parts[0]], tuple(range(lo, hi + 1)),
-                               " ".join(parts[2:]), i))
+            vertical = side in VERTICAL_SIDES
+            what = "rows" if vertical else "columns"
+            lo, hi = ints(i, [lo, hi], 2, f"door {what}")
+            span = tuple(range(lo, hi + 1))
+            # **Checked here, where the line is read, and not in `build`**
+            # (issue #139). It used to be checked after the room had been
+            # rolled, and a rolled room cuts its doorways into the shell -- so
+            # a doorway at columns 30-32 crashed the roller with an index error
+            # before the loader got to say what was wrong with it.
+            along = ROWS if vertical else COLS
+            if len(span) != DOORWAY_CELLS:
+                raise fail(i, f"a doorway is {DOORWAY_CELLS} {what}, "
+                              f"not {len(span)}")
+            if span[0] < 1 or span[-1] > along - 2:
+                raise fail(i, f"a doorway at {what} {span[0]}-{span[-1]} runs "
+                              f"into the corner; 1 to {along - 2} is the wall")
+            room.doors.append((side, span, " ".join(parts[2:]), i))
         else:
             raise fail(i, f"unknown key {key!r}")
     if number is None:
@@ -375,23 +395,12 @@ def build(specs: list, where: str = "<text>",
         for side, rows, to_name, line in spec.doors:
             if to_name not in index:
                 raise ValueError(f"{where}:{line}: door leads to unknown room {to_name!r}")
-            # **A doorway may be anywhere in a vertical wall** (issue #135).
-            # It was pinned to rows 10-12 -- the exact middle -- in every room
-            # of every level, so a player had never once had to remember which
-            # way out of a room. What a doorway still has to be is three
-            # consecutive rows clear of the corners: a person is two cells
-            # tall, so two is the floor (`Room.validate` says so), and three is
-            # what a tail files through without queueing.
-            if len(rows) != len(DOOR_ROWS):
-                raise ValueError(
-                    f"{where}:{line}: a doorway is {len(DOOR_ROWS)} rows, "
-                    f"not {len(rows)}")
-            if tuple(rows) != tuple(range(rows[0], rows[0] + len(rows))):
-                raise ValueError(f"{where}:{line}: a doorway's rows run together")
-            if rows[0] < 1 or rows[-1] > ROWS - 2:
-                raise ValueError(
-                    f"{where}:{line}: a doorway at rows {rows[0]}-{rows[-1]} "
-                    f"runs into the corner; 1 to {ROWS - 2} is the wall")
+            # **A doorway may be anywhere in a wall, and in any of the four**
+            # (issues #135 and #139). It was pinned to rows 10-12 of the two
+            # vertical walls -- the exact middle -- in every room of every
+            # level, so a player had never once had to remember which way out
+            # of a room. Its shape is checked in `parse`, which runs before
+            # anything is rolled; what is left for here is the room it leads to.
             doorways.append(Doorway(side, rows, to=index[to_name]))
         rooms.append(Room(
             spec.name, spec.rows, ink=palette(spec.floor),
@@ -433,10 +442,11 @@ def build(specs: list, where: str = "<text>",
         for spec in specs:
             col, row = spec.at
             for side, _rows, to_name, line in spec.doors:
-                want = (col + 1, row) if side == EAST else (col - 1, row)
+                want = {EAST: (col + 1, row), WEST: (col - 1, row),
+                        NORTH: (col, row - 1), SOUTH: (col, row + 1)}[side]
                 got = specs[index[to_name]].at
                 if got != want:
-                    way = "east" if side == EAST else "west"
+                    way = SIDE_NAMES[side]
                     raise ValueError(
                         f"{where}:{line}: {spec.name!r} is at {col} {row} and "
                         f"its {way} door leads to {to_name!r} at "
