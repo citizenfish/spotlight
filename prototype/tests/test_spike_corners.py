@@ -18,12 +18,13 @@ before it ever asked the doorways, and `across` resolved one cell past the
 threshold when a figure's feet reach two.
 """
 
-import tempfile
+import functools
 import os
+import tempfile
 
 import pytest
 
-from spikes import building as B, levels, session as S, swarming
+from spikes import bots, building as B, levels, session as S, swarming
 from spikes.session import Intent
 from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import CELL, COLS
@@ -322,3 +323,167 @@ def test_a_shout_through_a_horizontal_doorway_is_written_inside_the_room(ring):
         f"the word is not one row inside the south wall: {sorted(rows_used)}"
     assert not any(cy == PLAY_ROWS - 1 for _cx, cy in cells), \
         "the word was written over the doorway"
+
+
+# --- a bot can get through a corner (issue #140) -----------------------------
+#
+# #139 made the world walkable in four directions and left the bot harness
+# behind, and because every shipped level is east-west nothing caught it: the
+# oracle is 7 of 7 on a row and **0 of 7 on a ring**. It was two faults.
+#
+# `bots.standable` refuses a feet row of 0 -- correctly, a person is 8x16 and
+# the head cell must exist -- so the gap of a north doorway is a cell no route
+# may stand in, and `step_across` only answers for a cell *beyond* the room,
+# which cannot be reached without standing on row 0 first. And the walk that
+# follows a route pressed east or west and lined up on the row, which is a
+# doorway in a vertical wall and was every doorway in the game until #139.
+
+SHAPES = {
+    "row": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 40, 30]),
+            ("b", "cyan", (1, 0), ["door: west 10-12 a", "door: east 10-12 c"], [50, 60]),
+            ("c", "yellow", (2, 0), ["door: west 10-12 b"], [70, 80])],
+    "column": [("a", "yellow", (0, 0), ["door: south 14-16 b"], [90, 40, 30]),
+               ("b", "cyan", (0, 1), ["door: north 14-16 a", "door: south 14-16 c"], [50, 60]),
+               ("c", "yellow", (0, 2), ["door: north 14-16 b"], [70, 80])],
+    "an L": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 40, 30]),
+             ("b", "cyan", (1, 0), ["door: west 10-12 a", "door: south 14-16 c"], [50, 60]),
+             ("c", "yellow", (1, 1), ["door: north 14-16 b"], [70, 80])],
+    "the ring": RING,
+}
+
+BOT_SEEDS = (48879, 48880, 48881, 48882)
+
+
+def rooms_a_bot_can_reach(building, start):
+    """Every room a flood fill over `bots.neighbours` gets to from one cell."""
+    seen, queue = {start}, [start]
+    while queue:
+        for step in bots.neighbours(building, queue.pop()):
+            if step not in seen:
+                seen.add(step)
+                queue.append(step)
+    return {room for room, _cx, _cy in seen}
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_a_bot_can_reach_every_room_of_every_shape(shape):
+    """The flood fill, from **every** room in turn rather than from the first.
+
+    Measured before the fix: 3 of 3 on a row, 1 of 3 on a column, 2 of 3 on an
+    L, 2 of 4 on a ring and 3 of 7 on a seven-room grid. The asymmetry is the
+    tell -- going south worked and going north did not, because the bottom row
+    of a room can hold a figure's feet with its head on the row above, and the
+    top row cannot.
+    """
+    building = load(SHAPES[shape])
+    for start in range(len(building)):
+        got = rooms_a_bot_can_reach(building, (start, 16, 11))
+        assert got == set(range(len(building))), \
+            f"from room {start}, a bot reaches only {sorted(got)}"
+
+
+def test_a_bot_reaches_every_room_of_a_seven_room_building():
+    """The size the shape ladder is going to, on a shape that turns twice."""
+    grid = [(0, 0), (1, 0), (2, 0), (2, 1), (1, 1), (0, 1), (0, 2)]
+    names = [f"r{i}" for i in range(len(grid))]
+    rooms = []
+    for i, (col, row) in enumerate(grid):
+        doors = []
+        for j, (c2, r2) in enumerate(grid):
+            if i == j:
+                continue
+            for way, at in (("east", (col + 1, row)), ("west", (col - 1, row))):
+                if (c2, r2) == at:
+                    doors.append(f"door: {way} 10-12 {names[j]}")
+            for way, at in (("south", (col, row + 1)), ("north", (col, row - 1))):
+                if (c2, r2) == at:
+                    doors.append(f"door: {way} 14-16 {names[j]}")
+        hue = "yellow" if (col + row) % 2 == 0 else "cyan"
+        rooms.append((names[i], hue, (col, row), doors, [90 - i * 10]))
+    building = load(rooms)
+    assert len(building) == 7
+    for start in range(7):
+        assert rooms_a_bot_can_reach(building, (start, 16, 11)) == set(range(7))
+
+
+@pytest.mark.parametrize("shape", ["column", "an L", "the ring"])
+def test_the_oracle_finishes_a_building_it_must_cross_north_and_south_in(shape):
+    """The acceptance. The oracle is the ceiling: it is told where everybody is,
+    and on every shipped level it is 7 of 7 with `all_out` on all four seeds.
+    On any shape with a horizontal doorway it was **0 of 7**, which read as an
+    unwinnable building and was a broken bot."""
+    for seed in BOT_SEEDS:
+        building = load(SHAPES[shape], seed=seed, segments="3 5",
+                        pieces="1 3", clegs=2)
+        run = S.Session(seed=seed, sound=False, building=building, start_room=0)
+        bot = bots.make("oracle", seed=seed)
+        while run.over is None and run.frame < 9000:
+            run.step(bot.intent(run))
+        assert run.over == "all_out", \
+            f"{shape}, seed {seed}: {run.rescued} of {run.total}, {run.over}"
+
+
+def test_the_listener_and_the_scout_both_leave_the_first_room_of_a_column():
+    """The two bots that find people rather than being told where they are. A
+    listener that cannot cross a horizontal doorway never hears past the first
+    room, and a scout never maps past it."""
+    for who in ("listener", "scout"):
+        left = 0
+        for seed in BOT_SEEDS:
+            building = load(SHAPES["column"], seed=seed, segments="3 5",
+                            pieces="1 3", clegs=2)
+            run = S.Session(seed=seed, sound=False, building=building,
+                            start_room=0)
+            bot = bots.make(who, seed=seed, spray=True)
+            while run.over is None and run.frame < 9000:
+                run.step(bot.intent(run))
+            left += run.crossings > 0
+        assert left == len(BOT_SEEDS), \
+            f"the {who} stayed in the first room on {len(BOT_SEEDS) - left} seeds"
+
+
+def test_a_route_across_a_vertical_doorway_is_the_route_it_always_was():
+    """**Nothing east-west may move**, or every figure in the vault is stale.
+
+    The graph is compared cell for cell against the rule as it was written
+    before #140: a person is one cell wide, so the landing column of a vertical
+    doorway is always standable and the crossing is found on the first step.
+    The pass-through this slice adds is reached only going *vertically* through
+    a gap in a horizontal wall, and a row of three has none.
+    """
+    def before(building, place):
+        passable = functools.partial(bots.standable, building)
+        room, cx, cy = place
+        out = []
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = cx + dx, cy + dy
+            if passable(room, nx, ny):
+                out.append((room, nx, ny))
+                continue
+            step = building.step_across(room, nx, ny)
+            if step is not None and passable(*step):
+                out.append(step)
+        return out
+
+    building = load(SHAPES["row"])
+    for room in range(len(building)):
+        for cy in range(PLAY_ROWS):
+            for cx in range(COLS):
+                at = (room, cx, cy)
+                assert sorted(before(building, at)) == \
+                    sorted(bots.neighbours(building, at)), at
+
+
+def test_the_route_never_stands_a_figure_where_it_cannot_stand():
+    """The reason `standable` was not simply relaxed. Every cell of every route
+    has to be a cell a person can occupy -- a route through a gap they cannot
+    stand in is worse than no route, and measured it took the oracle from 2 of 7
+    to 0 of 7 on an L."""
+    for shape in SHAPES:
+        building = load(SHAPES[shape])
+        for start in range(len(building)):
+            for goal in range(len(building)):
+                path = bots.route(building, (start, 16, 11), [(goal, 16, 11)])
+                for room, cx, cy in path:
+                    assert bots.standable(building, room, cx, cy), \
+                        f"{shape}: route stands at {(room, cx, cy)}"

@@ -493,3 +493,105 @@ def test_only_the_room_on_screen_has_its_picture_rebuilt_each_frame():
     assert sorted(owed) == sorted(p.index for p in run.places
                                   if p.index != run.here), \
         "a room nobody is looking at had its picture rebuilt anyway"
+
+
+# --- the light path stops scaling with rooms (issue #141) --------------------
+#
+# `Session._light` steps every room every frame, which is right -- a far room's
+# searchlight is still sweeping and that is what makes the people left behind in
+# it prey. What was wrong was how much that cost. Three exact savings, each
+# separately worth having and each revertible on its own.
+
+def test_linger_walks_a_list_of_solid_cells_and_not_the_whole_field():
+    """A room is about 123 solid cells of 704, so the list is five times less
+    work for identical results -- and `Place.solid_cells` is built from the same
+    `is_solid` the mask was, so it cannot disagree with it."""
+    from spikes import levels
+    from spikes.session import Session
+    run = Session(seed=1, sound=False, building=levels.level(1))
+    for place in run.places:
+        from_mask = tuple(i for i, b in enumerate(place.solid_mask) if b)
+        assert place.solid_cells == from_mask
+        assert 0 < len(place.solid_cells) < COLS * layout.PLAY_ROWS // 4
+
+
+def test_lingering_over_a_list_is_the_same_bytes_as_over_the_field():
+    """The two ways of spelling it, on a field with a spread of charges."""
+    import random
+    rng = random.Random(7)
+    solid = bytes(rng.randrange(2) for _ in range(COLS * layout.PLAY_ROWS))
+    cells = tuple(i for i, b in enumerate(solid) if b)
+    a, b = L.LightField(), L.LightField()
+    # The *same* charges in both, or this compares two different fields.
+    start = bytes(rng.choice((0, 1, 40, L.CHARGE_LIT, 0xFF))
+                  for _ in range(len(a.charge)))
+    for field in (a, b):
+        field.charge[:] = start
+        field._stale = False
+    # The old rule, spelled out, against the list the game now walks.
+    for i in range(len(a.charge)):
+        if solid[i] and 0 < a.charge[i] < 0xFF:
+            a.charge[i] += 1
+    b.linger(cells)
+    assert bytes(a.charge) == bytes(b.charge)
+
+
+def test_lingering_does_not_force_an_owed_picture_to_be_built():
+    """#136 deferred the picture of a room nobody is looking at, and `linger`
+    quietly undid it by asking for that picture on every even frame -- which is
+    why that round delivered half of what it recorded. The deferral has to
+    survive a bump."""
+    f = L.LightField()
+    f.begin(); f.add(4, 4, L.LIT, L.CHARGE_LIT); f.commit(shown=False)
+    assert f._stale
+    f.linger((4 * COLS + 4,))
+    assert f._stale, "the bump built the picture anyway"
+
+
+def test_a_picture_built_late_is_the_picture_that_was_owed():
+    """The bump must not change what the *owed* picture shows. They differ by a
+    level exactly where a bumped cell sits on the lit threshold, which is the
+    case this is for: `linger` keeps the pre-bump charge of the cells it changes
+    and `_show` reads it."""
+    solid = (5 * COLS + 5,)
+    for charge in (L.LIT_THRESHOLD, L.LIT_THRESHOLD + 1, 1, 0, 0xFF):
+        eager, lazy = L.LightField(), L.LightField()
+        for field in (eager, lazy):
+            field.charge[solid[0]] = charge
+        eager.begin(); eager.commit(decay=False, shown=True)
+        eager.linger(solid)
+        lazy.begin(); lazy.commit(decay=False, shown=False)
+        lazy.linger(solid)
+        assert bytes(lazy.display) == bytes(eager.display), charge
+        assert bytes(lazy.charge) == bytes(eager.charge), charge
+
+
+def test_the_beam_is_not_asked_about_a_doorway_it_is_nowhere_near():
+    """`covers` was called for every cell of every doorway every frame whether
+    the beam was near it or not -- 74.6 calls a frame across a nine-room
+    building. The early-out is the same disc read as a bounding box, so it can
+    only ever refuse a cell the disc would also have refused."""
+    from spikes import levels, sources
+    from spikes.session import Session
+    run = Session(seed=1, sound=False, building=levels.level(1))
+    asked = []
+    real = sources.Roaming.covers
+    sources.Roaming.covers = lambda self, cx, cy: (
+        asked.append((cx, cy)) or real(self, cx, cy))
+    try:
+        for _ in range(200):
+            run.step()
+    finally:
+        sources.Roaming.covers = real
+    # Whatever was asked, every cell the beams actually cover is still lit: the
+    # early-out is a bound and not a rule.
+    for place in run.places:
+        beam = place.roaming
+        for door in place.room.doorways:
+            for (mx, my) in door.cells():
+                if beam.covers(mx, my):
+                    mid = door.cells()[len(door.span) // 2]
+                    assert abs(beam.x - mid[0]) <= beam.radius + 1
+                    assert abs(beam.y - mid[1]) <= beam.radius + 1
+    assert len(asked) / max(1, run.frame) < 6, \
+        f"{len(asked) / run.frame:.1f} covers calls a frame is not an early-out"

@@ -326,6 +326,13 @@ class Place:
         self.solid_mask = bytes(
             1 if room.is_solid(cx, cy) else 0
             for cy in range(PLAY_ROWS) for cx in range(COLS))
+        #: The same thing as a list of indices (issue #141). `linger` walks this
+        #: rather than asking all 704 cells whether they are solid: a room is
+        #: 121 to 170 solid cells, so it is about four and a half times less
+        #: work for identical results. Built once from the same `is_solid`, and
+        #: a room's walls never move.
+        self.solid_cells = tuple(
+            i for i, byte in enumerate(self.solid_mask) if byte)
         self.swarm = clegs_mod.Swarm(clegs)
         self.sign_cells = room.exit_sign_cells(scene.EXIT_SIGN)
         #: Where the room's gratings are (issue #74): floor cells that draw a
@@ -858,13 +865,29 @@ class Session:
     def _spilling(self, place):
         """The doorways of `place` whose cells the room beyond's beam can
         reach: `(doorway, that beam)` pairs. The beam beyond is asked about
-        the landing column, which is the same cells seen from its side."""
+        the landing cells, which are the same cells seen from its side.
+
+        **The reach test comes first** (issue #141). Every caller of this then
+        asks the beam about every cell of the doorway -- three `covers` calls a
+        doorway, 7 across a two-room building and **73 across a nine-room one**,
+        every frame, whether the beam is anywhere near the door or not. One
+        compare of the doorway's midpoint against the beam's centre settles
+        almost all of them: a beam more than its own radius away in either axis
+        cannot be on any cell of that gap, so there is nothing to ask about.
+        That is the same disc the beam lights by, read as a bounding box, so it
+        refuses nothing the disc would have allowed.
+        """
         out = []
         for door in place.room.doorways:
             other = self.places[door.to].roaming
-            if other is not None and other.enabled \
-                    and other.level >= lighting.LIT:
-                out.append((door, other))
+            if other is None or not other.enabled \
+                    or other.level < lighting.LIT:
+                continue
+            mid = door.landing_cells()[len(door.span) // 2]
+            if abs(other.x - mid[0]) > other.radius + 1 \
+                    or abs(other.y - mid[1]) > other.radius + 1:
+                continue
+            out.append((door, other))
         return out
 
     def _magnet_cell(self, place: Place):
@@ -2091,7 +2114,7 @@ class Session:
         for place in self.places:
             place.field.commit(decay=not held, shown=place.index == self.here)
             if self.wall_fade == 2 and not held and self.frame % 2 == 0:
-                place.field.linger(place.solid_mask)
+                place.field.linger(place.solid_cells)
 
     def _rings(self, place: Place):
         """Every beam whose pool is drawn in this room: its own, and any
@@ -2123,8 +2146,21 @@ class Session:
         if beam is None or not beam.enabled:
             return
         for door in place.room.doorways:
+            # **The reach test first** (issue #141). `covers` was asked about
+            # every cell of every doorway every frame whether the beam was
+            # anywhere near it or not: 8.6 calls a frame across a two-room
+            # building and **74.6 across a nine-room one**. One compare of the
+            # gap's midpoint against the beam's centre settles almost all of
+            # them. The bound is the radius plus one because the midpoint
+            # stands for a three-cell span, and it is the same disc `covers`
+            # reads, as a bounding box -- so it refuses nothing the disc allows.
+            mine = door.cells()
+            mx, my = mine[len(mine) // 2]
+            if abs(beam.x - mx) > beam.radius + 1 \
+                    or abs(beam.y - my) > beam.radius + 1:
+                continue
             beyond = self.places[door.to].field
-            for (mx, my), (tx, ty) in zip(door.cells(), door.landing_cells()):
+            for (mx, my), (tx, ty) in zip(mine, door.landing_cells()):
                 if beam.covers(mx, my):
                     beam.light(beyond, tx, ty)
 

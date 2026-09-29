@@ -334,6 +334,11 @@ SIDE_NAMES = {EAST: "east", WEST: "west", NORTH: "north", SOUTH: "south"}
 #: opposite wall and nothing else.
 OPPOSITE = {EAST: WEST, WEST: EAST, NORTH: SOUTH, SOUTH: NORTH}
 
+#: Which way to walk to leave by a given side, as `(dx, dy)`. A crossing is
+#: more of the same direction and nothing else, so anything driving a figure at
+#: a doorway needs this and should not work it out again (issue #140).
+TOWARDS = {EAST: (1, 0), WEST: (-1, 0), NORTH: (0, -1), SOUTH: (0, 1)}
+
 #: How wide and how tall a person is, in pixels. Used only to decide when a
 #: figure has cleared a threshold entirely -- a crossing fires when it has,
 #: which is what keeps the walk continuous.

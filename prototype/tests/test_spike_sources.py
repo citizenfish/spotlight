@@ -850,8 +850,11 @@ def test_a_beam_told_nothing_of_the_room_remembers_no_wall():
 
 def test_linger_slows_the_walls_fade_and_nothing_else():
     field = L.LightField()
-    solid = bytes(1 if cy == 9 else 0
-                  for cy in range(PLAY_ROWS) for cx in range(COLS))
+    # `linger` takes the solid cells as **indices** since issue #141, not a
+    # byte-per-cell mask: a room is about 123 solid cells of 704 and walking the
+    # list is five times less work.
+    solid = tuple(cy * COLS + cx
+                  for cy in range(PLAY_ROWS) for cx in range(COLS) if cy == 9)
     beam = _parked(S.Roaming(0, 0, radius=3, is_solid=_solid_row_nine), 10, 10)
     field.begin()
     beam.apply(field)

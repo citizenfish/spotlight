@@ -45,6 +45,9 @@ from . import (
     building, clegs as clegs_mod, lighting, player as player_mod,
     rescue as rescue_mod, sources, spray as spray_mod,
 )
+#: `neighbours` takes a parameter called `building`, so the module needs a name
+#: of its own inside it. The parameter is the building a run is in (issue #108).
+building_mod = building
 from .layout import PLAY_ROWS
 from .player import HEIGHT
 from .session import Intent
@@ -96,6 +99,51 @@ def stand_cells(building, room: int, cx: int, cy: int
             if standable(building, room, x, y)]
 
 
+def step_in(building, place, dx: int, dy: int, passable) -> tuple | None:
+    """The cell one step in `(dx, dy)` reaches from `place`, or None.
+
+    **The one place that knows how a crossing works** (issue #140). It was
+    written twice -- here and in the Scout's `_unknown_from` -- and both copies
+    had the same fault, which is the argument for there being one.
+
+    A crossing is a transition and not a cell, and it may take more than one:
+    walk in this direction until the first cell a person can stand in, through
+    the gap cells they cannot. That is what a figure does mid-crossing,
+    straddling the threshold for as long as it takes to clear it. The bound is
+    the figure's height in cells plus the wall, because that is the furthest a
+    crossing can straddle.
+
+    **Only a gap in a horizontal wall may be passed through, and only crossing
+    it.** That is the one cell a figure occupies without being able to stand in
+    it: the top or bottom row, where the head would be off the screen.
+
+    Both halves of that condition were found by getting them wrong. Let any
+    non-standable cell through and a floor cell with a wall above it becomes a
+    thoroughfare -- the oracle went from 7 of 7 to 0 on a plain row of three.
+    Let a *vertical* doorway's gap through and a route walks along the wall
+    through the gap's top row, where no figure fits, and skips cells doing it:
+    the search grew twelve edges no walk can take.
+
+    Going east or west none of this fires: a person is one cell wide, the
+    landing column is always standable, and the first step finds it -- so every
+    route across a vertical doorway is the route it always was, cell for cell.
+    """
+    r, x, y = place
+    for _ in range(3):
+        x, y = x + dx, y + dy
+        if not (0 <= x < COLS and 0 <= y < PLAY_ROWS):
+            step = building.step_across(r, x, y)
+            if step is None:
+                return None
+            r, x, y = step
+        if passable(r, x, y):
+            return (r, x, y)
+        crossing = dy and y in (0, PLAY_ROWS - 1)
+        if not (crossing and building[r].rows[y][x] == building_mod.DOORWAY):
+            return None
+    return None
+
+
 def neighbours(building, place, passable=None):
     """The cells a person can step to from here, doorways included.
 
@@ -114,14 +162,22 @@ def neighbours(building, place, passable=None):
     room, cx, cy = place
     out = []
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        nx, ny = cx + dx, cy + dy
-        if passable(room, nx, ny):
-            out.append((room, nx, ny))
-            continue
-        step = building.step_across(room, nx, ny)
-        if step is not None and passable(*step):
+        step = step_in(building, place, dx, dy, passable)
+        if step is not None:
             out.append(step)
     return out
+
+# Why the walk cannot simply relax `standable` instead: row 0 is refused there
+# because a person is 8x16 and the head cell must exist, which is right, and a
+# route that stood a figure in a cell it cannot occupy is worse than no route at
+# all -- measured, it took the oracle from 2 of 7 to 0 of 7 on an L-shaped
+# building. **No cell a figure cannot occupy is ever a node of the search**; the
+# gap cells are passed through and never stood on.
+#
+# Going east or west none of this fires: a person is one cell wide, the landing
+# column is always standable, and the loop finds it on its first step -- so
+# every route across a vertical doorway is the route it always was, cell for
+# cell.
 
 
 def route(building, start, goals, passable=None) -> list:
@@ -347,19 +403,31 @@ class Walker(Bot):
             self._path.pop(0)
         if self._path and self._path[0][0] != run.here:
             # The next step is in the room next door. **Keep walking at the
-            # wall**: the doorway is at the same rows on both sides, so the
+            # wall**: the doorway is at the same cells on both sides, so the
             # crossing is more of the same direction plus whatever it takes to
             # line up with the gap, and the room changes underneath you once
             # you have cleared the threshold. There is no "go through the door"
             # action, here or anywhere else.
+            #
+            # **Either axis since issue #140.** This pressed east or west and
+            # lined up on the row, which is a doorway in a vertical wall and
+            # was every doorway in the game until #139. At a gap in the floor
+            # it drove the figure sideways along the wall for ever: the route
+            # said *the room below* and the walk pressed *east*. So the
+            # direction is the doorway's own side and the axis it lines up on
+            # is the one the gap spans.
             door = run.building[run.here].doorway_to(self._path[0][0])
             if door is None:
                 self._path = self._route(here, goals)
             else:
-                want = self._path[0][2]
-                dy = (want > run.player.cy) - (want < run.player.cy)
-                return Intent(dx=1 if door.side == building.EAST else -1,
-                              dy=dy)
+                towards = building.TOWARDS[door.side]
+                if door.vertical:
+                    want = self._path[0][2]
+                    along = (want > run.player.cy) - (want < run.player.cy)
+                    return Intent(dx=towards[0], dy=along)
+                want = self._path[0][1]
+                along = (want > run.player.cx) - (want < run.player.cx)
+                return Intent(dx=along, dy=towards[1])
         if not self._path:
             self._path = self._route(here, goals)
         if not self._path or self._path[0][0] != run.here:
@@ -463,7 +531,16 @@ class Listener(Walker):
         if not run.shouting and run.door_calls and self._heard is None:
             for door in run.building[run.here].doorways:
                 if run.rescue.calling(run.frame, door.to):
-                    self._doorway = (door.to, door.landing, door.middle)
+                    # **The middle of the gap, on the far side, on either
+                    # axis** (issue #140). This was `(door.to, door.landing,
+                    # door.middle)` -- a column and then a row, which is a
+                    # doorway in a vertical wall. For a gap in a floor those two
+                    # are transposed, so the bot set off for a cell that was not
+                    # the doorway and often was not floor, and never left the
+                    # first room of a column. `landing_cells` answers it without
+                    # anybody having to know which wall the gap is in.
+                    landing = door.landing_cells()
+                    self._doorway = (door.to, *landing[len(landing) // 2])
                     break
 
         if self._target is not None and self._target.state != rescue_mod.WAITING:
@@ -572,15 +649,17 @@ class Scout(Listener):
         -- it is what the first version of this did, and it stood in room A for
         three minutes with four people calling next door.
         """
-        room, cx, cy = place
+        real = functools.partial(standable, self.building)
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nb = (room, cx + dx, cy + dy)
-            if not standable(self.building, *nb):
-                step = self.building.step_across(room, cx + dx, cy + dy)
-                if step is None or not standable(self.building, *step):
-                    continue
-                nb = step
-            if nb not in self.seen:
+            # **Through `step_in`, not a copy of it** (issue #140). This had its
+            # own version of the crossing and its own version of the same bug:
+            # a step into the gap of a north doorway is not standable and is not
+            # *beyond* the room either, so it decided the building ended at the
+            # floor and the Scout never had a reason to go down. The first
+            # version of this made the same mistake at a side wall and stood in
+            # room A for three minutes with four people calling next door.
+            nb = step_in(self.building, place, dx, dy, real)
+            if nb is not None and nb not in self.seen:
                 return dx, dy
         return None
 

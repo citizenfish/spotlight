@@ -171,8 +171,8 @@ class LightField:
     per-room colour.
     """
 
-    __slots__ = ("charge", "_display",
-                 "_illum", "_memory", "_reveal", "_prey", "_touched", "_stale")
+    __slots__ = ("charge", "_display", "_illum", "_memory", "_reveal",
+                 "_prey", "_touched", "_stale", "_owed")
 
     def __init__(self) -> None:
         self.charge = bytearray(_CELLS)
@@ -184,6 +184,11 @@ class LightField:
         #: True when `charge` has moved and `_display` has not been rebuilt
         #: from it yet. See `commit`.
         self._stale = False
+        #: While a picture is owed, the pre-bump charge of the cells `linger`
+        #: has changed since the commit that owed it -- so the picture built
+        #: late is the picture that would have been built on time. Empty the
+        #: rest of the time, and cleared by every commit.
+        self._owed: dict[int, int] = {}
         self._illum = bytearray(_CELLS)
         self._memory = bytearray(_CELLS)
         #: Cells a revealing light is on this frame. Never remembered.
@@ -240,25 +245,41 @@ class LightField:
         if prey and level > self._prey[idx]:
             self._prey[idx] = level
 
-    def linger(self, solid: bytes) -> None:
+    def linger(self, solid_cells) -> None:
         """Slow the walls' fade: one charge back to every remembered solid
         cell (issue #117, the `--wall-fade` experiment). Called on even
         frames for a half-rate decay, so three seconds of wall memory
-        becomes six. `solid` is one byte per cell, non-zero where the room
-        is solid.
+        becomes six.
+
+        `solid_cells` is **the indices of the room's solid cells** (issue
+        #141), and is named for what it is because the old byte-per-cell mask
+        iterates perfectly happily and bumps cells 0 and 1 instead. It
+        used to be one byte per cell and this walked all 704 of them asking
+        whether each was solid; a room is 121 to 170 solid cells, so the list
+        is about four and a half times cheaper and identical by construction --
+        `Place.solid_cells` is built once from the same `room.is_solid` the mask
+        was, and neither changes for the life of the room.
 
         It runs **after** `commit`, so what a cell shows has always been the
-        charge as it stood at commit time and not after this bump. With a
-        deferred rebuild (issue #136) that has to be said out loud: if the
-        picture is still owed, it is built here from the charge before the
-        bump, exactly as it would have been.
+        charge as it stood at commit time and not after this bump.
+
+        **It used to force the owed picture back to get that right** and that
+        undid the deferral #136 was for -- every far room had its picture
+        rebuilt on every even frame, which is why that round delivered half of
+        what it recorded. What it needs is not the whole picture but the handful
+        of cells it is about to change: their pre-bump charge is kept here and
+        `_show` reads it instead, so a deferred picture is the same bytes as an
+        eager one. There is at most one `linger` per owed picture, because
+        `commit` owes a fresh one and clears this.
         """
-        if self._stale:
-            self._show()
         charge = self.charge
-        for idx in range(len(charge)):
-            if solid[idx] and 0 < charge[idx] < 0xFF:
-                charge[idx] += 1
+        owed, stale = self._owed, self._stale
+        for idx in solid_cells:
+            c = charge[idx]
+            if 0 < c < 0xFF:
+                if stale:
+                    owed[idx] = c
+                charge[idx] = c + 1
 
     def commit(self, decay: bool = True, shown: bool = True) -> None:
         """Decay everything, top up what was lit, then work out what shows.
@@ -301,6 +322,7 @@ class LightField:
             self._show()
         else:
             self._stale = True
+            self._owed.clear()
 
     def _show(self) -> None:
         """Rebuild `display` from the charge and this frame's sources.
@@ -310,9 +332,16 @@ class LightField:
         the touched list rather than the field.
         """
         self._display[:] = self.charge.translate(_LEVEL_OF)
+        for idx, was in self._owed.items():
+            # The charge as it stood at the commit that owed this picture, not
+            # after `linger` bumped it. They differ by one level only where a
+            # bumped cell sits exactly on the lit threshold, and that is the
+            # case this exists for.
+            self._display[idx] = _LEVEL_OF[was]
         for idx in self._touched:
             if self._illum[idx] > self._display[idx]:
                 self._display[idx] = self._illum[idx]
+        self._owed.clear()
         self._stale = False
 
     @property
@@ -413,6 +442,7 @@ class LightField:
             self.charge[:] = self.charge.translate(table)
         self._display[:] = self.charge.translate(_LEVEL_OF)
         self._stale = False
+        self._owed.clear()
         # Nothing is shining on the room you were not in, so nothing reveals
         # anybody in it either. Clearing this is what stops a worker who was
         # standing in your cone as you walked out being prey for ever.
