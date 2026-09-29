@@ -955,7 +955,16 @@ class Building:
 
     @property
     def population(self) -> int:
-        """Every Cleg the building starts with. All of them can be in one room."""
+        """Every Cleg the building starts with.
+
+        **Not what the frame is sized against** since issue #142. Given long
+        enough they can all end up in one room -- nothing stops a fly crossing a
+        doorway, and light is what they steer for -- but the frame budget is
+        about the worst plausible *failure*, and a fly four doorways away cannot
+        arrive inside the life of a nest. `worst_case` prices a room with its own
+        flies and its neighbours'. This is still the number the level file
+        authors and the number the tally is checked against.
+        """
         return sum(len(room.clegs) for room in self.rooms)
 
     @property
@@ -1012,17 +1021,45 @@ class Building:
         the torch and the lamps went (issue #119); a searchlight is a light
         and not an entity, and costs nothing here.
 
-        **This counts the building's whole swarm**, where the runtime valve
-        counts a room's -- see `Session._load`. Clegs cross doorways and go to
-        light, so a room's authored population is not its worst case and a level
-        author cannot be told that it is. The valve is asked whether a frame can
-        be drawn *now*; this is asked whether the level can ever ask for one
-        that cannot.
+        **It counts a room's own flies and its neighbours'**, where the runtime
+        valve counts a room's -- see `Session._load`. Clegs cross doorways and go
+        to light, so a room's authored population is not its worst case and a
+        level author cannot be told that it is. The valve is asked whether a
+        frame can be drawn *now*; this is asked whether the level can ever ask
+        for one that cannot.
+
+        **One hop, and not the whole building** (issue #142). It used to crowd
+        every fly in the building into one room, which was close to true on a
+        row of three -- the room next door empties into a lit one in about ten
+        seconds -- and badly wrong on a grid, where a fly four doorways away
+        cannot arrive inside the life of a nest. The bound was blocking the work
+        rather than describing it: a four-room building priced at 241 T-states
+        over the ceiling, six rooms at 110% and nine at 124%, none of it from
+        anything the game does. Measured, the dearest frame five bots ever asked
+        for *falls* as a building grows -- 28,196 T-states in a three-room strip
+        against 14,928 in a nine-room grid -- because the tail never assembles
+        and the flies spread out.
+
+        So a room is priced with its own flies, the flies of every room one
+        doorway away, a brood and the tail, and the building takes the worst of
+        those. **The strip is still the worst case**, which is right: three
+        rooms at nine flies reads 32,764 exactly as it did, and a 3x3 at nine
+        flies reads 29,444.
+
+        It is one hop and deliberately not a transitive closure. Two hops is the
+        whole building again on any shape that fits the plan, and a bound that
+        cannot tell a strip from a grid is the thing this replaces.
         """
-        flies = self.population + NEST_BROOD
-        return max(cost(clegs=flies, people=1 + self.roster - dead,
-                        fixtures=min(dead, self.most_fixtures))
-                   for dead in range(1, max(1, self.roster) + 1))
+        worst = 0
+        for room in self.rooms:
+            near = len(room.clegs) + sum(
+                len(self.rooms[door.to].clegs) for door in room.doorways)
+            flies = near + NEST_BROOD
+            worst = max(worst, max(
+                cost(clegs=flies, people=1 + self.roster - dead,
+                     fixtures=min(dead, self.most_fixtures))
+                for dead in range(1, max(1, self.roster) + 1)))
+        return worst
 
     @property
     def over_budget(self) -> int:
