@@ -145,6 +145,114 @@ REROLLS = 4
 SHELL_ALPHABET = frozenset((WALL, FLOOR, DOOR, DOORWAY))
 
 
+def landing_band(doorways) -> set:
+    """Every cell a doorway lands on: the ground a tail has to file across.
+
+    The exit's band in the west wall, which does not move, plus a band at each
+    doorway -- `LANDING_SPREAD` either side of the gap's span and
+    `LANDING_DEPTH` in from the wall it is cut through.
+
+    `doorways` are `(side, span)` pairs, the shape a `Template` carries.
+
+    **A module function since issue #144, and that is the whole point of it.**
+    It was a method on the roll, so the only thing that could ask where a
+    landing is was the thing placing rolled furniture -- and the authored wall
+    was never asked at all. `blocks_a_landing` is the same rule read against a
+    shell, and the two agreeing is the reason a spine cannot pass one and fail
+    the other.
+    """
+    out = {(cx, cy) for cy in LANDING_ROWS for cx in LANDING_COLS}
+    for side, span in doorways:
+        lo = min(span) - LANDING_SPREAD
+        hi = max(span) + LANDING_SPREAD
+        if side in VERTICAL_SIDES:
+            cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
+                    else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
+            for cy in range(lo, hi + 1):
+                for cx in cols:
+                    out.add((cx, cy))
+        else:
+            # The same band read on the other axis (issue #139): the rows just
+            # inside the wall the gap is cut through, across the columns the
+            # gap spans and the spread either side of them.
+            band = (range(1, 1 + LANDING_DEPTH) if side == NORTH
+                    else range(PLAY_ROWS - 1 - LANDING_DEPTH, PLAY_ROWS - 1))
+            for cy in band:
+                for cx in range(lo, hi + 1):
+                    out.add((cx, cy))
+    return out
+
+
+def landing_lane(side, span) -> list[tuple[int, int]]:
+    """The gap's **own** cells, `LANDING_DEPTH` in from the wall it is cut in.
+
+    Not the same thing as `landing_band`, and issue #144 turns on the
+    difference. The band is what a rolled *crate* must keep out of, so it takes
+    `LANDING_SPREAD` either side of the gap: furniture standing two cells beside
+    a doorway is worth refusing because the roll could as easily have put it
+    somewhere else. The lane is what an authored *wall* must keep out of, and a
+    wall two cells beside a doorway is a room with a division next to its door
+    -- ordinary architecture, and `dogleg` is exactly that. **So the lane is the
+    span and no spread.**
+
+    Reading the issue's clause as the whole band refuses `dogleg`, which its own
+    acceptance says must still pass; the table it was written from measured the
+    gap's own columns. The table is the arbiter.
+
+    Depth is `LANDING_DEPTH` either way, which is one constant read twice: a wall
+    four cells inside the lane is an alcove you walk into, not a doorway.
+    """
+    lo, hi = min(span), max(span)
+    if side in VERTICAL_SIDES:
+        cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
+                else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
+        return [(cx, cy) for cy in range(lo, hi + 1) for cx in cols]
+    rows_ = (range(1, 1 + LANDING_DEPTH) if side == NORTH
+             else range(PLAY_ROWS - 1 - LANDING_DEPTH, PLAY_ROWS - 1))
+    return [(cx, cy) for cy in rows_ for cx in range(lo, hi + 1)]
+
+
+def blocks_a_landing(rows, doorways) -> list[tuple[int, int]]:
+    """Every cell of a **shell's own wall** standing in a doorway's lane. Sorted.
+
+    Issue #144, and the fault it exists for shipped in two shells. A doorway is
+    `DOORWAY_CELLS` wide so that a tail files through without queueing and a
+    first-timer does not bounce off it; an authored shell may run a wall to the
+    border, which is what makes a division or a chamber possible at all. **The
+    two rules collide and nothing noticed.**
+
+    `spine` puts a wall down column 15 and `spine-low` down column 16, so a
+    centre north or south doorway at columns 14-16 has a wall standing in the
+    middle of it:
+
+        20  #..............#...............#
+        21  ##############ddd###############
+
+    That building loads, validates and passes `swarming.strands_a_shell`,
+    because columns 14 and 16 are floor and a fly is one cell. A person is one
+    cell wide too and the movement assist nudges by up to a cell, so they
+    *squeeze* -- which is the exact failure `DOORWAY_CELLS = 3` exists to
+    prevent, and the first thing this audience reads as broken.
+
+    **The roll must never carve this clear.** A silent repair would turn an
+    authored division into two stubs and tell nobody. The gate refuses and the
+    author fixes; that was ruled rather than assumed.
+
+    `doorways` are `(side, span)` pairs. **The exit is one of them** for the room
+    that has it -- `(WEST, EXIT_ROWS)` -- because it is a gap in a wall that a
+    tail files through, and a wall across it would seal the building.
+
+    Only `WALL` counts: a `DOORWAY` or `DOOR` cell in a lane is the gap itself.
+    """
+    solid = set()
+    for side, span in doorways:
+        for cx, cy in landing_lane(side, span):
+            if 0 <= cy < len(rows) and 0 <= cx < len(rows[cy]) \
+                    and rows[cy][cx] == WALL:
+                solid.add((cx, cy))
+    return sorted(solid)
+
+
 class Template:
     """What a `roll:` block authors. Everything else is drawn."""
 
@@ -344,37 +452,18 @@ class _Roll:
     def landing_band(self) -> set:
         """Every cell a rolled solid may not take because a doorway lands on it.
 
-        The exit's band in the west wall, which does not move, plus a band at
-        each authored doorway -- `LANDING_SPREAD` rows either side of the gap
-        and `LANDING_DEPTH` columns in from that wall.
-
         **It follows the doorway** (issue #135). It used to be the middle rows
         of both walls whether a doorway was there or not, which was right only
         while every doorway in the game sat at rows 10-12; a doorway near a
         corner would have had a solid rolled into the cells a tail has to file
         through, and a doorway in the middle of a room with no doorway there
         would have kept five columns clear for nothing.
+
+        The rule itself is `landing_band` at module level since issue #144, so
+        that the gate can read it against an authored wall as well as this can
+        read it against a rolled one.
         """
-        out = {(cx, cy) for cy in LANDING_ROWS for cx in LANDING_COLS}
-        for side, span in self.template.doorways:
-            lo = min(span) - LANDING_SPREAD
-            hi = max(span) + LANDING_SPREAD
-            if side in VERTICAL_SIDES:
-                cols = (range(1, 1 + LANDING_DEPTH) if side == WEST
-                        else range(COLS - 1 - LANDING_DEPTH, COLS - 1))
-                for cy in range(lo, hi + 1):
-                    for cx in cols:
-                        out.add((cx, cy))
-            else:
-                # The same band read on the other axis (issue #139): the rows
-                # just inside the wall the gap is cut through, across the
-                # columns the gap spans and the spread either side of them.
-                band = (range(1, 1 + LANDING_DEPTH) if side == NORTH
-                        else range(PLAY_ROWS - 1 - LANDING_DEPTH, PLAY_ROWS - 1))
-                for cy in band:
-                    for cx in range(lo, hi + 1):
-                        out.add((cx, cy))
-        return out
+        return landing_band(self.template.doorways)
 
     def _block_around(self, cell) -> None:
         cx, cy = cell

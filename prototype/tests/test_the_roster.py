@@ -74,7 +74,7 @@ def comb(people: str = "64 64 64 64 64 64 64", rooms: int = 9) -> str:
 
 def hands(text: str, seed: int) -> list:
     """The deal, as a list of clock lists one a room -- without building."""
-    _n, _name, specs, budget = levels.parse(text)
+    _n, _name, specs, budget, _shapes = levels.parse(text)
     floor = levels.clock_floor(len(specs))
     return levels.deal(specs, [max(floor, b) for b in budget.people],
                        S.people_seed(seed, 9), "comb")
@@ -82,7 +82,7 @@ def hands(text: str, seed: int) -> list:
 
 def build(text: str, seed: int):
     """The comb as a real building, rolled and validated for `seed`."""
-    _n, name, specs, budget = levels.parse(text)
+    _n, name, specs, budget, _shapes = levels.parse(text)
     b = levels.build(specs, "comb", roll_seed=S.roll_seed(seed, 9),
                      people=budget.people, people_seed=S.people_seed(seed, 9))
     b.level, b.title, b.name, b.budget, b.seed = 9, name, budget.building, budget, seed
@@ -115,11 +115,11 @@ def test_the_roster_is_the_levels_and_goes_before_the_first_room():
 
 
 def test_a_building_that_rolls_needs_a_roster_and_one_that_does_not_refuses_one():
-    _n, _name, specs, _b = levels.parse(comb())
+    _n, _name, specs, _b, _s = levels.parse(comb())
     with pytest.raises(ValueError, match="takes its people from the building"):
         levels.build(specs, "comb", roll_seed=1)
     from test_levels import MINIMAL
-    _n, _name, authored, _b = levels.parse(MINIMAL)
+    _n, _name, authored, _b, _s = levels.parse(MINIMAL)
     with pytest.raises(ValueError, match="no room in this building rolls"):
         levels.build(authored, "min", people=(40,))
 

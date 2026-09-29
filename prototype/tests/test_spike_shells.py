@@ -345,14 +345,14 @@ def room_block(name, hue, shells=(), doors_=()):
 def test_a_level_file_declares_shapes_and_a_room_names_them():
     text = (HEAD + shape_block("spine", DIVISION) + shape_block("nook", BAY)
             + room_block("the hall", "yellow", ("spine", "nook")))
-    _n, _name, specs, _budget = levels.parse(text)
+    _n, _name, specs, _budget, _shapes = levels.parse(text)
     assert [name for name, _rows in specs[0].shells] == ["spine", "nook"]
     assert specs[0].shells[0][1] == DIVISION
 
 
 def test_a_room_with_no_shell_line_keeps_the_plain_rectangle():
     text = HEAD + room_block("the hall", "yellow")
-    _n, _name, specs, _budget = levels.parse(text)
+    _n, _name, specs, _budget, _shapes = levels.parse(text)
     assert specs[0].shells == []
 
 
@@ -404,7 +404,7 @@ def shipped_shells():
     """Every shell declared by every level file, with the rooms that use it."""
     out = []
     for n in levels.levels():
-        _num, _name, specs, _budget = levels.parse(
+        _num, _name, specs, _budget, _shapes = levels.parse(
             (levels.LEVELS_DIR / f"level{n}.txt").read_text())
         for spec in specs:
             for name, rows in spec.shells:
@@ -413,7 +413,46 @@ def shipped_shells():
     return out
 
 
+def declared_shapes():
+    """Every `shape:` every level file declares, **whether a room names it or
+    not** (issue #144).
+
+    A shape no room names used to be invisible: `parse` resolved a room's own
+    shells onto its spec and dropped the rest, so nothing could see it and the
+    gate could not check it. BU authors four shells for north/south rooms that
+    nothing uses until #146, and a shell nobody has checked is worse than no
+    shell at all -- the retro-gamer hand-authored four and three were broken.
+    """
+    out = []
+    for n in levels.levels():
+        _num, _name, _specs, _budget, shapes = levels.parse(
+            (levels.LEVELS_DIR / f"level{n}.txt").read_text())
+        for name, rows in sorted(shapes.items()):
+            out.append((f"level {n}: {name}", name, rows))
+    return out
+
+
 SHIPPED = shipped_shells()
+DECLARED = declared_shapes()
+
+#: Every band a doorway can be handed: the middle, which is where they sit up to
+#: Level 3, and the six `levels.DOOR_BANDS` the ladder cycles from Level 4. They
+#: are read as rows for a vertical doorway and as columns for a horizontal one,
+#: because `_beyond` shifts a span without knowing which side it is on.
+EVERY_BAND = ((10, 11, 12),) + levels.DOOR_BANDS
+
+#: Which sides a shell is built for, by the axis its own walls run along. A
+#: division is a wall *across* a walk on one axis and furniture on the other, so
+#: asking a horizontal shell to survive an east doorway is asking the wrong
+#: question -- it is the question #144 exists to stop anybody asking of a
+#: vertical one.
+BUILT_FOR = {
+    "spine": (B.EAST, B.WEST), "spine-low": (B.EAST, B.WEST),
+    "stubs": (B.EAST, B.WEST), "dogleg": (B.EAST, B.WEST),
+    "boxroom": (B.EAST, B.WEST, B.NORTH, B.SOUTH),
+    "rung": (B.NORTH, B.SOUTH), "rung-low": (B.NORTH, B.SOUTH),
+    "ledges": (B.NORTH, B.SOUTH), "piers": (B.NORTH, B.SOUTH),
+}
 
 
 def test_every_shipped_shell_strands_nothing():
@@ -429,3 +468,219 @@ def test_every_shipped_shell_strands_nothing():
         stranded = swarming.strands_a_shell(
             rows, [B.Doorway(side, r, to=0) for side, r in doorways])
         assert stranded == [], f"{label} strands {len(stranded)} cells"
+
+
+def test_every_shipped_shell_strands_nothing_wherever_its_doorways_move_to():
+    """The same theorem, on every band the ladder can shift the doorway to.
+
+    **The gate was only ever asked about the doorway as authored**, which is the
+    position the room has up to Level 3 and not the one it has from Level 4 --
+    `_beyond` moves every span to one of `levels.DOOR_BANDS`. A shell that
+    stranded a fly only once its doorway moved off centre would have shipped.
+    Every shipped shell passes on every band, measured, so this fails nothing
+    today; it is the same hole issue #144 found in the landing rule, closed on
+    the swarm gate while it is cheap -- forty milliseconds a shell and no seed.
+    """
+    for label, rows, doorways in SHIPPED:
+        sides = sorted({side for side, _span in doorways})
+        for span in EVERY_BAND:
+            stranded = swarming.strands_a_shell(
+                rows, [B.Doorway(side, span, to=0) for side in sides])
+            assert stranded == [], \
+                f"{label} strands {len(stranded)} cells with its doorways at {span}"
+
+
+# --- the landing clause (issue #144) -----------------------------------------
+
+def test_the_two_shipped_spines_block_a_centre_horizontal_landing():
+    """**The fault, named so the refusal cannot be lost.**
+
+    `spine` runs a wall down column 15 and `spine-low` down column 16, so a
+    centre north or south doorway at columns 14-16 has a wall standing in the
+    middle of it. The division runs straight down and stops dead in the doorway
+    it is standing in:
+
+        20  #..............#...............#
+        21  ##############ddd###############
+
+    A two-room building built from `spine` with a south doorway **loads,
+    validates and passes `strands_a_shell`**, because columns 14 and 16 are
+    floor and a fly is one cell wide. A person is one cell wide too and the
+    movement assist nudges by up to a cell, so they squeeze -- the exact failure
+    `DOORWAY_CELLS = 3` exists to prevent.
+
+    Both are fine under the east and west doorways every shipped level actually
+    uses, which is why four days of `pytest` never saw it.
+    """
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    for name, column in (("spine", 15), ("spine-low", 16)):
+        rows = by_name[name]
+        for side in (B.NORTH, B.SOUTH):
+            bad = roller.blocks_a_landing(rows, [(side, (14, 15, 16))])
+            assert bad, f"{name} no longer blocks a {B.SIDE_NAMES[side]} landing"
+            assert {cx for cx, _cy in bad} == {column}, bad
+        for side in (B.EAST, B.WEST):
+            assert roller.blocks_a_landing(rows, [(side, (10, 11, 12))]) == []
+
+
+def test_every_shipped_room_clears_the_landings_of_its_own_doorways():
+    """**The clause that matters, and it is per room.** For every room of every
+    level, for every shell that room may be built from, for every doorway that
+    room has, on every band the ladder can shift that doorway to: no wall of the
+    shell stands in the lane.
+
+    Per room rather than per shell because a shell has no doorways of its own. A
+    spine is perfectly sound in a room whose doors are east and west and unsound
+    the moment somebody gives that room a south one -- and `BUILT_FOR` above is
+    only an author's statement of intent, which a level file can contradict.
+    **This is what will catch it when #146 gives a room a doorway on a new
+    side**, and the reason it is worth writing before there is such a room.
+
+    The shipped levels are all east-west, so this passes today. That is the
+    point: it passed the day the fault shipped too, and the difference is that
+    now it will stop passing.
+    """
+    for label, rows, doorways in SHIPPED:
+        for side, _authored in doorways:
+            for span in EVERY_BAND:
+                bad = roller.blocks_a_landing(rows, [(side, span)])
+                assert bad == [], \
+                    f"{label} blocks its own {B.SIDE_NAMES[side]} doorway at " \
+                    f"{span}: {bad}"
+
+
+def test_the_per_room_clause_bites_on_a_spine_with_a_south_doorway():
+    """The case the issue was raised for, built: the same shell, the same gate,
+    and the only change is which wall the doorway is in.
+
+    A two-room building from `spine` with a south doorway is the thing that
+    loads and validates today. The per-room clause refuses it, and the
+    refusal names the cells.
+    """
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    spine = by_name["spine"]
+    #: Which bands of a south doorway the spine's column 15 stands in. Only the
+    #: two that reach it -- the clause is a fact about a wall and a gap, not a
+    #: blanket refusal of the shell.
+    blocked = [span for span in EVERY_BAND
+               if roller.blocks_a_landing(spine, [(B.SOUTH, span)])]
+    assert blocked == [(15, 16, 17), (13, 14, 15)], blocked
+    # And the centre, which is where every doorway up to Level 3 sits and the
+    # band the measurement in the issue was taken on.
+    assert [cx for cx, _cy in
+            roller.blocks_a_landing(spine, [(B.SOUTH, (14, 15, 16))])] == [15] * 5
+    # The swarm gate passes on the same shape, which is why it was never caught:
+    # columns 14 and 16 are floor and a fly is one cell wide.
+    assert swarming.strands_a_shell(
+        spine, [B.Doorway(B.SOUTH, (14, 15, 16), to=0)]) == []
+
+
+def test_the_clean_shells_are_still_clean():
+    """The other three shipped shells pass the new clause unchanged, on the axis
+    they are built for. `dogleg` is the one that says why the clause is the
+    gap's own lane and not the whole band: its wall stands two columns from a
+    centre doorway, which the rolled-furniture band forbids and an author is
+    entitled to."""
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    for name in ("boxroom", "dogleg", "stubs"):
+        for side in BUILT_FOR[name]:
+            for span in EVERY_BAND:
+                assert roller.blocks_a_landing(by_name[name], [(side, span)]) == [], \
+                    f"{name} blocks a {B.SIDE_NAMES[side]} landing at {span}"
+    # And the distinction, stated: dogleg's wall is inside the *band* of a
+    # centre north doorway and outside its *lane*.
+    dogleg = by_name["dogleg"]
+    band = roller.landing_band([(B.NORTH, (14, 15, 16))])
+    assert any(dogleg[cy][cx] == B.WALL for cx, cy in band)
+    assert roller.blocks_a_landing(dogleg, [(B.NORTH, (14, 15, 16))]) == []
+
+
+def test_every_declared_shell_clears_every_band_it_can_be_handed():
+    """The gate proper: every shape every level file declares, against every
+    band the ladder can hand it on the axis it is built for -- **and the exit**,
+    which is a gap in a wall a tail files out through and would be sealed by a
+    wall across it.
+
+    Per room and not per shell, which is the part that is easy to get wrong: a
+    shell clear under a centre doorway is not clear under an off-centre one, and
+    the bands move by level.
+    """
+    for label, name, rows in DECLARED:
+        assert name in BUILT_FOR, f"{label}: say which sides it is built for"
+        for side in BUILT_FOR[name]:
+            for span in EVERY_BAND:
+                bad = roller.blocks_a_landing(rows, [(side, span)])
+                assert bad == [], \
+                    f"{label} blocks the {B.SIDE_NAMES[side]} landing at " \
+                    f"{span}: {bad}"
+        assert roller.blocks_a_landing(rows, [(B.WEST, roller.EXIT_ROWS)]) == [], \
+            f"{label} walls off the exit's own landing"
+
+
+def test_the_new_shells_run_their_walls_the_other_way_and_pass_both_gates():
+    """The second half of the ruling, and the half that gets dropped: a vertical
+    division is a wall across an east-west walk and *furniture* in a north-south
+    one, so the game had no shell for a room whose traffic runs top to bottom.
+
+    Four, each the turn of one that already existed: `rung` and `rung-low` for
+    the two spines, `ledges` for the dogleg, `piers` for the stubs. Each passes
+    the bare-shell gate and the landing clause against every band a north or
+    south doorway can take, and each rolls a room on every seed tried.
+    """
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    for name in ("rung", "rung-low", "ledges", "piers"):
+        rows = by_name[name]
+        # A horizontal wall lives in rows 6 to 15: rows 1-5 and 16-20 are the
+        # landings of a north and a south doorway.
+        walls = {cy for cy, row in enumerate(rows)
+                 for cx, ch in enumerate(row)
+                 if ch == B.WALL and 0 < cx < COLS - 1}
+        assert walls <= {0, PLAY_ROWS - 1} | set(range(6, 16)), \
+            f"{name} runs a wall through a doorway's landing rows"
+        for span in EVERY_BAND:
+            doorways = [B.Doorway(B.NORTH, span, to=0),
+                        B.Doorway(B.SOUTH, span, to=0)]
+            assert swarming.strands_a_shell(rows, doorways) == [], (name, span)
+            for side in (B.NORTH, B.SOUTH):
+                assert roller.blocks_a_landing(rows, [(side, span)]) == [], \
+                    f"{name} blocks a {B.SIDE_NAMES[side]} landing at {span}"
+
+
+def test_no_shipped_room_names_one_of_the_new_shells_yet():
+    """They are authored and used by nothing until #146 re-authors the levels,
+    which is what keeps the event log byte-identical through this slice."""
+    named = {label.rsplit(": ", 1)[1] for label, _rows, _doors in SHIPPED}
+    assert named.isdisjoint({"rung", "rung-low", "ledges", "piers"}), named
+    # But they are declared, or the gate above would be checking nothing.
+    assert {"rung", "rung-low", "ledges", "piers"} <= {
+        name for _label, name, _rows in DECLARED}
+
+
+def test_the_roll_never_carves_a_landing_clear():
+    """Ruled and refused: the roller must not repair an authored shell.
+
+    A silent carve would turn a division into two stubs and tell nobody, so the
+    gate refuses and the author fixes. Stated as a property of the output: a
+    room rolled from `spine` with a south doorway still has the wall standing in
+    the doorway, and every cell of the shell's wall survives the roll.
+    """
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    shell = by_name["spine"]
+    walls = {(cx, cy) for cy, row in enumerate(shell)
+             for cx, ch in enumerate(row) if ch == B.WALL}
+    doorways = [(B.SOUTH, (14, 15, 16))]
+    for seed in range(FIRST, FIRST + 8):
+        rolled = roller.roll(
+            roller.Template(segments=(0, 0), pieces=(0, 0), band=(6, 26),
+                            away=8, workers=(90,), clegs=1, doorways=doorways,
+                            start=(120, 96), exit=False, shells=[shell]),
+            seed, "spine")
+        cut = {cell for cell in roller.landing_lane(B.SOUTH, (14, 15, 16))
+               if rolled.rows[cell[1]][cell[0]] == B.DOORWAY}
+        for cx, cy in walls:
+            if (cx, cy) in cut:
+                continue          # the gap itself, which the roll does cut
+            assert rolled.rows[cy][cx] != B.FLOOR, \
+                f"the roll carved the shell's wall at {(cx, cy)}"
+        assert roller.blocks_a_landing(rolled.rows, doorways), \
+            "the roll quietly cleared the landing instead of leaving it broken"

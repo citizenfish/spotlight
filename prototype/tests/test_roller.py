@@ -53,7 +53,7 @@ def _level_templates():
     """Every `roll:` room in every level file, as a template."""
     out = {}
     for n in levels.levels():
-        _num, _name, specs, _budget = levels.parse(
+        _num, _name, specs, _budget, _shapes = levels.parse(
             (levels.LEVELS_DIR / f"level{n}.txt").read_text())
         for i, spec in enumerate(specs):
             if spec.roll is None:
@@ -212,15 +212,15 @@ def _roll_level(seed: int) -> str:
 
 
 def test_the_loader_rolls_a_level_from_a_seed():
-    number, name, specs, budget = levels.parse(_roll_level(1))
+    number, name, specs, budget, _shapes = levels.parse(_roll_level(1))
     a = levels.build(specs, "t.txt", roll_seed=0x1234, people=budget.people)
-    _n, _m, specs2, _b = levels.parse(_roll_level(1))
+    _n, _m, specs2, _b, _s = levels.parse(_roll_level(1))
     b = levels.build(specs2, "t.txt", roll_seed=0x1234, people=budget.people)
     assert [r.rows for r in a.rooms] == [r.rows for r in b.rooms]
     assert a[0].has_exit and not a[1].has_exit
     assert a[0].rows != a[1].rows, "two rooms rolled the same"
     assert len(a[0].workers) == 1 and len(a[0].clegs) == 1
-    _n, _m, specs3, _b = levels.parse(_roll_level(1))
+    _n, _m, specs3, _b, _s = levels.parse(_roll_level(1))
     c = levels.build(specs3, "t.txt", roll_seed=0x1235, people=budget.people)
     assert c[0].rows != a[0].rows
     a.validate()
@@ -229,7 +229,7 @@ def test_the_loader_rolls_a_level_from_a_seed():
 
 
 def test_a_rolled_room_without_a_seed_is_refused():
-    _n, _m, specs, budget = levels.parse(_roll_level(1))
+    _n, _m, specs, budget, _s = levels.parse(_roll_level(1))
     with pytest.raises(ValueError, match="no seed"):
         levels.build(specs, "t.txt", people=budget.people)
 

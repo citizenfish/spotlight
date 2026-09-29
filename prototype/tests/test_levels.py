@@ -202,7 +202,7 @@ def test_the_default_budget_is_the_constants_level_three_was_measured_with():
 
 def test_a_level_without_a_budget_gets_the_constants():
     text = "level: 9\nname: Bare\n" + _room("only", "yellow", [])
-    number, name, specs, budget = levels.parse(text)
+    number, name, specs, budget, _shapes = levels.parse(text)
     assert budget == B.DEFAULT_BUDGET
 
 

@@ -67,7 +67,17 @@ measured when the *chambers themselves rolled*, at a random size and position;
 an authored one-doored chamber strands nothing, on its bare walls or on 256
 rolled seeds. `tests/test_spike_shells.py` pins that so nobody reads a
 fairness reason into it later. What does the safety work is
-`swarming.strands_a_shell`, which gates every shell whatever shape it is.
+`swarming.strands_a_shell`, which gates every shell whatever shape it is, and
+since issue #144 `roller.blocks_a_landing` beside it -- a wall may reach the
+border, and a doorway is three cells wide so a tail files through it, and a
+wall standing in the gap's own lane satisfies both rules while being the one
+thing `DOORWAY_CELLS = 3` exists to prevent. **A wall runs across the axis the
+room's doorways are not on:** a division between an east and a west doorway,
+and rows 6 to 15 only when the doorways are north and south.
+
+**A shape may be declared and named by nobody.** The gate checks every shape a
+level declares, which is why `parse` hands them back, so a shell can be
+authored and proved a slice before the room that uses it exists.
 
 The first room of a level has the exit, in its west wall. A block with both
 `map:` and `roll:` is refused. `level(n, seed)` rolls a level for a run seed,
@@ -148,11 +158,18 @@ DEAD_KEYS = {"torch": "the torch went with issue #119",
 
 
 def parse(text: str, where: str = "<text>"
-          ) -> tuple[int, str, list, Budget]:
-    """The file as (level number, name, room specs, budget). Raises on any
-    fault. The budget's keys are the level's (issue #115) and default to the
+          ) -> tuple[int, str, list, Budget, dict]:
+    """The file as (level number, name, room specs, budget, shapes). Raises on
+    any fault. The budget's keys are the level's (issue #115) and default to the
     constants when the file does not say. The building's name (issue #126)
-    rides on the budget's `building` field."""
+    rides on the budget's `building` field.
+
+    **`shapes` is every `shape:` the file declares, used or not** (issue #144).
+    A room's own shells come resolved on its spec, so this was thrown away --
+    and a shape no room named was therefore invisible to everything, the gate
+    included. That is the state BU's new shells are authored in: declared, so
+    the gate checks them, and named by nobody until the levels are re-authored.
+    """
     number, name = None, None
     building_name = None
     budget = dict(DEFAULT_BUDGET._asdict())
@@ -372,7 +389,7 @@ def parse(text: str, where: str = "<text>"
                       "1 is the three-second wall memory and 2 is six")
     if building_name is not None:
         budget["building"] = building_name
-    return number, name, rooms, Budget(**budget)
+    return number, name, rooms, Budget(**budget), shapes
 
 
 def deal(specs: list, roster, seed: int, where: str = "<text>") -> list:
@@ -633,7 +650,7 @@ def load(path, seed: int | None = None) -> Building:
     """
     from . import seeds
     path = Path(path)
-    number, name, specs, budget = parse(path.read_text(), str(path))
+    number, name, specs, budget, _shapes = parse(path.read_text(), str(path))
     roll = None if seed is None else seeds.roll_seed(seed, number)
     building = build(specs, str(path), roll_seed=roll, people=budget.people,
                      people_seed=(None if seed is None
@@ -736,7 +753,7 @@ def _beyond(n: int, seed: int) -> Building:
     """Level `n` past the last file: the last file's shells, tightened."""
     from . import seeds
     path = LEVELS_DIR / f"level{LAST_FILE}.txt"
-    number, name, specs, budget = parse(path.read_text(), str(path))
+    number, name, specs, budget, _shapes = parse(path.read_text(), str(path))
     above = n - LAST_FILE
     for spec in specs:
         if spec.roll is None:
