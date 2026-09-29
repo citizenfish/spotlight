@@ -202,26 +202,26 @@ def test_the_template_refuses_nonsense():
 
 def _roll_level(seed: int) -> str:
     return (
-        "level: 9\nname: Rolled\n"
+        "level: 9\nname: Rolled\npeople: 90 80\n"
         "room: first\nfloor: yellow\nroll:\nsegments: 2 4\nlength: 4 8\n"
-        "pieces: 1 2\nband: 8 18\naway: 10\nworker: 90\nclegs: 1\n"
+        "pieces: 1 2\nband: 8 18\naway: 10\nclegs: 1\n"
         "searchlight: 3 repeat\nstart: 24 96\ndoor: east 10-12 second\n"
         "room: second\nfloor: cyan\nroll:\nsegments: 2 4\nlength: 4 8\n"
-        "band: 8 18\naway: 10\nworker: 80\nclegs: 1\nlight: 0 10 3 3\n"
+        "band: 8 18\naway: 10\nclegs: 1\nlight: 0 10 3 3\n"
         "searchlight: 3 repeat\nstart: 16 80\ndoor: west 10-12 first\n")
 
 
 def test_the_loader_rolls_a_level_from_a_seed():
-    number, name, specs, _b = levels.parse(_roll_level(1))
-    a = levels.build(specs, "t.txt", roll_seed=0x1234)
+    number, name, specs, budget = levels.parse(_roll_level(1))
+    a = levels.build(specs, "t.txt", roll_seed=0x1234, people=budget.people)
     _n, _m, specs2, _b = levels.parse(_roll_level(1))
-    b = levels.build(specs2, "t.txt", roll_seed=0x1234)
+    b = levels.build(specs2, "t.txt", roll_seed=0x1234, people=budget.people)
     assert [r.rows for r in a.rooms] == [r.rows for r in b.rooms]
     assert a[0].has_exit and not a[1].has_exit
     assert a[0].rows != a[1].rows, "two rooms rolled the same"
     assert len(a[0].workers) == 1 and len(a[0].clegs) == 1
     _n, _m, specs3, _b = levels.parse(_roll_level(1))
-    c = levels.build(specs3, "t.txt", roll_seed=0x1235)
+    c = levels.build(specs3, "t.txt", roll_seed=0x1235, people=budget.people)
     assert c[0].rows != a[0].rows
     a.validate()
     alone = a.solo(1)
@@ -229,9 +229,9 @@ def test_the_loader_rolls_a_level_from_a_seed():
 
 
 def test_a_rolled_room_without_a_seed_is_refused():
-    _n, _m, specs, _b = levels.parse(_roll_level(1))
+    _n, _m, specs, budget = levels.parse(_roll_level(1))
     with pytest.raises(ValueError, match="no seed"):
-        levels.build(specs, "t.txt")
+        levels.build(specs, "t.txt", people=budget.people)
 
 
 def test_map_and_roll_in_one_room_are_refused():

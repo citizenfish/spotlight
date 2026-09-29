@@ -14,6 +14,8 @@ The format, in full:
     level: 3            once, first
     name: Rescue        once
     building: The Hollins Hotel      what the building is called (issue #126)
+    people: 90 80 70 ...             the roster, one clock a person (issue #143);
+                                     the shape deals them out to rooms
     room: <name>        starts a room; the building starts in its first
     floor: yellow|cyan  the room's floor hue; adjacent rooms never share
     map:                followed by exactly 22 rows of 32 characters
@@ -197,6 +199,21 @@ def parse(text: str, where: str = "<text>"
             continue
         if key in DEAD_KEYS:
             raise fail(i, f"`{key}:` is no longer a key: {DEAD_KEYS[key]}")
+        if key == "people":
+            # **The roster is the building's** (issue #143): one clock a person,
+            # dealt to rooms by the shape rather than authored room by room.
+            if rooms:
+                raise fail(i, "`people:` is the level's, and goes before the "
+                              "first `room:`")
+            words = value.split()
+            clocks = ints(i, words, len(words), "people")
+            if not clocks:
+                raise fail(i, "`people:` wants at least one clock")
+            for blood in clocks:
+                if blood <= 0:
+                    raise fail(i, f"a person cannot start on {blood} blood")
+            budget["people"] = tuple(clocks)
+            continue
         if key in BUDGET_KEYS:
             if rooms:
                 raise fail(i, f"`{key}:` is the level's, and goes before "
@@ -287,9 +304,10 @@ def parse(text: str, where: str = "<text>"
                 room.roll[key] = tuple(ints(i, parts, 2, key))
         elif key == "worker":
             if room.roll is not None:
-                room.workers.append(ints(i, parts, 1, "a rolled worker")[0])
-            else:
-                room.workers.append(tuple(ints(i, parts, 3, "worker")))
+                raise fail(i, "a rolled room does not author its own people "
+                              "since issue #143; the building's `people:` line "
+                              "names the roster and the shape deals it out")
+            room.workers.append(tuple(ints(i, parts, 3, "worker")))
         elif key == "cleg":
             if room.roll is not None:
                 raise fail(i, "a rolled room counts its flies with `clegs:`")
@@ -357,18 +375,143 @@ def parse(text: str, where: str = "<text>"
     return number, name, rooms, Budget(**budget)
 
 
+def deal(specs: list, roster, seed: int, where: str = "<text>") -> list:
+    """Which room each of the building's people is in, and on which clock.
+
+    Issue #143. Returns a list of clock lists, one a room, in room order.
+
+    **The order is a rule and not a convenience**, because the loader refuses a
+    room reached only through a room with nobody in it -- a shout carries exactly
+    one doorway, so a silent room on a path strands a listening player. With more
+    rooms than people, something has to decide which rooms are empty, and it has
+    to be the rooms that cannot strand anybody:
+
+    1. **Every room that is not a dead end is given somebody first.** A room with
+       more than one doorway is on a path between two others by definition.
+    2. **Then the dead ends, in a rolled order**, until the roster runs out. Two
+       empty rooms in a nine-room building are therefore always leaves.
+    3. **Then whatever is left**, round the rooms from a rolled start.
+
+    **Which dead end is empty rolls with the seed, and must.** A player who can
+    learn that the north spur is always empty has learned the level rather than
+    the building, and the whole point of the roll is that they cannot.
+
+    **Clocks go shortest-nearest-the-exit.** Once the rooms are settled the
+    roster is sorted and dealt against the rooms in order of how many doorways
+    they are from the way out, so a deeper room holds a longer clock and nobody
+    is asked to cross a building on the shortest fuse in it. Ties go to the
+    lower room index, so a seed names a building.
+    """
+    from . import roller
+    rooms = len(specs)
+    clocks = sorted(roster)
+    if len(clocks) < 1:
+        raise ValueError(f"{where}: a building needs at least one person")
+
+    ways = [len(spec.doors) for spec in specs]
+    leaves = [i for i in range(rooms) if ways[i] <= 1]
+    inner = [i for i in range(rooms) if ways[i] > 1]
+    if len(clocks) < len(inner):
+        raise ValueError(
+            f"{where}: {len(clocks)} people cannot fill {len(inner)} rooms that "
+            f"are not dead ends, and a room with nobody in it on a path between "
+            f"two who are strands a listening player")
+
+    dice = roller._Dice(seed)
+    order = list(inner)
+    # The dead ends in a rolled order: a shuffle drawn from the stream, so which
+    # spur goes empty is the seed's.
+    pool = list(leaves)
+    while pool:
+        order.append(pool.pop(dice.draw(len(pool))))
+
+    counts = [0] * rooms
+    for n, room in enumerate(order):
+        if n < len(clocks):
+            counts[room] = 1
+    left = len(clocks) - sum(counts)
+    at = dice.draw(rooms) if left else 0
+    for n in range(left):
+        counts[order[(at + n) % rooms]] += 1
+
+    # Depth from the way out, over the doorway graph. The exit is in the first
+    # room, which is where a building starts.
+    depth = [None] * rooms
+    depth[0], queue = 0, [0]
+    index = {spec.name: i for i, spec in enumerate(specs)}
+    while queue:
+        here = queue.pop(0)
+        for _side, _span, to_name, _line in specs[here].doors:
+            # A door to a room that does not exist is `build`'s to refuse, by
+            # name and by line; the deal runs before that and must not turn it
+            # into a KeyError from in here.
+            to = index.get(to_name)
+            if to is not None and depth[to] is None:
+                depth[to] = depth[here] + 1
+                queue.append(to)
+    for i in range(rooms):
+        if depth[i] is None:
+            depth[i] = rooms          # unreachable; `validate` will say so
+
+    slots = []
+    for i in range(rooms):
+        slots += [i] * counts[i]
+    slots.sort(key=lambda i: (depth[i], i))
+    out = [[] for _ in range(rooms)]
+    for blood, room in zip(clocks, slots):
+        out[room].append(blood)
+    return out
+
+
 def build(specs: list, where: str = "<text>",
-          roll_seed: int | None = None) -> Building:
+          roll_seed: int | None = None, people=(),
+          people_seed: int | None = None) -> Building:
     """Rooms from specs, doors resolved by name, the loader's refusals.
 
     `roll_seed` is the run's roll stream (issue #120); every `roll:` room is
     rolled from it in file order, each taking the stream on from the last,
     so the rooms of a level differ from one another and a seed names them
     all. A file with a `roll:` room and no seed is refused.
+
+    `people` is the building's roster (issue #143), which `deal` hands out to
+    the rooms before anything is rolled -- a rolled room takes the clocks it
+    is dealt and puts them where the roll says. `people_seed` is that deal's
+    own stream; a `build` called with only a roll seed (the tests, the shell
+    gate) takes it from `seeds.PEOPLE_TAG` off the roll seed, so one seed is
+    always enough to name a building.
     """
     index = {r.name: n for n, r in enumerate(specs)}
     if len(index) != len(specs):
         raise ValueError(f"{where}: two rooms share a name")
+    # **The roster is dealt before the rooms are built**, because a rolled room
+    # is handed clocks rather than authoring them, and the deal needs the shape
+    # of the whole building -- which rooms are dead ends -- to know which rooms
+    # may be left empty.
+    rolled = [spec for spec in specs if spec.roll is not None]
+    if people:
+        if not rolled:
+            raise ValueError(
+                f"{where}: `people:` is a roster for the roll to deal out, and "
+                f"no room in this building rolls; an authored room says where "
+                f"its people stand with `worker: x y blood`")
+        if len(rolled) != len(specs):
+            missing = next(s for s in specs if s.roll is None)
+            raise ValueError(
+                f"{where}:{missing.line}: room {missing.name!r} does not roll, "
+                f"and the building has a `people:` roster; a building's people "
+                f"are all dealt or all authored")
+        if people_seed is None:
+            from . import seeds
+            people_seed = seeds.stream(roll_seed or 1, seeds.PEOPLE_TAG)
+        floor = clock_floor(len(specs))
+        hands = deal(specs, [max(floor, blood) for blood in people],
+                     people_seed, where)
+        for spec, clocks in zip(specs, hands):
+            spec.workers = clocks
+    elif rolled:
+        raise ValueError(
+            f"{where}: {len(rolled)} of this building's rooms roll, and a rolled "
+            f"room takes its people from the building's `people:` line")
     rooms = []
     for n, spec in enumerate(specs):
         if spec.floor is None:
@@ -492,7 +635,9 @@ def load(path, seed: int | None = None) -> Building:
     path = Path(path)
     number, name, specs, budget = parse(path.read_text(), str(path))
     roll = None if seed is None else seeds.roll_seed(seed, number)
-    building = build(specs, str(path), roll_seed=roll)
+    building = build(specs, str(path), roll_seed=roll, people=budget.people,
+                     people_seed=(None if seed is None
+                                  else seeds.people_seed(seed, number)))
     building.level = number
     building.title = name
     building.name = budget.building
@@ -521,6 +666,34 @@ BIG_WIDTH = 32
 #: `VARY_FROM`. The roll is the progression as well as the variety.
 LAST_FILE = 3
 CLOCK_STEP, CLOCK_FLOOR = 3, 22
+
+#: How much the clock floor grows per room past three (issue #143): seven blood,
+#: which is fourteen seconds at `rescue.BLEED_EVERY`. A bigger building is a
+#: longer tour, and the floor has to grow with it or everybody on the floor clock
+#: is dead before a player can reach them.
+#:
+#: **It scales with the building and not with a room's depth**, and that is
+#: measured rather than assumed: the oracle spends 34.1, 32.8 and 33.7 seconds a
+#: person at depths nought, one and two, over 144 people. It sweeps
+#: deepest-first and walks everybody out together, so the carry falls exactly as
+#: the reach rises and depth costs a perfect player nothing. What grows is the
+#: whole tour.
+#:
+#: Seven is a starting value with one measured anchor, and the round's last
+#: slice gates it: the oracle has to get everybody out of the largest building
+#: with every clock at the floor.
+CLOCK_PER_ROOM = 7
+
+
+def clock_floor(rooms: int) -> int:
+    """The shortest clock a building of `rooms` rooms may hand anybody.
+
+    22 blood at three rooms, which is 44 seconds, and 64 at nine, which is 128.
+    (The issue that asked for this glossed nine rooms as 86 seconds; 86 is the
+    six-room figure. The formula and its 44-second anchor agree, and the gloss
+    was the slip.)
+    """
+    return CLOCK_FLOOR + CLOCK_PER_ROOM * max(0, rooms - 3)
 VARY_FROM = 5
 MOST_FLIES = 9
 
@@ -571,11 +744,15 @@ def _beyond(n: int, seed: int) -> Building:
                              f"{LAST_FILE} to roll, and {spec.name!r} does not")
     # The first level at the floor: where the level's shortest clock, cut
     # `CLOCK_STEP` a level, first reaches it.
-    shortest = min(b for spec in specs for b in spec.workers)
-    floor_level = LAST_FILE + max(0, -(-(shortest - CLOCK_FLOOR) // CLOCK_STEP))
+    # The floor is the building's, not the constant's (issue #143): a level
+    # whose rooms are still being added reaches its floor later, because the
+    # floor rose with the rooms.
+    floor = clock_floor(len(specs))
+    shortest = min(budget.people)
+    floor_level = LAST_FILE + max(0, -(-(shortest - floor) // CLOCK_STEP))
+    roster = tuple(max(floor, blood - CLOCK_STEP * above)
+                   for blood in budget.people)
     for spec in specs:
-        spec.workers = [max(CLOCK_FLOOR, blood - CLOCK_STEP * above)
-                        for blood in spec.workers]
         if n >= VARY_FROM:
             spec.searchlight.vary = True
         # **The dials that were frozen at Level 3** (issue #137, ruling 9).
@@ -605,6 +782,7 @@ def _beyond(n: int, seed: int) -> Building:
     specs[-1].roll["clegs"] = specs[-1].roll.get("clegs", 0) + \
         min(extra, max(0, MOST_FLIES - have))
     budget = budget._replace(
+        people=roster,
         # Six seconds of wall memory is for the levels that teach; from here
         # the room goes out of your head in three (ruling 9). Free -- two
         # T-states a frame -- and it is the dial that decides whether the walls
@@ -615,7 +793,8 @@ def _beyond(n: int, seed: int) -> Building:
         spray=max(LATE_SPRAY, budget.spray - (1 if n >= SPRAY_FROM else 0)
                   - (1 if n >= SPRAY_AGAIN else 0)))
     building = build(specs, f"{path} as level {n}",
-                     roll_seed=seeds.roll_seed(seed, n))
+                     roll_seed=seeds.roll_seed(seed, n), people=roster,
+                     people_seed=seeds.people_seed(seed, n))
     building.level = n
     building.title = name
     building.name = BEYOND_NAMES[(n - LAST_FILE - 1) % len(BEYOND_NAMES)]

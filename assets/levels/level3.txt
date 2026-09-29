@@ -17,18 +17,26 @@
 ; short for it to bite.
 ;
 ; Format: `level:`, `name:` and `building:` once, with the budget -- `blood:`,
-; `spray:`, `lives:`, `magnet:` seconds, `wake: on|off`, `fade:` 1 or 2 --
-; before the first `shape:` or `room:`; then `shape:` blocks, then `room:`
-; blocks. `floor:` is yellow or cyan (adjacent rooms never share). A room
-; carries `map:` (22 rows of 32) with `worker: x y blood` and `cleg: cx cy`;
-; or `roll:` with `segments:`, `length:`, `pieces:`, `band:`, `away:`,
-; `clegs:`, one `worker: blood` a person and one `shell:` a shell it may be
-; built from. Every room has `searchlight: radius repeat|vary` (with `pace:`
-; beside it), `start: x y` in pixels and `at: col row` on the plan;
-; `light: left top width height` and `door: side rows-rows room` as authored.
-; Blank lines and `;` comments go anywhere. (`spotlight:` and `torch:` went
-; with the torch, #119; `mount:` went in #137 -- the housing's corner rotates
-; round the building from the run's seed.)
+; `spray:`, `lives:`, `magnet:` seconds, `wake: on|off`, `fade:` 1 or 2, and
+; `people:` the roster -- before the first `shape:` or `room:`; then `shape:`
+; blocks, then `room:` blocks. `floor:` is yellow or cyan (adjacent rooms
+; never share). A room carries `map:` (22 rows of 32) with `worker: x y blood`
+; and `cleg: cx cy`; or `roll:` with `segments:`, `length:`, `pieces:`,
+; `band:`, `away:`, `clegs:` and one `shell:` a shell it may be built from.
+;
+; **`people:` is the building's and a rolled room does not author its own**
+; (issue #143). One clock a person on one line; the deal gives every room
+; that is not a dead end somebody first, then the dead ends in a rolled
+; order, then the rest, and hands the shortest clock to the room nearest the
+; way out. So a building may have more rooms than people, and the rooms left
+; empty are always dead ends and never the same ones twice.
+;
+; Every room has `searchlight: radius repeat|vary` (with `pace:` beside it),
+; `start: x y` in pixels and `at: col row` on the plan; `light: left top width
+; height` and `door: side rows-rows room` as authored. Blank lines and `;`
+; comments go anywhere. (`spotlight:` and `torch:` went with the torch, #119;
+; `mount:` went in #137 -- the housing's corner rotates round the building from
+; the run's seed; `worker:` in a `roll:` room went in #143.)
 
 level: 3
 name: Rescue
@@ -39,6 +47,7 @@ lives: 3
 magnet: 10
 wake: on
 fade: 2           ; the last level before the wall memory halves
+people: 90 80 70 60 50 40 30       ; seven, dealt to three rooms
 
 ; spine: a division high up: border to border with a three-cell gap at
 ;   rows 4-6, so the way through is nowhere near the doorways
@@ -153,9 +162,6 @@ length: 4 10
 pieces: 2 3
 band: 14 28
 away: 14
-worker: 90
-worker: 40
-worker: 30
 clegs: 2
 shell: spine
 shell: dogleg
@@ -172,8 +178,6 @@ length: 4 10
 pieces: 2 3
 band: 14 28
 away: 14
-worker: 50
-worker: 60
 clegs: 2
 shell: boxroom
 shell: spine-low
@@ -192,8 +196,6 @@ length: 4 10
 pieces: 2 3
 band: 14 28
 away: 14
-worker: 70
-worker: 80
 clegs: 2
 shell: dogleg
 shell: boxroom

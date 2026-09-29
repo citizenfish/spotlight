@@ -35,6 +35,12 @@ ROLL_TAG, CLEG_TAG, BEAM_TAG, BROOD_TAG = 0x5A00, 0xC1E6, 0xBEA0, 0xB700
 #: not worth either on a Z80. So the rotation is stated instead of pretended.
 MOUNT_TAG = 0x4D10
 
+#: Which rooms the building's people are dealt to, and in what order the dead
+#: ends are filled (issue #143). Its own stream so that changing the deal does
+#: not move the furniture, and so that adding a room moves the deal and nothing
+#: else -- the rule the whole module is built on.
+PEOPLE_TAG = 0x9E01
+
 
 def level_seed(run_seed: int, level: int | None) -> int:
     """The seed a level's streams hang off: the run seed and the level."""
@@ -49,3 +55,8 @@ def stream(level_seed_: int, tag: int) -> int:
 def roll_seed(run_seed: int, level: int | None) -> int:
     """The roller's seed for a level of a run."""
     return stream(level_seed(run_seed, level), ROLL_TAG)
+
+
+def people_seed(run_seed: int, level: int | None) -> int:
+    """The seed the building's people are dealt to their rooms from (#143)."""
+    return stream(level_seed(run_seed, level), PEOPLE_TAG)

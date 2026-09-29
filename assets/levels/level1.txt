@@ -14,8 +14,9 @@
 ; the levels that teach hold the room in mind for twice as long. `at:` is the
 ; room's place on the plan the opening flashes (#134).
 ;
-; The walls, the furniture, where each person stands and where the fly begins
-; roll from the run's seed (#120); what is written here is the lesson.
+; The walls, the furniture, which room each person is in and where they stand,
+; and where the fly begins all roll from the run's seed (#120, #143); what is
+; written here is the lesson.
 
 level: 1
 name: Dark
@@ -27,6 +28,12 @@ magnet: 5         ; caught in the beam, the flies come for five seconds
 wake: off         ; and a sated fly sleeps through it
 fade: 2           ; six seconds of wall memory while you are learning to look
 
+; **The roster is the building's** (issue #143), not the rooms'. Four clocks,
+; one a person, and the deal puts them in rooms: every room that is not a dead
+; end first, then the dead ends in a rolled order, then the rest. The shortest
+; clock goes to the room nearest the way out, so a deeper person has longer.
+people: 90 90 80 70
+
 room: the glow
 floor: yellow
 roll:
@@ -35,7 +42,6 @@ length: 4 8
 pieces: 1 2
 band: 8 18
 away: 12
-worker: 90
 light: 1 9 3 4
 searchlight: 3 repeat
 pace: 8
@@ -51,8 +57,6 @@ length: 4 8
 pieces: 1 2
 band: 8 18
 away: 12
-worker: 90
-worker: 80
 clegs: 1
 light: 0 10 3 3
 searchlight: 3 repeat
@@ -70,7 +74,6 @@ length: 4 8
 pieces: 1 2
 band: 8 18
 away: 12
-worker: 70
 light: 26 17 3 3
 searchlight: 3 repeat
 pace: 8

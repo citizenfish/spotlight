@@ -93,8 +93,8 @@ pip install -r requirements-dev.txt
 
 cd prototype
 python -m spotlight        # run (--scale N for window size)
-pytest                     # 1682 tests, headless-safe
-SPOTLIGHT_SLOW=1 pytest    # + 132 room runs (tests/test_rooms.py), ~21 min
+pytest                     # 1730 tests, headless-safe, ~12 min
+SPOTLIGHT_SLOW=1 pytest    # + 132 room runs (tests/test_rooms.py), ~90 s more
 ```
 
 Dependencies are a plain venv plus pinned `requirements.txt`; there is no

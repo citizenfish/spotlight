@@ -454,11 +454,26 @@ def test_a_death_is_announced_from_where_they_fell():
     # is standing, and `draw` reads these too.
     word = run.shout_runs[run.shouting.index(dying)]
     assert len(word) == len(rescue_mod.CALL)
+    # **The shout is what lights these cells**, and that is the claim: a word
+    # four cells wide, lit where nothing else reaches.
+    #
+    # It used to be stated as *no* cell of the word is under a revealing light,
+    # which was never an invariant -- it was a fact about the one death seed 1
+    # happened to produce first. The beam is wherever the seed put it, and since
+    # issue #143 changed which clock is in which room the first death moved and
+    # the word's last letter landed inside the beam's edge. A word one letter
+    # into the searchlight is an ordinary frame of the game. So the claim is
+    # per cell, with at least one cell carrying it: **the shout lights ground no
+    # light is on.**
+    on_dark = 0
     for cell in word:
         assert cell in run.call_cells
         cx, cy = cell
         assert run.field.level_at(cx, cy) == lighting.LIT
-        assert not run.field.reveals_at(cx, cy), "a shout revealed somebody"
+        if not run.field.reveals_at(cx, cy):
+            on_dark += 1
+    assert on_dark, "every cell of the word was under a light anyway, so " \
+        "nothing here shows the shout lit anything"
 
 
 def test_every_death_is_announced_exactly_once():

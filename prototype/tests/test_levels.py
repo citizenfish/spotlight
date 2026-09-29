@@ -16,9 +16,23 @@ from spotlight.core.constants import CYAN, YELLOW
 #: its three people, because a first-timer who never finds the doorway ending
 #: on three of seven is the top of a tuned band, and the third room took from
 #: the far room's four.
-PINNED_CLOCKS_A = (90, 40, 30)
-PINNED_CLOCKS_B = (50, 60)
-PINNED_CLOCKS_C = (70, 80)
+#:
+#: **The clocks are dealt, not authored, since issue #143.** `level3.txt` names
+#: the roster once -- `people: 90 80 70 60 50 40 30` -- and the deal puts the
+#: shortest nearest the way out, so nobody is asked to cross the building on the
+#: shortest fuse in it. Which room each person is in used to be the author's and
+#: is now the shape's, which is what lets a building have more rooms than the
+#: file has people.
+#:
+#: **These are the default seed's, not the building's.** Every room gets one
+#: person, and where the four left over go is the roll's, so the three rooms
+#: read 3/2/2, 2/3/2 or 2/2/3 depending on the seed -- eight seeds from the
+#: default give all three. What never moves is the order: no room holds a
+#: shorter clock than a room nearer the way out. `test_the_roster.py` states
+#: that as the property; this pins one building.
+PINNED_CLOCKS_A = (30, 40, 50)
+PINNED_CLOCKS_B = (60, 70)
+PINNED_CLOCKS_C = (80, 90)
 PINNED_LIGHTS_B = ((0, 10, 3, 3),)
 PINNED_START = (24, 96)
 PINNED_DOOR_ROWS = (10, 11, 12)
@@ -167,16 +181,22 @@ def test_the_default_budget_is_the_constants_level_three_was_measured_with():
     # Level 3's wall memory is the level's own since issue #137: six seconds
     # for the levels that teach, three from Level 4. `fade` is a rate divisor,
     # so 2 is half rate, and the default stays 1 for a building built by hand.
+    # The roster rides on the budget since issue #143, because it is the
+    # building's rather than a room's; the default is empty, which is what a
+    # building of authored rooms wants.
+    assert B.DEFAULT_BUDGET.people == ()
     assert levels.level(3).budget == B.DEFAULT_BUDGET._replace(
-        building="The Hollins Hotel", fade=2)
+        building="The Hollins Hotel", fade=2,
+        people=(90, 80, 70, 60, 50, 40, 30))
     assert B.DEFAULT_BUDGET.fade == 1
     # The magnet's seconds and wake are the level's since issue #118; the
     # building's name rides on the budget since issue #126.
     assert levels.level(2).budget == B.Budget(64, 5, 3, magnet=8, wake=False,
                                               fade=2,
+                                              people=(90, 80, 80, 70, 70, 60, 40),
                                               building="Marrow Street Baths")
     assert levels.level(1).budget == B.Budget(64, 3, 3, magnet=5, wake=False,
-                                              fade=2,
+                                              fade=2, people=(90, 90, 80, 70),
                                               building="The Severn Depot")
 
 
@@ -276,9 +296,11 @@ def test_level_four_and_on_is_level_three_tightened():
     fly a level in the far room from the first level at the floor, to nine
     in the building; every beam varies from Level 5."""
     three = levels.level(3)
-    clocks = lambda b: [w[2] for r in b.rooms for w in r.workers]  # noqa: E731
+    clocks = lambda b: sorted(w[2] for r in b.rooms for w in r.workers)  # noqa: E731
     assert clocks(levels.level(4)) == [c - 3 for c in clocks(three)]
-    assert min(clocks(levels.level(6))) == 22
+    # The floor is the building's since issue #143 -- `CLOCK_FLOOR` at three
+    # rooms, and seven blood more for every room past that.
+    assert min(clocks(levels.level(6))) == levels.clock_floor(3) == 22
     assert min(clocks(levels.level(20))) == 22
     # Two, two and two over three rooms since issue #137, and the extra fly a
     # level still lands in the last room, to nine in the building.
@@ -294,7 +316,8 @@ def test_level_four_and_on_is_level_three_tightened():
     # budget past the last file is no longer Level 3's: the wall memory halves,
     # and the spray walks down from five to four and then to three.
     assert levels.level(5).budget._replace(building="") == \
-        three.budget._replace(building="", fade=1, spray=4)
+        three.budget._replace(building="", fade=1, spray=4,
+                              people=tuple(c - 6 for c in three.budget.people))
     assert [levels.level(n).budget.spray for n in (3, 4, 6, 7, 9, 20)] == \
         [5, 4, 4, 3, 3, 3]
     assert [levels.level(n).budget.fade for n in (3, 4, 9)] == [2, 1, 1]

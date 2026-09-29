@@ -48,6 +48,25 @@ def lit_cells(screen: Screen) -> int:
 
 # --- the sheets exist, at the sizes they claim ------------------------------
 
+def gallery_room(index: int):
+    """The room the gallery actually photographs, not the room the scene holds.
+
+    **They are two different buildings.** The gallery takes every picture on
+    `GALLERY_SEED` and `scene.BUILDING` is the default seed's, so a test that
+    reads the walls off `scene.BUILDING` and the pixels off a gallery shot is
+    comparing one seed's geometry with another's. That was harmless while the
+    two seeds happened to roll the same rooms and stopped being harmless in
+    issue #143: the deal now decides how many people each room holds, the
+    number of people a room is given is drawn from the same stream as its
+    walls, and two seeds that used to agree on 3/2/2 no longer do.
+
+    So the geometry comes from the picture's own building. A test comparing a
+    drawing with a room has to be told which room, and the answer was never
+    "whichever one `scene` is holding".
+    """
+    return scene.building(levels.SCENE_LEVEL, gallery.GALLERY_SEED)[index]
+
+
 def test_the_gallery_writes_every_sheet(tmp_path):
     """One command, and everything a look-and-feel review needs is in one
     directory. The list is the issue's, and it is the list because a reviewer
@@ -528,7 +547,7 @@ def test_the_played_frame_shows_remembered_walls_as_lines():
     dim tile has its courses out of it, which is the change.
     """
     off = gallery.room_screen(scene.NEAR, lit=False)
-    room = scene.BUILDING[scene.NEAR]
+    room = gallery_room(scene.NEAR)
     remembered = []
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
@@ -574,8 +593,9 @@ def test_each_lit_room_is_the_room_it_is_named_after():
     are allowed on top of any of them: a person standing against a wall
     composites into it.
     """
-    for index, room in enumerate(scene.BUILDING.rooms):
+    for index in range(len(scene.BUILDING.rooms)):
         run, screen = gallery.lit_room(index)
+        room = run.place.room
         painted = set(run.place.sign_cells) | set(run.call_cells)
         from spikes import building
         for cy in range(PLAY_ROWS):
@@ -599,8 +619,9 @@ def test_a_lit_room_draws_no_wall_where_it_has_floor():
     all of them sparse. What it may never hold is a wall tile's outline, so
     this asks that no floor cell is anywhere near full.
     """
-    for index, room in enumerate(scene.BUILDING.rooms):
-        _run, screen = gallery.lit_room(index)
+    for index in range(len(scene.BUILDING.rooms)):
+        run, screen = gallery.lit_room(index)
+        room = run.place.room
         for cy in range(PLAY_ROWS):
             for cx in range(COLS):
                 if room.is_wall(cx, cy):

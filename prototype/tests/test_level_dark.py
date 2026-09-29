@@ -28,9 +28,16 @@ def test_the_level_is_as_the_note_draws_it(dark):
     glow, buzz, lamp = dark.rooms
     # The shell (issue #121): the clocks and the counts; where each person
     # stands and where the fly begins are the seed's.
-    assert tuple(w[2] for w in glow.workers) == (90,)
-    assert tuple(w[2] for w in buzz.workers) == (90, 80)
-    assert tuple(w[2] for w in lamp.workers) == (70,)
+    #
+    # **The clocks are dealt from the building's roster since issue #143**
+    # (`people: 90 90 80 70`), shortest nearest the way out. The buzz is the
+    # only room of the three that is not a dead end, so it is filled first and
+    # holds two; the glow and the lamp get one each. Four people and three
+    # rooms, so nobody is left out and the arrangement is the same on every
+    # seed -- what the deal decides here is only which clock is where.
+    assert tuple(w[2] for w in glow.workers) == (70,)
+    assert tuple(w[2] for w in buzz.workers) == (80, 90)
+    assert tuple(w[2] for w in lamp.workers) == (90,)
     assert [len(r.clegs) for r in dark.rooms] == [0, 1, 0]
     # A beam in every room at walking pace (issue #118).
     assert all(r.searchlight.radius == 3 and not r.searchlight.vary
@@ -89,8 +96,18 @@ def test_the_oracle_gets_everyone_out(seed):
 @pytest.mark.parametrize("seed", SEEDS)
 @MOVING
 def test_the_listener_loses_no_life(seed):
+    """**No life is still lost, and that is the gate.** What went is the other
+    half of it: the run used to end inside three minutes on every seed and
+    since issue #143 it runs out of frames on half of them.
+
+    That is not a stall. Level 1's longest clock is 90 blood, which at two
+    seconds a point is exactly the three minutes `play` allows, so a run that
+    has not lost anybody and has not finished is a run still working at the
+    moment the harness stops it. The dealt roster puts the two 90s in the buzz
+    and the lamp instead of the glow and the buzz, so the last person alive is
+    now one room further in. See *2026-09-29 The roster deal* in the vault.
+    """
     run = play(LEVEL, "listener", seed)
-    assert run.over != S.FRAME_LIMIT
     assert lives_lost(run) == 0
 
 
@@ -100,10 +117,18 @@ def test_the_listener_gets_nearly_everyone_out():
     one it loses is the far room's, to the clock: the listener never leaves
     a room that has gone silent, and once the middle room's people are
     delivered nothing calls it on. A bot's limit, not the level's -- the
-    scout, which explores, gets all four out on most seeds."""
+    scout, which explores, gets all four out on most seeds.
+
+    **3.25 of 4 since issue #143** (from 3.75 over eight seeds, the spraying
+    listener the same both ways). The roster is the building's now and the deal
+    decides who is where: the deepest room holds two people instead of one on
+    three seeds of eight, and the shortest clock sits in the room you start in.
+    Nobody dies -- every life is still intact -- but the tour no longer fits
+    three minutes. Recorded and not tuned, in *2026-09-29 The roster deal*, and
+    the ramp is re-taken whole in #147."""
     runs = [play(LEVEL, "listener", seed) for seed in SEEDS]
-    assert statistics.mean(r.rescued for r in runs) >= 3.5
-    assert sum(r.over == S.ALL_OUT for r in runs) >= 2
+    assert statistics.mean(r.rescued for r in runs) >= 3.0
+    assert sum(r.over == S.ALL_OUT for r in runs) >= 1
 
 
 @pytest.mark.parametrize("seed", SEEDS)

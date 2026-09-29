@@ -41,7 +41,6 @@ length: 4 8
 pieces: {pieces}
 band: 6 24
 away: 8
-{workers}
 clegs: {clegs}
 searchlight: 3 repeat
 start: {start}
@@ -63,12 +62,18 @@ RING = [
 
 
 def text_for(rooms, segments="0 0", pieces="0 0", clegs=1):
-    out = HEAD
-    for i, (name, hue, at, doors, people) in enumerate(rooms):
+    """The rooms, with their people pooled into the building's roster.
+
+    Each row still carries the clocks it was written with, but since issue #143
+    a rolled room does not author its own people: the building names the roster
+    once and the deal decides who is where. So the clocks are summed up into a
+    `people:` line, and what a row's list now says is *how many*."""
+    roster = [b for _n, _h, _a, _d, people in rooms for b in people]
+    out = HEAD + "people: " + " ".join(str(b) for b in roster) + "\n"
+    for i, (name, hue, at, doors, _people) in enumerate(rooms):
         out += ROOM.format(
             name=name, hue=hue, col=at[0], row=at[1], segments=segments,
             pieces=pieces, clegs=clegs,
-            workers="\n".join(f"worker: {b}" for b in people),
             start="24 96" if i == 0 else "16 80", doors="\n".join(doors))
     return out
 

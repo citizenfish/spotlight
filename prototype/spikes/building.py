@@ -875,6 +875,13 @@ class Budget(NamedTuple):
     #: third fade path, and if play ever wants one it is a `fade:` in frames
     #: and a slice of its own.
     fade: int = 1
+    #: **The building's roster**: one clock a person, longest first as authored
+    #: (issue #143). A room used to name its own `worker:` clocks, which made a
+    #: building with more rooms than the file has people unauthorable -- and made
+    #: the levels past the last file, which reuse its rooms, unable to gain a
+    #: room without inventing a person. The loader deals these out to rooms by
+    #: the building's shape; see `levels.deal`.
+    people: tuple = ()
     #: What the building is called (issue #126). The level file's own.
     building: str = "The Building"
 

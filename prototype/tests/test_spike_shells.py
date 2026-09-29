@@ -323,7 +323,9 @@ def test_a_shell_of_the_wrong_shape_is_refused():
 
 # --- the level file ----------------------------------------------------------
 
-HEAD = "level: 9\nname: Test\nbuilding: The Test Works\n"
+HEAD = ("level: 9\nname: Test\nbuilding: The Test Works\n"
+        # One clock a room: the roster is the building's (#143).
+        "people: 90 90 90\n")
 
 
 def shape_block(name, shell):
@@ -333,7 +335,7 @@ def shape_block(name, shell):
 def room_block(name, hue, shells=(), doors_=()):
     out = [f"room: {name}", f"floor: {hue}", "roll:",
            "segments: 2 3", "length: 4 8", "pieces: 1 2", "band: 6 24",
-           "away: 8", "worker: 90", "clegs: 1",
+           "away: 8", "clegs: 1",
            "searchlight: 3 repeat", "start: 24 96"]
     out += [f"shell: {s}" for s in shells]
     out += list(doors_)
