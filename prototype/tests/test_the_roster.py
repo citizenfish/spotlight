@@ -65,7 +65,6 @@ def comb(people: str = "64 64 64 64 64 64 64", rooms: int = 9) -> str:
         col, row = PLAN[i]
         out.append("\n".join([
             f"\nroom: {NAMES[i]}",
-            "floor: " + ("yellow" if (col + row) % 2 == 0 else "cyan"),
             "roll:", "segments: 0 1", "length: 4 8", "pieces: 0 2",
             "band: 6 26", "away: 6", "clegs: 1", "searchlight: 3 repeat",
             "start: 120 96", f"at: {col} {row}"] + doors[i]) + "\n")

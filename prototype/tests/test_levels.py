@@ -101,7 +101,6 @@ MINIMAL = """level: 9
 name: Test
 
 room: one
-floor: yellow
 map:
 """ + "\n".join(["#" * 32] + ["#" + "." * 30 + "#"] * 20 + ["#" * 32]) + """
 worker: 40 40 60
@@ -118,7 +117,7 @@ def test_a_minimal_level_loads():
 
 @pytest.mark.parametrize("bad, why", [
     (MINIMAL.replace("worker: 40 40 60", "worker: 40 40"), "worker wants 3"),
-    (MINIMAL.replace("floor: yellow", "floor: red"), "floor must be"),
+    (MINIMAL.replace("map:", "floor: red\nmap:"), "no longer a key"),
     (MINIMAL.replace("start: 40 40\n", ""), "no `start:`"),
     (MINIMAL.replace("level: 9\n", ""), "no `level:`"),
     (MINIMAL.replace("worker: 40 40 60", "banana: 1"), "unknown key"),
@@ -136,7 +135,7 @@ def _room(name, hue, doors, wall_east_gap=False, wall_west_gap=False):
         west = "d" if (wall_west_gap and r in (10, 11, 12)) else "#"
         rows.append(west + "." * 30 + east)
     rows.append("#" * 32)
-    body = f"\nroom: {name}\nfloor: {hue}\nmap:\n" + "\n".join(rows) + "\nworker: 40 40 60\ncleg: 20 5\nsearchlight: 3 repeat\nstart: 40 40\n"
+    body = f"\nroom: {name}\nmap:\n" + "\n".join(rows) + "\nworker: 40 40 60\ncleg: 20 5\nsearchlight: 3 repeat\nstart: 40 40\n"
     for d in doors:
         body += f"door: {d}\n"
     return body
@@ -144,10 +143,16 @@ def _room(name, hue, doors, wall_east_gap=False, wall_west_gap=False):
 
 def test_the_loaders_own_refusals():
     head = "level: 9\nname: Test\n"
-    # Two adjacent rooms sharing a floor hue: refused.
-    same = head + _room("one", "yellow", ["east 10-12 two"], True) + _room("two", "yellow", ["west 10-12 one"])
+    # **Two adjacent rooms cannot share a floor hue any more** (issue #145): the
+    # hue is the parity of the room's place on the plan, so a chain alternates by
+    # construction and there is nothing left to refuse. The check survives for
+    # the one shape that can still break it -- a building with no `at:`, whose
+    # rooms take the parity of their index, joined 0 to 2 -- and it is provoked
+    # here on purpose rather than left untested.
+    apart = (head + _room("one", "yellow", ["east 10-12 three"], True)
+             + _room("two", "cyan", []) + _room("three", "yellow", ["west 10-12 one"], False, True))
     with pytest.raises(ValueError) as err:
-        levels.build(levels.parse(same, "t.txt")[2], "t.txt")
+        levels.build(levels.parse(apart, "t.txt")[2], "t.txt")
     assert "share a floor hue" in str(err.value)
     # **A door may now be anywhere in a vertical wall** (issue #135), so rows
     # 5-7 are legal -- and the map has to have them cut, which `_room` does not

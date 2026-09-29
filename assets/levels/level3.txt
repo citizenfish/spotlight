@@ -19,10 +19,17 @@
 ; Format: `level:`, `name:` and `building:` once, with the budget -- `blood:`,
 ; `spray:`, `lives:`, `magnet:` seconds, `wake: on|off`, `fade:` 1 or 2, and
 ; `people:` the roster -- before the first `shape:` or `room:`; then `shape:`
-; blocks, then `room:` blocks. `floor:` is yellow or cyan (adjacent rooms
-; never share). A room carries `map:` (22 rows of 32) with `worker: x y blood`
+; blocks, then `room:` blocks. A room carries `map:` (22 rows of 32) with
+; `worker: x y blood`
 ; and `cleg: cx cy`; or `roll:` with `segments:`, `length:`, `pieces:`,
 ; `band:`, `away:`, `clegs:` and one `shell:` a shell it may be built from.
+;
+; **A room does not author its floor hue** (issue #145). It is `(col + row) & 1`
+; of the room's `at:` -- yellow on the even squares, cyan on the odd -- so
+; adjacent rooms never share one, for ever, with nothing to keep in step. Two
+; hues over a grid sounds impossible and is not: a grid is bipartite. And every
+; doorway you cross flips the colour, so the floor says whether you are an odd
+; or an even number of doors from the way out.
 ;
 ; **`people:` is the building's and a rolled room does not author its own**
 ; (issue #143). One clock a person on one line; the deal gives every room
@@ -274,7 +281,6 @@ shape: piers
 ################################
 
 room: the main room
-floor: yellow
 roll:
 segments: 4 6
 length: 4 10
@@ -290,7 +296,6 @@ at: 0 0
 door: east 10-12 the far room
 
 room: the far room
-floor: cyan
 roll:
 segments: 4 6
 length: 4 10
@@ -308,7 +313,6 @@ door: west 10-12 the main room
 door: east 10-12 the boiler room
 
 room: the boiler room
-floor: yellow
 roll:
 segments: 4 6
 length: 4 10

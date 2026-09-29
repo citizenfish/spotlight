@@ -1,7 +1,7 @@
 """A level opens on a strobe (issue #94): three one-frame flashes of the
 whole room, five dark frames between, the game held, nothing remembered."""
 
-from spikes import lighting, session as S
+from spikes import building as B, lighting, session as S
 from spikes.session import Intent, Session
 from spotlight.core.constants import CELL, COLS, SCREEN_H, SCREEN_W
 from spikes.layout import PLAY_ROWS
@@ -99,13 +99,22 @@ def test_a_flash_is_the_whole_buildings_plan_and_leaves_nothing_behind():
     x0, y0 = screens.plan_origin(run.building)
     stride = COLS * screens.PLAN_SCALE + screens.PLAN_GUTTER
     for i, room in enumerate(run.building.rooms):
-        # Every solid cell of every room is a block of the plan, and every
-        # floor cell without a person on it is not.
+        # **Every wall cell is a block of the plan and the furniture is not**
+        # (issue #145). It used to be every `SOLID` cell, so at seven or nine
+        # rooms every rolled pipe run, riser and cabinet became a two-pixel
+        # block and the interiors were noise at 1:1. The plan is a map of the
+        # building, and the furniture is not the building.
+        furniture = 0
         for cy, row in enumerate(room.rows):
             for cx, char in enumerate(row):
                 x, y = x0 + i * stride + cx * screens.PLAN_SCALE, y0 + cy * screens.PLAN_SCALE
-                if room.is_solid(cx, cy):
+                if char == B.WALL:
                     assert frame.point(x, y), (i, cx, cy)
+                elif char in B.SOLID_FURNITURE:
+                    furniture += 1
+                    assert not frame.point(x, y), \
+                        f"room {i}'s furniture at {(cx, cy)} is on the plan"
+        assert furniture, f"room {i} rolled no furniture, so this proves nothing"
     # The exit wears magenta on the plan, and nothing in the building is lit.
     ex, ey = run.building.exit[1]
     cell = ((x0 + ex * screens.PLAN_SCALE) // 8, (y0 + ey * screens.PLAN_SCALE) // 8)
@@ -366,7 +375,7 @@ HEAD = "level: 9\nname: Test\nbuilding: The Test Works\n"
 
 
 def _room_text(name, hue, at=None, doors=()):
-    out = [f"room: {name}", f"floor: {hue}", "map:"]
+    out = [f"room: {name}", "map:"]
     out += ["#" * COLS]
     out += ["#" + "." * (COLS - 2) + "#" for _ in range(PLAY_ROWS - 2)]
     out += ["#" * COLS]
@@ -417,3 +426,228 @@ def test_a_building_of_ten_rooms_is_refused():
         text += _room_text(f"r{i}", hue, at)
     with pytest.raises(ValueError, match="both at|off the plan|plan holds"):
         levels.build(levels.parse(text)[2], "t")
+
+
+# --- the plan says which rooms join (issue #145) -----------------------------
+#
+# **The plan is the memory the level is played from**, and with buildings on a
+# grid it was omitting the only thing a grid has that a row has not. `draw_plan`
+# blocked solid cells and painted the exit magenta; a doorway was simply absent,
+# a six-pixel hole in a two-pixel wall line. On a row that was fine, because a
+# strip is obviously a chain. On a three-by-three it is nine boxes and no graph.
+#
+# And nobody can fall back on paper. Jet Set Willy had sixty rooms and no map,
+# and everybody who finished it drew one -- which worked because the rooms were
+# fixed. **Spotlight's rooms roll, so the map cannot be drawn**, and two seconds
+# of plan at the opening is the entire substitute.
+
+def _joined(a: int, b: int, side):
+    """A doorway each way between rooms `a` and `b`, `side` as seen from `a`."""
+    span = (10, 11, 12) if side in B.VERTICAL_SIDES else (14, 15, 16)
+    return ((a, B.Doorway(side, span, to=b)),
+            (b, B.Doorway(B.OPPOSITE[side], span, to=a)))
+
+
+def _shaped(edges, places):
+    """A building of `len(places)` rooms at `places`, joined by `edges`.
+
+    `edges` are `(a, b, side)`; the hue is the parity of the position, exactly
+    as the loader derives it since issue #145.
+    """
+    doors: dict = {i: [] for i in range(len(places))}
+    for a, b, side in edges:
+        for who, door in _joined(a, b, side):
+            doors[who].append(door)
+    rooms = [_plan_room(f"room {i}", levels.hue_at(*places[i]), places[i],
+                        tuple(doors[i]))
+             for i in range(len(places))]
+    return B.Building(rooms)
+
+
+#: A ring, a comb and a branch -- four rooms each, the same four squares of the
+#: plan, and three different buildings. Told apart only by which rooms join.
+RING = ([(0, 1, B.EAST), (0, 2, B.SOUTH), (1, 3, B.SOUTH), (2, 3, B.EAST)],
+        [(0, 0), (1, 0), (0, 1), (1, 1)])
+COMB = ([(0, 1, B.EAST), (0, 2, B.SOUTH), (1, 3, B.SOUTH)],
+        [(0, 0), (1, 0), (0, 1), (1, 1)])
+BRANCH = ([(0, 1, B.EAST), (1, 2, B.SOUTH), (1, 3, B.EAST)],
+          [(0, 0), (1, 0), (1, 1), (2, 0)])
+
+
+def test_a_bridge_is_drawn_for_every_doorway_and_for_no_other_pair():
+    """The acceptance, stated as a graph: one bridge a doorway, and none
+    between two rooms that merely stand next to each other.
+
+    A doorway is authored twice, once from each side, and the bridge is drawn
+    once -- from the lower-indexed room, whose hue it takes. Under the
+    chequerboard the two ends of a bridge are different colours, and picking an
+    end is the only way not to give the plan a third rule nobody can state.
+    """
+    for label, (edges, places) in (("ring", RING), ("comb", COMB),
+                                   ("branch", BRANCH)):
+        building = _shaped(edges, places)
+        bridges = screens.plan_bridges(building)
+        assert len(bridges) == len(edges), f"{label}: {len(bridges)} bridges"
+        assert all(room == min(a, b) for (room, _px), (a, b, _s)
+                   in zip(bridges, edges)), label
+        # Every bridge is `PLAN_GUTTER` pixels long and one thick, and lies
+        # wholly in the gutter: no pixel of it is inside either room's patch.
+        for i, pixels in bridges:
+            assert len(pixels) == screens.PLAN_GUTTER
+            assert len({x for x, _y in pixels}) == 1 \
+                or len({y for _x, y in pixels}) == 1
+
+
+def test_a_ring_a_comb_and_a_branch_do_not_draw_the_same_plan():
+    """**The finding, reproduced and then fixed.** Two buildings of four rooms on
+    the same four squares of the plan, differing only in which rooms join.
+
+    The shells here are blank, so before the bridges these two drew
+    byte-identical plans and there was nothing to tell them apart at all. In a
+    real building it is worse than it sounds rather than better: the only
+    difference was a six-pixel hole in a two-pixel wall line where the doorway's
+    `d` cells fall, which is what the issue was raised about. A hole is not a
+    signal.
+    """
+    drawn = {}
+    for label, (edges, places) in (("ring", RING), ("comb", COMB)):
+        screen = Screen()
+        screens.draw_plan(screen, _shaped(edges, places))
+        drawn[label] = bytes(screen.pixels)
+    assert drawn["ring"] != drawn["comb"], \
+        "the ring and the comb still draw the same plan"
+    # And the difference is exactly the one bridge the ring has that the comb
+    # has not: the comb's plan is a subset of the ring's.
+    ring, comb = drawn["ring"], drawn["comb"]
+    assert all(r or not c for r, c in zip(ring, comb))
+    assert sum(ring) - sum(comb) == screens.PLAN_GUTTER
+
+
+def test_a_room_with_four_doorways_draws_four_bridges():
+    """Acceptance, and the case a strip could never produce."""
+    places = [(1, 1), (0, 1), (2, 1), (1, 0), (1, 2)]
+    edges = [(0, 1, B.WEST), (0, 2, B.EAST), (0, 3, B.NORTH), (0, 4, B.SOUTH)]
+    building = _shaped(edges, places)
+    assert len(building[0].doorways) == 4
+    bridges = screens.plan_bridges(building)
+    assert len(bridges) == 4
+    assert {i for i, _px in bridges} == {0}
+    # One in each direction from the middle room's patch.
+    left, top = screens.plan_room_origin(building, 0)
+    right = left + COLS * screens.PLAN_SCALE
+    bottom = top + PLAY_ROWS * screens.PLAN_SCALE
+    sides = set()
+    for _i, pixels in bridges:
+        xs = {x for x, _y in pixels}
+        ys = {y for _x, y in pixels}
+        sides.add("west" if max(xs) < left else "east" if min(xs) >= right
+                  else "north" if max(ys) < top else "south" if min(ys) >= bottom
+                  else "?")
+    assert sides == {"east", "west", "north", "south"}, sides
+
+
+def test_every_attribute_on_the_plan_holds_one_ink_and_one_paper():
+    """The Spectrum's own rule, cell by cell on a resolved frame, over every
+    size the plan can hold. `set_attr` cannot express two inks, so what this
+    really asserts is that nothing draws outside the play area and that the
+    bridges do not recolour a room: a cell a room has claimed keeps its hue."""
+    from spotlight.core.screen import unpack_attr
+    for rooms in (1, 2, 3, 4, 6, 9):
+        building = _grid_building(rooms)
+        screen = Screen()
+        screens.draw_plan(screen, building)
+        for cy in range(PLAY_ROWS * screens.PLAN_SCALE):
+            for cx in range(COLS):
+                ink, paper, _b, _f = unpack_attr(screen.get_attr(cx, cy))
+                assert 0 <= ink <= 7 and paper == 0, (rooms, cx, cy)
+
+
+def test_a_bridge_lights_the_gutter_cell_and_leaves_the_rooms_hues_alone():
+    """The attribute rule, which is the one thing in this slice that had to be
+    decided rather than read off the issue.
+
+    The gutter between two rooms in a row is an attribute cell no room claims,
+    and a bridge drawn on an unset cell is black on black -- so the bridge has
+    to colour it. The gutter between two *rows* is not: at `PLAN_SCALE = 2` it
+    straddles cells that already hold both rooms' pixels, and recolouring one
+    would put a stripe of the wrong hue across the room below. So a bridge
+    paints only the cells no room owns.
+    """
+    from spotlight.core.screen import unpack_attr
+    from spotlight.core.constants import CYAN, YELLOW
+    building = _shaped(*RING)
+    screen = Screen()
+    screens.draw_plan(screen, building)
+    for i, pixels in screens.plan_bridges(building):
+        hue = building.rooms[i].ink[B.FLOOR]
+        for x, y in pixels:
+            assert screen.point(x, y), (i, x, y)
+            ink = unpack_attr(screen.get_attr(x // CELL, y // CELL))[0]
+            assert ink in (hue, YELLOW, CYAN), (i, x, y, ink)
+    # Room 3 of the ring is at (1, 1) and takes yellow; the bridge above it
+    # comes from room 1, which is cyan. Room 3's own cells are still yellow.
+    left, top = screens.plan_room_origin(building, 3)
+    ink = unpack_attr(screen.get_attr((left + 20) // CELL, (top + 20) // CELL))[0]
+    assert ink == building.rooms[3].ink[B.FLOOR] == YELLOW
+
+
+def test_a_waiting_person_is_bright_green_on_the_plan():
+    """Green already means somebody calling everywhere else in the game, and the
+    exit already takes magenta on this screen for the same reason: a plan
+    attribute that means something rather than one that decorates.
+
+    A person was a two-pixel block and so was a wall stub, so at nine rooms they
+    could not be found at all.
+    """
+    from spotlight.core.screen import unpack_attr
+    from spotlight.core.constants import GREEN
+    building = levels.level(3)
+    screen = Screen()
+    screens.draw_plan(screen, building)
+    for i, room in enumerate(building.rooms):
+        left, top = screens.plan_room_origin(building, i)
+        for x, y, _blood in room.workers:
+            px = left + (x // CELL) * screens.PLAN_SCALE
+            py = top + ((y + 15) // CELL) * screens.PLAN_SCALE
+            assert screen.point(px, py), (i, x, y)
+            ink, _paper, bright, _flash = unpack_attr(
+                screen.get_attr(px // CELL, py // CELL))
+            assert (ink, bright) == (GREEN, True), (i, x, y, ink)
+
+
+def test_the_hue_is_the_parity_of_the_place_and_every_shipped_room_is_unchanged():
+    """`floor:` is out of the level file and the hue is `(col + row) & 1`.
+
+    A grid graph is bipartite, so two hues two-colour any building the plan can
+    hold, for ever -- which is why this can be derived rather than authored and
+    why the loader's old refusal is now a theorem. All three shipped files
+    obeyed it by hand already, which is how it was found, and the hues below are
+    the ones they authored.
+    """
+    from spotlight.core.constants import CYAN, YELLOW
+    assert levels.hue_at(0, 0) == levels.hue_at(1, 1) == YELLOW
+    assert levels.hue_at(1, 0) == levels.hue_at(0, 1) == CYAN
+    want = {1: (YELLOW, CYAN, YELLOW), 2: (YELLOW, CYAN, YELLOW),
+            3: (YELLOW, CYAN, YELLOW)}
+    for n, hues in want.items():
+        got = tuple(room.ink[B.FLOOR] for room in levels.level(n).rooms)
+        assert got == tuple(B.palette(h)[B.FLOOR] for h in hues), n
+    # And the key is gone, by name, with a message that says where it went.
+    with pytest.raises(ValueError, match="no longer a key"):
+        levels.parse("level: 9\nname: X\nroom: a\nfloor: yellow\n")
+
+
+def test_every_doorway_crossed_flips_the_floor_colour():
+    """What the derivation gives the player for nothing: the floor under your
+    feet says whether you are an odd or an even number of doors from the exit.
+
+    Asserted over every shipped level and over a nine-room comb, because it is
+    the claim the chequerboard was argued on and it holds only if the plan's
+    adjacency and the doorways agree -- which the loader checks separately.
+    """
+    for n in (1, 2, 3, 4, 6):
+        building = levels.level(n)
+        for room in building.rooms:
+            for door in room.doorways:
+                assert room.ink[B.FLOOR] != building[door.to].ink[B.FLOOR], \
+                    f"level {n}: {room.name} and {building[door.to].name}"

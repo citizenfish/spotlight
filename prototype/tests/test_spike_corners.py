@@ -34,7 +34,6 @@ HEAD = ("level: 9\nname: Corner\nbuilding: The Corner Works\n"
 
 ROOM = """
 room: {name}
-floor: {hue}
 roll:
 segments: {segments}
 length: 4 8

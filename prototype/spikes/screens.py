@@ -251,7 +251,8 @@ PLAN_GUTTER = 8
 #: `plan_origin` at x = -12 with the first room sliced off the left edge, and
 #: nothing raised and nothing warned -- which is the whole reason the loader
 #: now checks the grid.
-from .building import PLAN_COLS, PLAN_ROWS, PLAN_MOST      # noqa: F401,E402
+from .building import (EAST, PLAN_COLS, PLAN_ROWS, PLAN_MOST,  # noqa: F401,E402
+                       SOUTH)
 
 
 def plan_grid(building) -> list[tuple[int, int]]:
@@ -284,25 +285,84 @@ def plan_origin(building) -> tuple[int, int]:
     return (SCREEN_W - width) // 2, (PLAY_ROWS * CELL - height) // 2
 
 
-def draw_plan(screen: Screen, building) -> None:
-    from .building import DOOR, FLOOR, SOLID
+def plan_room_origin(building, index: int) -> tuple[int, int]:
+    """The top-left pixel of one room's patch of the plan."""
     from .layout import PLAY_ROWS
     x0, y0top = plan_origin(building)
-    stride = COLS * PLAN_SCALE + PLAN_GUTTER
-    down = PLAY_ROWS * PLAN_SCALE + PLAN_GUTTER
-    grid = plan_grid(building)
+    col, row = plan_grid(building)[index]
+    return (x0 + col * (COLS * PLAN_SCALE + PLAN_GUTTER),
+            y0top + row * (PLAY_ROWS * PLAN_SCALE + PLAN_GUTTER))
+
+
+def plan_bridges(building) -> list[tuple[int, list[tuple[int, int]]]]:
+    """Every doorway as a bridge across the gutter: `(room index, pixels)`.
+
+    **Issue #145, and it is the one change to this screen that is not about
+    legibility.** A doorway was not drawn at all: `draw_plan` blocked solid
+    cells and painted the exit magenta, and a `d` was simply *absent* -- a
+    six-pixel hole in a two-pixel wall line at `PLAN_SCALE = 2`. On a row that
+    was fine, because a strip is obviously a chain. **On a three-by-three you
+    have nine boxes and no graph, and a player cannot tell a ring from a comb**
+    -- and since the rooms roll, nobody can ever draw the map on paper the way
+    Jet Set Willy's players did. Two seconds of plan is the whole substitute.
+
+    `PLAN_GUTTER` pixels long and one thick, across the gutter, centred on the
+    doorway's own span -- so a room with four doorways draws four bridges and
+    each one points at the wall its gap is in.
+
+    **A doorway is authored twice, once from each side, and a bridge is drawn
+    once**: from the lower-indexed room, whose hue it therefore takes. Under the
+    chequerboard the two ends of a bridge are different colours, and picking an
+    end is the only way not to give the plan a third rule nobody can state.
+
+    Twenty-four doorways is 192 plots on a **held** frame -- zero T-states a
+    frame on the Z80, and about twenty bytes of code.
+    """
+    from .building import VERTICAL_SIDES
+    from .layout import PLAY_ROWS
+    out = []
     for i, room in enumerate(building.rooms):
-        col, row = grid[i]
-        left = x0 + col * stride
-        y0 = y0top + row * down
+        left, top = plan_room_origin(building, i)
+        for door in room.doorways:
+            if door.to < i:
+                continue        # drawn from the other side, which owns the hue
+            span = door.rows if door.vertical else door.cols
+            middle = span[len(span) // 2]
+            if door.side in VERTICAL_SIDES:
+                y = top + middle * PLAN_SCALE
+                x = (left + COLS * PLAN_SCALE if door.side == EAST
+                     else left - PLAN_GUTTER)
+                out.append((i, [(x + n, y) for n in range(PLAN_GUTTER)]))
+            else:
+                x = left + middle * PLAN_SCALE
+                y = (top + PLAY_ROWS * PLAN_SCALE if door.side == SOUTH
+                     else top - PLAN_GUTTER)
+                out.append((i, [(x, y + n) for n in range(PLAN_GUTTER)]))
+    return out
+
+
+def draw_plan(screen: Screen, building) -> None:
+    from .building import DOOR, FLOOR, WALL
+    from .layout import PLAY_ROWS
+    #: Which attribute cells a room has claimed, so a bridge can colour the
+    #: gutter without recolouring a room. See the loop at the end.
+    owned = set()
+    for i, room in enumerate(building.rooms):
+        left, y0 = plan_room_origin(building, i)
         hue = room.ink[FLOOR]
         # The room's hue on every attribute cell the plan of it touches.
         for cy in range(y0 // CELL, (y0 + PLAY_ROWS * PLAN_SCALE - 1) // CELL + 1):
             for cx in range(left // CELL, (left + COLS * PLAN_SCALE - 1) // CELL + 1):
                 screen.set_attr(cx, cy, _attr(hue, bright=True))
+                owned.add((cx, cy))
         for cy, row in enumerate(room.rows):
             for cx, char in enumerate(row):
-                if char in SOLID:
+                # **The shell's walls only** (issue #145). It used to draw every
+                # `SOLID` cell, so at seven or nine rooms every rolled pipe run,
+                # riser and cabinet became a two-pixel block and the interiors
+                # were noise at 1:1. The plan is a map of the building, and the
+                # furniture is not the building.
+                if char == WALL:
                     _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
                 elif char == DOOR:
                     _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
@@ -311,7 +371,33 @@ def draw_plan(screen: Screen, building) -> None:
                                     _attr(MAGENTA, bright=True))
         for x, y, _blood in room.workers:
             cx, cy = x // CELL, (y + 15) // CELL
-            _block(screen, left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE)
+            px, py = left + cx * PLAN_SCALE, y0 + cy * PLAN_SCALE
+            _block(screen, px, py)
+            # **A waiting person in bright green** (issue #145). A person was a
+            # two-pixel block and so was a wall stub, so at nine rooms they
+            # could not be found at all. Green already means *somebody calling*
+            # everywhere else in the game, exactly as the exit already takes
+            # magenta on this screen for the same reason.
+            #
+            # One plan attribute covers four by four map cells, so a person
+            # standing beside a wall turns that wall fragment green. That is
+            # accepted rather than overlooked: it is one ink a cell, nothing is
+            # bent, and the fallback if it reads badly is to step the dot to a
+            # cell with no wall pixel in it -- the rule a shout already uses to
+            # avoid printing a word over somebody.
+            screen.set_attr(px // CELL, py // CELL, _attr(GREEN, bright=True))
+    for i, pixels in plan_bridges(building):
+        hue = building.rooms[i].ink[FLOOR]
+        for x, y in pixels:
+            screen.plot(x, y)
+            # The gutter between two rooms in a row is an attribute cell no room
+            # claims, and a bridge drawn on an unset cell is black on black. A
+            # cell a room *has* claimed is left alone: the gutter between two
+            # rows straddles cells that hold both rooms' pixels, and recolouring
+            # one would put a stripe of the wrong hue across the room below.
+            cell = (x // CELL, y // CELL)
+            if cell not in owned:
+                screen.set_attr(*cell, _attr(hue, bright=True))
 
 
 def _block(screen: Screen, x: int, y: int) -> None:

@@ -107,7 +107,6 @@ shape: stubs
 ################################
 
 room: the spray
-floor: yellow
 roll:
 segments: 3 5
 length: 4 10
@@ -124,7 +123,6 @@ at: 0 0
 door: east 10-12 the beam
 
 room: the beam
-floor: cyan
 roll:
 segments: 3 5
 length: 4 10
@@ -141,7 +139,6 @@ door: west 10-12 the spray
 door: east 10-12 the wide dark
 
 room: the wide dark
-floor: yellow
 roll:
 segments: 3 5
 length: 4 10

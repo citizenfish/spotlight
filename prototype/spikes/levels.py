@@ -17,7 +17,6 @@ The format, in full:
     people: 90 80 70 ...             the roster, one clock a person (issue #143);
                                      the shape deals them out to rooms
     room: <name>        starts a room; the building starts in its first
-    floor: yellow|cyan  the room's floor hue; adjacent rooms never share
     map:                followed by exactly 22 rows of 32 characters
     worker: x y blood   pixels and blood points, any number
     cleg: cx cy         a cell, any number
@@ -25,7 +24,8 @@ The format, in full:
     searchlight: radius repeat|vary      every room has one
     pace: n             frames per cell of the beam (default 6)
     start: x y          pixels; every room has one
-    at: col row         where the room sits in the building's plan (issue #134)
+    at: col row         where the room sits in the building's plan (issue #134),
+                        and since #145 the room's floor hue too: `(col+row) & 1`
     fade: n             wall-memory rate divisor, 1 (3 s) or 2 (6 s); level's own
     door: east|west r-r <room name>      rows inclusive, the room it leads to
     door: north|south c-c <room name>    columns inclusive, for the room above
@@ -114,7 +114,28 @@ DEFAULT_SEED = 0xBEEF
 #: package, beside the sprites and the tiles.
 LEVELS_DIR = Path(__file__).resolve().parents[2] / "assets" / "levels"
 
+#: The two floor hues, by name. Kept for the message the dead `floor:` key
+#: gives and for anything building a room by hand.
 FLOORS = {"yellow": YELLOW, "cyan": CYAN}
+
+
+def hue_at(col: int, row: int) -> int:
+    """A room's floor hue, from where it stands on the plan (issue #145).
+
+    `(col + row) & 1` -- a chequerboard, and **adjacent rooms therefore never
+    share a hue, for ever, with no check and nothing to author.** Two hues over
+    a grid sounds impossible and is not: a grid graph is bipartite, so parity
+    two-colours any building the plan can hold. All three shipped files obeyed
+    it by hand already, which is how it was found.
+
+    It saves a byte a room on the Z80 and a loader refusal here, and it gives
+    the player something for nothing: **every doorway you cross flips the
+    colour**, so the floor under your feet says whether you are an odd or an
+    even number of doors from the way out. A player cannot count that on a
+    hand-authored building because a hand-authored building need not be
+    consistent; this one is, by construction.
+    """
+    return CYAN if (col + row) & 1 else YELLOW
 SIDES = {"east": EAST, "west": WEST, "north": NORTH, "south": SOUTH}
 DOOR_ROWS = (10, 11, 12)
 ROWS, COLS = 22, 32
@@ -131,6 +152,8 @@ class _RoomSpec:
     def __init__(self, name: str, line: int) -> None:
         self.name = name
         self.line = line
+        #: The room's ink, filled in by `build` from where the room stands on
+        #: the plan (issue #145). Not authored: `floor:` is a dead key.
         self.floor = None
         self.rows: list[str] = []
         self.workers: list = []
@@ -154,7 +177,9 @@ BUDGET_KEYS = ("blood", "spray", "lives", "magnet", "wake", "fade")
 #: stale level file cannot carry a dead key for ever.
 DEAD_KEYS = {"torch": "the torch went with issue #119",
              "spotlight": "the floor lamps went with the torch, issue #119",
-             "mount": "the housing's corner rolls with the beam since #137"}
+             "mount": "the housing's corner rolls with the beam since #137",
+             "floor": "a room's hue is `(col + row) & 1` of its `at:` since "
+                      "issue #145; two ways to say it is how they drift"}
 
 
 def parse(text: str, where: str = "<text>"
@@ -276,11 +301,7 @@ def parse(text: str, where: str = "<text>"
             raise fail(i, f"`{key}:` before any `room:`")
         room = rooms[-1]
         parts = value.split()
-        if key == "floor":
-            if value not in FLOORS:
-                raise fail(i, f"floor must be one of {sorted(FLOORS)}, got {value!r}")
-            room.floor = FLOORS[value]
-        elif key == "map":
+        if key == "map":
             if value:
                 raise fail(i, "`map:` takes its rows on the lines below")
             if room.roll is not None:
@@ -531,8 +552,10 @@ def build(specs: list, where: str = "<text>",
             f"room takes its people from the building's `people:` line")
     rooms = []
     for n, spec in enumerate(specs):
-        if spec.floor is None:
-            raise ValueError(f"{where}:{spec.line}: room {spec.name!r} has no `floor:`")
+        # **The hue is derived and not authored** (issue #145): the parity of the
+        # room's place on the plan, or of its index when the building has no
+        # plan, which for a chain is the same alternation a row always had.
+        spec.floor = hue_at(*(spec.at if spec.at is not None else (n, 0)))
         if spec.roll is not None:
             if roll_seed is None:
                 raise ValueError(f"{where}:{spec.line}: room {spec.name!r} rolls, "
@@ -567,11 +590,20 @@ def build(specs: list, where: str = "<text>",
             workers=spec.workers, clegs=spec.clegs,
             searchlight=spec.searchlight, lights=spec.lights,
             player_start=spec.start, doorways=doorways, at=spec.at))
-    # Adjacent rooms never share a floor hue.
+    # **Adjacent rooms never share a floor hue, and since issue #145 that is a
+    # theorem rather than a check** -- a grid graph is bipartite and the hue is
+    # the parity of the position, so no authored building the plan can hold can
+    # break it. The check is kept because a building assembled by hand in a test
+    # has no plan and takes the parity of the room index, and nothing then stops
+    # a doorway joining rooms 0 and 2. That is the only shape this can still
+    # fire on, and it says so.
     for n, spec in enumerate(specs):
         for _side, _rows, to_name, line in spec.doors:
             if specs[index[to_name]].floor == spec.floor:
-                raise ValueError(f"{where}:{line}: {spec.name!r} and {to_name!r} share a floor hue")
+                raise ValueError(
+                    f"{where}:{line}: {spec.name!r} and {to_name!r} share a floor "
+                    f"hue; a building with no `at:` takes each room's hue from "
+                    f"its index, and these two are an even number apart")
     # **The plan's grid, which the loader has never checked** (issue #134).
     # Either every room says where it is or none does: a half-authored grid
     # would draw some rooms on top of each other, and until now a building of

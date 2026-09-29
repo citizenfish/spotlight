@@ -203,10 +203,10 @@ def test_the_template_refuses_nonsense():
 def _roll_level(seed: int) -> str:
     return (
         "level: 9\nname: Rolled\npeople: 90 80\n"
-        "room: first\nfloor: yellow\nroll:\nsegments: 2 4\nlength: 4 8\n"
+        "room: first\nroll:\nsegments: 2 4\nlength: 4 8\n"
         "pieces: 1 2\nband: 8 18\naway: 10\nclegs: 1\n"
         "searchlight: 3 repeat\nstart: 24 96\ndoor: east 10-12 second\n"
-        "room: second\nfloor: cyan\nroll:\nsegments: 2 4\nlength: 4 8\n"
+        "room: second\nroll:\nsegments: 2 4\nlength: 4 8\n"
         "band: 8 18\naway: 10\nclegs: 1\nlight: 0 10 3 3\n"
         "searchlight: 3 repeat\nstart: 16 80\ndoor: west 10-12 first\n")
 
@@ -239,6 +239,6 @@ def test_map_and_roll_in_one_room_are_refused():
     with pytest.raises(ValueError, match="not both"):
         levels.parse(text)
     with pytest.raises(ValueError, match="belongs to a `roll:` room"):
-        levels.parse("level: 9\nname: X\nroom: a\nfloor: yellow\nband: 1 2\n")
+        levels.parse("level: 9\nname: X\nroom: a\nband: 1 2\n")
     with pytest.raises(ValueError, match="counts its flies"):
         levels.parse(_roll_level(1).replace("clegs: 1\nsearchlight", "cleg: 4 4\nsearchlight", 1))

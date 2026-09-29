@@ -333,7 +333,7 @@ def shape_block(name, shell):
 
 
 def room_block(name, hue, shells=(), doors_=()):
-    out = [f"room: {name}", f"floor: {hue}", "roll:",
+    out = [f"room: {name}", "roll:",
            "segments: 2 3", "length: 4 8", "pieces: 1 2", "band: 6 24",
            "away: 8", "clegs: 1",
            "searchlight: 3 repeat", "start: 24 96"]
@@ -393,7 +393,7 @@ def test_a_shape_of_the_wrong_width_is_refused_at_the_row():
 
 def test_shell_on_a_mapped_room_is_refused():
     text = (HEAD + shape_block("spine", DIVISION)
-            + "room: the hall\nfloor: yellow\nshell: spine\n")
+            + "room: the hall\nshell: spine\n")
     with pytest.raises(ValueError, match="belongs to a `roll:` room"):
         levels.parse(text)
 
