@@ -71,7 +71,7 @@ from . import screens, scene, sprites
 from . import session as session_mod, tiles, walk
 from . import spike_snap
 from . import building
-from .building import EAST
+from .building import EAST, TOWARDS
 
 #: How many frames into a run the "as played" shot of a room is taken.
 #: Six seconds: long enough that the swarm has
@@ -674,11 +674,21 @@ def enter(run, index: int):
         chain.append(came[chain[-1]])
     for step in reversed(chain[:-1]):
         door = building[run.here].doorway_to(step)
-        run.player.x = door.column * CELL
-        run.player.y = (door.middle - 1) * CELL
-        facing = 1 if door.side == EAST else -1
-        for _ in range(32):
-            run.step(session_mod.Intent(dx=facing))
+        # **Whichever wall the doorway is in** (issue #146). This read
+        # `door.column` and walked east or west, which was right for every
+        # building the game had until Level 3 became a column -- and `column`
+        # raises outright on a horizontal gap, so the gallery could not
+        # photograph a room it had to go *down* to reach.
+        #
+        # A person clears a horizontal threshold at its full height rather than
+        # its width, so a vertical crossing takes more frames than a sideways
+        # one: the budget is generous rather than exact.
+        cell = sorted(door.cells())[len(door.cells()) // 2]
+        run.player.x = cell[0] * CELL
+        run.player.y = (cell[1] - 1) * CELL
+        dx, dy = TOWARDS[door.side]
+        for _ in range(48):
+            run.step(session_mod.Intent(dx=dx, dy=dy))
             if run.here == step:
                 break
         else:

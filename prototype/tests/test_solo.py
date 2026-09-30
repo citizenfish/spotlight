@@ -70,31 +70,43 @@ def test_a_room_with_no_start_cannot_be_the_start_room():
 # --- Building.solo ------------------------------------------------------------
 
 def test_solo_of_a_room_with_the_exit_only_walls_its_doorways():
+    """**Whichever wall the doorway is in** since Level 3 became a column
+    (issue #146): its own three cells are bricked up and nothing else moves."""
     alone = LEVEL.solo(scene.NEAR)
     room = alone[0]
     assert len(alone) == 1 and room.doorways == ()
     assert room.has_exit and alone.exit == (0, LEVEL[scene.NEAR].exit_cell())
     door = LEVEL[scene.NEAR].doorways[0]
-    assert all(room.rows[cy][door.column] == B.WALL for cy in door.rows)
-    # And nothing else moved.
+    bricked = set(door.cells())
+    assert all(room.rows[cy][cx] == B.WALL for cx, cy in bricked)
     for cy, (was, now) in enumerate(zip(LEVEL[scene.NEAR].rows, room.rows)):
-        if cy not in door.rows:
+        if not any(y == cy for _x, y in bricked):
             assert was == now, f"row {cy} changed"
 
 
-def test_solo_of_an_inner_room_makes_its_west_doorway_the_way_out():
+def test_solo_of_an_inner_room_with_only_horizontal_doorways_cuts_a_west_exit():
+    """**The branch #139 added, and the first shipped level to use it** (#146).
+
+    A way out has to be in a *vertical* wall: the exit is two cells of one and
+    the sign is written beside it along a row. Level 3's far room has a doorway
+    north and a doorway south and nothing east or west, so `solo` bricks both up
+    and cuts the way out into the west wall at the exit's own rows instead.
+
+    It read the far room's *west* doorway before, which the column has not got.
+    """
+    far = LEVEL[scene.FAR]
+    assert {d.side for d in far.doorways} == {B.NORTH, B.SOUTH}
     alone = LEVEL.solo(scene.FAR)
     room = alone[0]
-    door = LEVEL[scene.FAR].doorway_to(scene.NEAR)
-    assert door.side == B.WEST
-    top, middle, bottom = sorted(door.rows)
-    assert room.rows[top][0] == B.DOOR
-    assert room.rows[middle][0] == B.DOOR
-    assert room.rows[bottom][0] == B.WALL
+    # Both doorways bricked up, on both walls.
+    for door in far.doorways:
+        assert all(room.rows[cy][cx] == B.WALL for cx, cy in door.cells())
     assert room.doorways == ()
+    top, bottom = sorted(B.EXIT_ROWS_SOLO)
+    assert room.rows[top][0] == B.DOOR and room.rows[bottom][0] == B.DOOR
     assert alone.exit == (0, (0, top))
     assert alone.exit_facing == (-1, 0)
-    assert alone.start == (0, LEVEL[scene.FAR].player_start)
+    assert alone.start == (0, far.player_start)
 
 
 def test_solo_keeps_the_room_as_authored():

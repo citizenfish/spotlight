@@ -472,8 +472,15 @@ def test_the_rebound_reproduces_the_measured_footprint():
     assert 3.3 * n <= laid_taper <= 3.8 * n, f"the taper measured {laid_taper / n}"
     assert laid_rebound * 100 >= laid_taper * 103
     assert nothing > 0, "no burst ever laid nothing before the rebound"
-    assert all(cx in (0, COLS - 1) for _r, cx, _cy in residual), \
-        "a burst laying nothing away from the building's outer wall"
+    # **Against the outer wall, on any of the four** (issue #146). This read
+    # `cx in (0, COLS - 1)` -- the two side walls -- which was the whole of "hard
+    # against the outer wall" while every doorway in the game was in one of them.
+    # Level 3 is a column, so a player standing in a doorway now stands on the
+    # top or bottom row, and the finding is unchanged: a burst lays nothing only
+    # from a cell with the building's edge in front of it.
+    assert all(cx in (0, COLS - 1) or cy in (0, PLAY_ROWS - 1)
+               for _r, cx, cy in residual), \
+        f"a burst laying nothing away from the building's outer wall: {residual}"
 
 
 # --- shape: a cloud, not a stamped block (issue #42) ------------------------

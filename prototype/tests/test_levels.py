@@ -33,9 +33,13 @@ from spotlight.core.constants import CYAN, YELLOW
 PINNED_CLOCKS_A = (30, 40, 50)
 PINNED_CLOCKS_B = (60, 70)
 PINNED_CLOCKS_C = (80, 90)
-PINNED_LIGHTS_B = ((0, 10, 3, 3),)
+#: The far room's light sits on the way home, and the way home is in the north
+#: wall since Level 3 became a column (issue #146) -- so the zone moved with it.
+#: What it is *for* has not changed: the doorway cells are inside the light, which
+#: is the collision issue #50 finished.
+PINNED_LIGHTS_B = ((14, 0, 3, 3),)
 PINNED_START = (24, 96)
-PINNED_DOOR_ROWS = (10, 11, 12)
+PINNED_DOOR_SPAN = (14, 15, 16)
 
 
 def test_level_three_is_the_playtest_buildings_shell():
@@ -59,11 +63,13 @@ def test_level_three_is_the_playtest_buildings_shell():
     assert near.player_start == PINNED_START
     assert b.start == (0, PINNED_START)
     # Every room says where it is on the plan the opening flashes (issue #134).
-    assert [r.at for r in b.rooms] == [(0, 0), (1, 0), (2, 0)]
-    assert [(d.side, d.rows, d.to) for d in near.doorways] == [(B.EAST, PINNED_DOOR_ROWS, 1)]
-    assert sorted((d.side, d.rows, d.to) for d in far.doorways) == [
-        (B.EAST, PINNED_DOOR_ROWS, 2), (B.WEST, PINNED_DOOR_ROWS, 0)]
-    assert [(d.side, d.rows, d.to) for d in beyond.doorways] == [(B.WEST, PINNED_DOOR_ROWS, 1)]
+    assert [r.at for r in b.rooms] == [(0, 0), (0, 1), (0, 2)]
+    # **A column since issue #146**: the chain runs down, so every doorway is in
+    # a horizontal wall and its span is columns.
+    assert [(d.side, d.cols, d.to) for d in near.doorways] == [(B.SOUTH, PINNED_DOOR_SPAN, 1)]
+    assert sorted((d.side, d.cols, d.to) for d in far.doorways) == [
+        (B.NORTH, PINNED_DOOR_SPAN, 0), (B.SOUTH, PINNED_DOOR_SPAN, 2)]
+    assert [(d.side, d.cols, d.to) for d in beyond.doorways] == [(B.NORTH, PINNED_DOOR_SPAN, 1)]
     assert b.level == 3 and b.title == "Rescue"
 
 
@@ -296,40 +302,48 @@ def test_the_dead_keys_are_refused_not_skipped():
 
 # --- Level 4 and on (issue #121, ruling 7) ------------------------------------
 
-def test_level_four_and_on_is_level_three_tightened():
-    """Every clock three points shorter a level to a floor of 22; one more
-    fly a level in the far room from the first level at the floor, to nine
-    in the building; every beam varies from Level 5."""
-    three = levels.level(3)
-    clocks = lambda b: sorted(w[2] for r in b.rooms for w in r.workers)  # noqa: E731
-    assert clocks(levels.level(4)) == [c - 3 for c in clocks(three)]
-    # The floor is the building's since issue #143 -- `CLOCK_FLOOR` at three
-    # rooms, and seven blood more for every room past that.
-    assert min(clocks(levels.level(6))) == levels.clock_floor(3) == 22
-    assert min(clocks(levels.level(20))) == 22
-    # Two, two and two over three rooms since issue #137, and the extra fly a
-    # level still lands in the last room, to nine in the building.
-    assert [len(r.clegs) for r in levels.level(6).rooms] == [2, 2, 2]
-    assert [len(r.clegs) for r in levels.level(7).rooms] == [2, 2, 3]
-    assert [len(r.clegs) for r in levels.level(9).rooms] == [2, 2, 5]
-    assert [len(r.clegs) for r in levels.level(12).rooms] == [2, 2, 5]
-    assert sum(len(r.clegs) for r in levels.level(9).rooms) == levels.MOST_FLIES
+def test_level_four_and_on_is_the_ladder_and_not_level_three_tightened():
+    """**The premise of the old test is gone, and that is issue #146.**
+
+    Levels 4 and up used to be Level 3 re-rolled with the clock cut, which was
+    the whole of the progression once the fly count topped out. Level 3 is a
+    three-room *column* now, and no amount of dial-turning makes a column into a
+    ring -- so the ladder is its own authored nine-room building
+    (`levels.LADDER_FILE`) that each level takes the first N rooms of.
+
+    What survives is what the old test was really claiming: the levels past the
+    last file are derived rather than authored one by one, and they only ever get
+    harder. The whole ladder is asserted in `tests/test_the_ladder.py`; this keeps
+    the part that belongs beside the loader.
+    """
+    assert levels.LAST_FILE == 3 and levels.levels() == [1, 2, 3]
+    assert not levels.LADDER_FILE.startswith("level")
+    assert (levels.LEVELS_DIR / levels.LADDER_FILE).exists()
+    four = levels.level(4)
+    assert four.level == 4 and four.title == "Rescue"
+    assert len(four.rooms) == 4 and len(levels.level(3).rooms) == 3
+    # One authored file, so the shape at Level 9 and at Level 400 is the same
+    # nine rooms -- and only the name and the dials differ.
+    assert ([r.name for r in levels.level(9).rooms]
+            == [r.name for r in levels.level(400).rooms])
+    # The dials, as the ladder's table gives them.
+    assert [levels.level(n).budget.spray for n in (3, 4, 9, 10, 13, 20)] == \
+        [5, 5, 5, 4, 3, 3]
+    assert [levels.level(n).budget.fade for n in (3, 4, 6, 7, 9)] == [2, 2, 2, 1, 1]
+    # `pace: 5` arrives at Level 10 and not 8 (ruled 2026-09-30): at 8 the level
+    # moved two rooms, the eighth fly and the quicker beam at once, and perfect
+    # play could not finish it.
+    assert [levels.level(n)[0].searchlight.pace for n in (3, 4, 8, 9, 10, 20)] == \
+        [6, 6, 6, 6, 5, 5]
     assert not levels.level(4)[0].searchlight.vary
-    assert all(r.searchlight.vary for r in levels.level(5).rooms)
-    assert levels.level(5).level == 5 and levels.level(5).title == "Rescue"
-    # **The dials that were frozen now move** (issue #137, ruling 9), so the
-    # budget past the last file is no longer Level 3's: the wall memory halves,
-    # and the spray walks down from five to four and then to three.
-    assert levels.level(5).budget._replace(building="") == \
-        three.budget._replace(building="", fade=1, spray=4,
-                              people=tuple(c - 6 for c in three.budget.people))
-    assert [levels.level(n).budget.spray for n in (3, 4, 6, 7, 9, 20)] == \
-        [5, 4, 4, 3, 3, 3]
-    assert [levels.level(n).budget.fade for n in (3, 4, 9)] == [2, 1, 1]
-    assert [levels.level(n)[0].searchlight.pace for n in (3, 4, 9)] == [6, 5, 5]
-    # Doorways leave the middle of the wall from Level 4 and never return to it.
-    assert all(levels.level(n)[0].doorways[0].rows != (10, 11, 12)
-               for n in range(4, 24))
+    assert levels.level(5)[0].searchlight.vary
+    # Doorways leave the middle of the wall from Level 5 and never return to it.
+    assert levels.level(4)[0].doorways[0].rows == (10, 11, 12)
+    for n in range(5, 24):
+        for room in levels.level(n).rooms:
+            for door in room.doorways:
+                span = door.rows if door.vertical else door.cols
+                assert span not in ((10, 11, 12), (14, 15, 16)), n
     # Each building past the last file has a name of its own (issue #126).
     assert levels.level(4).name == "Blackwell Mill"
     assert levels.level(5).name == "Cutter's Yard"

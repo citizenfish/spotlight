@@ -176,12 +176,15 @@ def test_the_starts_are_where_flies_actually_are():
     """
     near = scene.BUILDING[scene.NEAR]
     places = swarming.origins(near)
+    # **`cells()` rather than `(column, row)`** since Level 3 became a column
+    # (issue #146): a doorway in a horizontal wall has no column of its own and
+    # `Doorway.column` says so outright. `cells()` is the question either way.
     for door in near.doorways:
-        assert all((door.column, cy) in places for cy in door.rows)
+        assert all(cell in places for cell in door.cells())
     for cleg in near.clegs:
         assert tuple(cleg) in places
     assert len(places) == len(set(near.clegs)) + sum(
-        len(d.rows) for d in near.doorways)
+        len(d.cells()) for d in near.doorways)
 
 
 def test_the_check_is_not_a_flood_fill():

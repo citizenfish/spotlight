@@ -900,6 +900,16 @@ class Session:
         and takes the player's cell on the other side. No reach test in either
         room -- the magnet pulls the whole building. A room with no doorway to
         the player's room is handed nothing, which never happens with two.
+
+        **The cell is `(x, y)` and the doorway's own pair is not** (issue #146).
+        `beyond` is the line past the gap and `middle` the middle of the span, so
+        for a doorway in a *vertical* wall that is `(column, row)` and reads
+        straight off -- and for one in a *horizontal* wall it is `(row, column)`,
+        which is the transpose. This returned the pair unswapped, so from Level 3
+        onwards a magnetised fly in a room whose way through is north or south
+        was sent to a cell on the **west** wall and never crossed. The first
+        shipped horizontal doorway is what found it; the test that should have
+        caught it had the same transposition written into its expectation.
         """
         if not self.magnet:
             return None
@@ -907,7 +917,8 @@ class Session:
             return self.player.cx, self.player.cy
         for door in place.room.doorways:
             if door.to == self.here:
-                return door.beyond, door.middle
+                return ((door.beyond, door.middle) if door.vertical
+                        else (door.middle, door.beyond))
         return None
 
     def _magnetise(self) -> None:

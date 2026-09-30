@@ -174,23 +174,35 @@ def test_the_gallery_walks_a_chain_of_doorways(monkeypatch):
     and each crossing is a real one."""
     from spikes import building as B
     a, b = scene.BUILDING[0], scene.BUILDING[1]
-    # a - b - c, where c is b over again and b gains an east doorway.
-    rows_b = [list(r) for r in b.rows]
-    for cy in (10, 11, 12):
-        rows_b[cy][31] = B.DOORWAY
+
+    def cut(room, *sides):
+        """`room`'s map with a three-cell gap cut into each of `sides`.
+
+        **The scene's rooms are a column since issue #146**, so their east and
+        west walls are solid: a hand-built east-west chain has to cut its own
+        gaps or `validate` refuses the doorway as walled up. This used to cut
+        only the middle room's, because the other two already had the gaps the
+        old row shape gave them.
+        """
+        rows = [list(r) for r in room.rows]
+        for side in sides:
+            for cx, cy in B.Doorway(side, (10, 11, 12), to=0).cells():
+                rows[cy][cx] = B.DOORWAY
+        return ["".join(r) for r in rows]
+
     rooms = [
-        B.Room(a.name, a.rows, ink=a.ink, workers=a.workers, clegs=a.clegs,
-               searchlight=a.searchlight,
+        B.Room(a.name, cut(a, B.EAST), ink=a.ink, workers=a.workers,
+               clegs=a.clegs, searchlight=a.searchlight,
                lights=a.lights, player_start=a.player_start,
                doorways=(B.Doorway(B.EAST, (10, 11, 12), 1),)),
-        B.Room("the middle room", ("".join(r) for r in rows_b), ink=b.ink,
+        B.Room("the middle room", cut(b, B.WEST, B.EAST), ink=b.ink,
                workers=b.workers, clegs=b.clegs,
                lights=b.lights, player_start=b.player_start,
                doorways=(B.Doorway(B.WEST, (10, 11, 12), 0),
                          B.Doorway(B.EAST, (10, 11, 12), 2))),
-        B.Room("the end room", b.rows, ink=a.ink,
+        B.Room("the end room", cut(b, B.WEST), ink=a.ink,
                workers=b.workers, clegs=b.clegs,
-               lights=b.lights,
+               lights=b.lights, player_start=b.player_start,
                doorways=(B.Doorway(B.WEST, (10, 11, 12), 1),)),
     ]
     chain = B.Building(rooms)

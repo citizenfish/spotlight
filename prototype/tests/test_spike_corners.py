@@ -342,14 +342,23 @@ def test_a_shout_through_a_horizontal_doorway_is_written_inside_the_room(ring):
 # follows a route pressed east or west and lined up on the row, which is a
 # doorway in a vertical wall and was every doorway in the game until #139.
 
+#: The four shapes, with the roster each pools into its `people:` line.
+#:
+#: **The low clock is 40 and not 30** (issue #146). A bite costs about eight
+#: blood, the swarm bites whoever is *following* you, and the tail is exposed for
+#: the whole tour -- so a person on 30 is freed, joins the line, takes two bites
+#: and dies at 28 seconds with sixty seconds of clock unspent. It cost the oracle
+#: one of seven on the L, one seed in four, and it cost Level 3 and Level 5 the
+#: same before the shipped rosters were lifted for the same reason. Every roster
+#: in the game now starts at 40.
 SHAPES = {
-    "row": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 40, 30]),
+    "row": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 45, 40]),
             ("b", "cyan", (1, 0), ["door: west 10-12 a", "door: east 10-12 c"], [50, 60]),
             ("c", "yellow", (2, 0), ["door: west 10-12 b"], [70, 80])],
-    "column": [("a", "yellow", (0, 0), ["door: south 14-16 b"], [90, 40, 30]),
+    "column": [("a", "yellow", (0, 0), ["door: south 14-16 b"], [90, 45, 40]),
                ("b", "cyan", (0, 1), ["door: north 14-16 a", "door: south 14-16 c"], [50, 60]),
                ("c", "yellow", (0, 2), ["door: north 14-16 b"], [70, 80])],
-    "an L": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 40, 30]),
+    "an L": [("a", "yellow", (0, 0), ["door: east 10-12 b"], [90, 45, 40]),
              ("b", "cyan", (1, 0), ["door: west 10-12 a", "door: south 14-16 c"], [50, 60]),
              ("c", "yellow", (1, 1), ["door: north 14-16 b"], [70, 80])],
     "the ring": RING,

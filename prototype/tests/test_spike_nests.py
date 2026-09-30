@@ -444,16 +444,34 @@ def test_a_charge_douses_a_body_underfoot_whatever_the_facing():
 
 
 def test_dousing_underfoot_lays_no_ground_under_the_player():
-    """**The patch is not widened.** The spray is area denial, not a weapon:
-    poisoning the cell the player stands in would let them kill the fly that
-    is already on them, which is the one thing the spray must never do. The
-    body is saved and the ground the player is on is still clean."""
+    """**The patch is not widened.** The spray is area denial, not a weapon, and
+    the body is saved while the ground the player stands on stays clean.
+
+    **The rule is the feet cell, and this used to assert both cells** (issue
+    #146). A blocked cell rebounds one step toward you, and `spray.patch_cells`
+    refuses the rebound only when it lands on `(0, 0)` -- the feet -- so a burst
+    against a wall can put poison on the player's *head* cell. Level 3's column
+    is the first shipped building to produce one, and the assertion over both
+    cells had been passing on geometry rather than on the rule.
+
+    **It does not buy the player anything, which is why this is a re-pin and not
+    a fix.** The reason the rule exists is that poisoning your own ground would
+    let you kill the fly already on you -- and `Swarm.sprayable` excludes an
+    attached Cleg outright, so that cannot happen from any cell. Whether the head
+    should be refused as well is a question about the footprint, with a measured
+    figure attached (7.1% of bursts already aim a rebound at the feet), and it
+    belongs to a slice of its own rather than to re-authoring the levels.
+    """
     run, body = _body_underfoot(sources.RIGHT)
     run.step(Intent(spray=True))
     assert body.doused
-    for cx, cy in run.player.body_cells():
-        assert not run.spray.covers(cx, cy, run.here), \
-            "the burst sprayed the player's own cell"
+    feet = (run.player.cx, run.player.cy)
+    assert not run.spray.covers(*feet, run.here), \
+        "the burst sprayed the cell the player is standing on"
+    # And the fly on you is out of reach whatever the ground holds.
+    from spikes import clegs as C
+    attached = [c for c in run.place.swarm.clegs if c.state == C.ATTACHED]
+    assert all(c not in run.place.swarm.sprayable() for c in attached)
 
 
 def test_the_patch_ahead_is_unchanged_by_the_underfoot_rule():

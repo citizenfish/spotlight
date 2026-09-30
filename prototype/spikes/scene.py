@@ -111,12 +111,7 @@ FLOOR_A, FLOOR_B = YELLOW, CYAN
 INK_A = palette(FLOOR_A)
 INK_B = palette(FLOOR_B)
 
-#: Which rows the connecting doorway occupies, in **both** rooms. Three cells
-#: tall: two would fit a person, but the movement assist nudges by up to a cell
-#: and a door the player bounces off is the first thing this audience reads as
-#: broken. It changes no rule -- one-cell doorways stay legal, and room A's
-#: inner box still has one.
-DOOR_ROWS = (10, 11, 12)
+
 
 #: Room A's shape.
 #:
@@ -229,6 +224,23 @@ LIGHTS_B = _LEVEL[FAR].lights
 #: Words a person would use, because the user reads them out to a playtester who
 #: is trying to remember: *you lost the one in the far room at about a minute --
 #: did you know they were there?*
+#: Which cells the connecting doorway occupies, in **both** rooms. Three of
+#: them: two would fit a person, but the movement assist nudges by up to a cell
+#: and a door the player bounces off is the first thing this audience reads as
+#: broken. It changes no rule -- one-cell doorways stay legal, and room A's
+#: inner box still has one.
+#:
+#: **Derived since issue #146, and read as a span rather than as rows.** Level 3
+#: is a column now, so the connecting doorways are in horizontal walls and the
+#: three cells are *columns*. It was the literal `(10, 11, 12)` and every caller
+#: that asked for `DOOR_ROWS` was asking "the three cells of the way through",
+#: which is what this is; `DOOR_ROWS` stays as the old name for it because that
+#: is what the question was, whichever wall the gap is in.
+DOOR_SPAN = tuple(
+    _LEVEL[NEAR].doorways[0].rows if _LEVEL[NEAR].doorways[0].vertical
+    else _LEVEL[NEAR].doorways[0].cols)
+DOOR_ROWS = DOOR_SPAN
+
 NEAR_NAME = _LEVEL[NEAR].name
 FAR_NAME = _LEVEL[FAR].name
 
@@ -390,7 +402,7 @@ def validate() -> None:
 
 __all__ = [
     "BEYOND", "BUILDING", "building", "CLEGS_A", "CLEGS_B", "CLEGS_C",
-    "CONSTANT_INK", "DOOR_ROWS", "ROOM_BEYOND", "WORKERS_C",
+    "CONSTANT_INK", "DOOR_ROWS", "DOOR_SPAN", "ROOM_BEYOND", "WORKERS_C",
     "ENTITIES",
     "EXIT",
     "EXIT_SIGN", "FAR", "FAR_NAME", "FLOOR", "FLOOR_A", "FLOOR_B", "INK_A",

@@ -1,49 +1,41 @@
-; assets/levels/level3.txt -- Level 3, Rescue: the playtest building.
+; assets/levels/level3.txt -- Level 3, Rescue: the column.
 ;
 ; THIS FILE IS THE SOURCE and spikes/scene.py is a view of it (issue #107).
-; Until the light round (#121) its two rooms were the same bytes every run and
-; every number in the vault was measured in them; the vault's "The Playtest
-; Building" is the record. The light round made each a shell with a rolled
-; interior; the plateau round (#137) authored the walls and **gave the building
-; a third room**.
 ;
-; **The third room is the round's fix for the plateau.** Levels 2 to 6 measured
-; 84, 86, 91 and 83 per cent of the people rescued -- four level-ups a player
-; would have felt as the same level renamed. The same seven clocks and six
-; flies spread over three rooms instead of two takes a dark listener from 94
-; per cent to 63, at no cost to the 48K frame at all: `worst_case()` sizes the
-; swarm crowded into one room, so it scales with flies and people and not with
-; rooms. The clock had been tightening for five levels against a walk too
-; short for it to bite.
+; Re-authored as **the column** in #146: straight down, and **no east-west
+; doorway anywhere in the building**. By the time a player reaches Level 4's
+; ring they will have met the east-west axis (Level 1), the corner (Level 2)
+; and the north-south axis on its own (Level 3), separately, each with the rest
+; of the game held still.
+;
+; **What this cost, said plainly.** Level 3 is `SCENE_LEVEL` and the sixteen
+; baseline hashes were its; a column moves every one of them. The round
+; re-baselines in #147, so the cost is paid once -- and the alternative was to
+; keep Level 3 the row it was and let Level 2 carry the corner alone. A
+; three-step teaching sequence is worth more than a building's provenance, and
+; that provenance was spent already when #137 gave this level a third room.
 ;
 ; Format: `level:`, `name:` and `building:` once, with the budget -- `blood:`,
 ; `spray:`, `lives:`, `magnet:` seconds, `wake: on|off`, `fade:` 1 or 2, and
 ; `people:` the roster -- before the first `shape:` or `room:`; then `shape:`
 ; blocks, then `room:` blocks. A room carries `map:` (22 rows of 32) with
-; `worker: x y blood`
-; and `cleg: cx cy`; or `roll:` with `segments:`, `length:`, `pieces:`,
-; `band:`, `away:`, `clegs:` and one `shell:` a shell it may be built from.
-;
-; **A room does not author its floor hue** (issue #145). It is `(col + row) & 1`
-; of the room's `at:` -- yellow on the even squares, cyan on the odd -- so
-; adjacent rooms never share one, for ever, with nothing to keep in step. Two
-; hues over a grid sounds impossible and is not: a grid is bipartite. And every
-; doorway you cross flips the colour, so the floor says whether you are an odd
-; or an even number of doors from the way out.
+; `worker: x y blood` and `cleg: cx cy`; or `roll:` with `segments:`,
+; `length:`, `pieces:`, `band:`, `away:`, `clegs:` and one `shell:` a shell it
+; may be built from. Every room has `searchlight: radius repeat|vary` (with
+; `pace:` beside it), `start: x y` in pixels and `at: col row` on the plan;
+; `light: left top width height` and `door: side span-span room` as authored.
+; Blank lines and `;` comments go anywhere.
 ;
 ; **`people:` is the building's and a rolled room does not author its own**
-; (issue #143). One clock a person on one line; the deal gives every room
-; that is not a dead end somebody first, then the dead ends in a rolled
-; order, then the rest, and hands the shortest clock to the room nearest the
-; way out. So a building may have more rooms than people, and the rooms left
-; empty are always dead ends and never the same ones twice.
+; (#143): one clock a person on one line, and the deal gives every room that is
+; not a dead end somebody first, then the dead ends in a rolled order, then the
+; rest, handing the shortest clock to the room nearest the way out.
 ;
-; Every room has `searchlight: radius repeat|vary` (with `pace:` beside it),
-; `start: x y` in pixels and `at: col row` on the plan; `light: left top width
-; height` and `door: side rows-rows room` as authored. Blank lines and `;`
-; comments go anywhere. (`spotlight:` and `torch:` went with the torch, #119;
-; `mount:` went in #137 -- the housing's corner rotates round the building from
-; the run's seed; `worker:` in a `roll:` room went in #143.)
+; **The floor hue is not authored** (#145): it is `(col + row) & 1` of `at:`, so
+; adjacent rooms never share one and every doorway crossed flips the colour.
+;
+; (`spotlight:` and `torch:` went with the torch, #119; `mount:` went in #137;
+; `worker:` in a `roll:` room went in #143; `floor:` went in #145.)
 
 level: 3
 name: Rescue
@@ -53,90 +45,19 @@ spray: 5
 lives: 3
 magnet: 10
 wake: on
-fade: 2           ; the last level before the wall memory halves
+fade: 2           ; the last of the three levels that teach at six seconds
+
+; **Nobody in the game starts below 40 blood**, which is eighty seconds, and that
+; is measured rather than tidy. The swarm bites whoever is *following* you, and a
+; bite costs about eight blood -- two of them are sixteen seconds of bleeding. A
+; person on 30 was freed, joined the tail, took two bites and died at 28 seconds
+; on one seed in eight, so perfect play could not clear this level. Level 2's low
+; end was already 40 and the ladder's was lifted to 40 for the same reason, so all
+; three buildings now agree.
 people: 90 80 70 60 50 40 30       ; seven, dealt to three rooms
 
-; spine: a division high up: border to border with a three-cell gap at
-;   rows 4-6, so the way through is nowhere near the doorways
-shape: spine
-################################
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............................#
-#..............................#
-#..............................#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-################################
-
-; spine-low: the same division with its gap low down, at rows 15-17, so two
-;   rooms built from the pair do not read as the same room
-shape: spine-low
-################################
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#..............................#
-#..............................#
-#..............................#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-################################
-
-; boxroom: a chamber with a door in each of two opposite walls. One door
-;   is refused: a wall that closes on itself has no end for a
-;   fly to follow, and no room here is enterable only one way
-shape: boxroom
-################################
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#.........##########...........#
-#.........#........#...........#
-#.........#........#...........#
-#.........#........#...........#
-#..................#...........#
-#.........#....................#
-#.........#........#...........#
-#.........#........#...........#
-#.........#........#...........#
-#.........##########...........#
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-#..............................#
-################################
-
-; dogleg: a bay from the top and one from the bottom, offset, so the walk
-;   across the room bends twice
+; dogleg: a bay from the top and one from the bottom, offset, so the
+;   walk across the room bends twice
 shape: dogleg
 ################################
 #...........#..................#
@@ -149,7 +70,7 @@ shape: dogleg
 #...........#..................#
 #...........#..................#
 #...........#..................#
-#...........#........#.........#
+#....................#.........#
 #....................#.........#
 #....................#.........#
 #....................#.........#
@@ -161,22 +82,35 @@ shape: dogleg
 #....................#.........#
 ################################
 
-; --- shells for rooms whose doorways are north and south (issue #144) ---
-;
-; Named by nothing yet. They are declared so the gate checks them -- every
-; shape a level declares is checked whether a room names it or not -- and
-; the levels that use them are re-authored in #146.
+; stubs: two bays, one in from the top border and one from the bottom
+shape: stubs
+################################
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+################################
 
-; rung: a division **across** the room -- the spines turned through a right
-;   angle (issue #144). A vertical wall is a wall across an east-west walk
-;   and merely furniture in a north-south one, and until now the game had
-;   no shell for a room whose traffic runs top to bottom. The gap is over
-;   to the west at columns 4-6, so the walk bends and comes back.
-;
-;   **A horizontal wall lives in rows 6 to 15 and nowhere else.** Rows 1-5
-;   and 16-20 are the landings of a north and a south doorway, and a wall
-;   in one of those is the fault this issue exists for, mirrored. The gate
-;   refuses it; this is where the rule is written down.
+; rung: a division **across** the room -- the spine turned through a
+;   right angle (issue #144), with its gap over to the west.
+;   **A horizontal wall lives in rows 6 to 15 and nowhere else:**
+;   rows 1-5 and 16-20 are a north and a south doorway's landings
 shape: rung
 ################################
 #..............................#
@@ -201,9 +135,7 @@ shape: rung
 #..............................#
 ################################
 
-; rung-low: the same division lower and its gap over east, so two rooms
-;   built from the pair do not read as the same room -- what spine and
-;   spine-low are to each other, on the other axis.
+; rung-low: the same division lower and its gap over east
 shape: rung-low
 ################################
 #..............................#
@@ -228,8 +160,7 @@ shape: rung-low
 #..............................#
 ################################
 
-; ledges: two bays in from opposite side walls, offset, so a north-south
-;   walk bends twice. The dogleg, turned.
+; ledges: two bays in from opposite side walls, offset: the dogleg turned
 shape: ledges
 ################################
 #..............................#
@@ -254,8 +185,8 @@ shape: ledges
 #..............................#
 ################################
 
-; piers: two short bays, one in from the west wall and one from the east,
-;   far enough apart that neither closes the walk. What stubs is, turned.
+; piers: two short bays, one in from the west wall and one from the east:
+;   the stubs turned
 shape: piers
 ################################
 #..............................#
@@ -280,6 +211,7 @@ shape: piers
 #..............................#
 ################################
 
+; A(0,0), the way out in its west wall. One doorway, south.
 room: the main room
 roll:
 segments: 4 6
@@ -288,13 +220,14 @@ pieces: 2 3
 band: 14 28
 away: 14
 clegs: 2
-shell: spine
 shell: dogleg
+shell: stubs
 searchlight: 3 repeat
 start: 24 96
 at: 0 0
-door: east 10-12 the far room
+door: south 14-16 the far room
 
+; C(0,1): north and south, the room the column turns on.
 room: the far room
 roll:
 segments: 4 6
@@ -303,15 +236,16 @@ pieces: 2 3
 band: 14 28
 away: 14
 clegs: 2
-shell: boxroom
-shell: spine-low
-light: 0 10 3 3
+shell: rung
+shell: ledges
+light: 14 0 3 3
 searchlight: 3 vary
 start: 16 80
-at: 1 0
-door: west 10-12 the main room
-door: east 10-12 the boiler room
+at: 0 1
+door: north 14-16 the main room
+door: south 14-16 the boiler room
 
+; H(0,2): the bottom of the column.
 room: the boiler room
 roll:
 segments: 4 6
@@ -320,9 +254,9 @@ pieces: 2 3
 band: 14 28
 away: 14
 clegs: 2
-shell: dogleg
-shell: boxroom
+shell: rung-low
+shell: piers
 searchlight: 3 repeat
 start: 16 80
-at: 2 0
-door: west 10-12 the far room
+at: 0 2
+door: north 14-16 the far room

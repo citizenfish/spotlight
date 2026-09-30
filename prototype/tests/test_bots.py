@@ -563,23 +563,38 @@ def test_the_spraying_listener_spends_its_charges_and_kills_on_level_three():
     A charge left unspent is not a bug either: on one seed in eight the run
     ends with four of the five gone, because the run ended, and a bot that
     fires its last charge at nothing to satisfy a test would be the wrong bot.
+    (Since issue #146 every seed spends all five, and the allowance stays.)
+
+    **The kill count is one on one seed since issue #146**, where it was at least
+    two on all eight: 1, 2, 3, 6, 4, 4, 3, 3. Level 3 is a column now, and its six
+    flies are spread over a building the bot walks down rather than across -- a
+    burst kills what is in front of it, and how much that is depends on where the
+    swarm has gathered. The claim worth keeping is the one this test is named for:
+    **the charges are spent and the spray is worth spending them on.** Both hold
+    harder than before, not less -- 42 out against the dry bot's 42 with 736 blood
+    lost against 1264, where it was 32 against 31 with 1064 against 1336. The
+    spray now saves the same people for four-tenths less blood.
     """
     from spikes import levels
     seeds = range(session.DEFAULT_SEED, session.DEFAULT_SEED + 8)
-    wet_out = dry_out = wet_blood = dry_blood = 0
+    wet_out = dry_out = wet_blood = dry_blood = killed = 0
     charges = levels.level(3).budget.spray
     assert charges == 5
     for seed in seeds:
         wet = _spraying_run(3, seed)
         dry = _spraying_run(3, seed, spray=False)
         assert charges - 1 <= wet.tally.sprays <= charges, seed
-        assert wet.tally.swatted >= 2, seed
+        assert wet.tally.swatted >= 1, seed
+        killed += wet.tally.swatted
         wet_out += wet.rescued
         dry_out += dry.rescued
         wet_blood += wet.tally.blood_lost
         dry_blood += dry.tally.blood_lost
     assert wet_out >= dry_out
     assert wet_blood < dry_blood
+    # And over the eight it kills three a run, which is what "kills" means here
+    # rather than a floor every single seed has to clear on its own.
+    assert killed >= 2 * len(list(seeds)), killed
 
 
 def test_the_spraying_listener_fires_in_level_ones_second_room():

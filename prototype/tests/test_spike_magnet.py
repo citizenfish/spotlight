@@ -140,8 +140,11 @@ def test_death_clears_the_counter_and_a_doorway_keeps_it():
     assert run.lives == S.LIVES - 1
     assert run.magnet == 0, "a death did not clear the magnet"
 
-    from test_spike_doorway import at_door, walk
-    run = at_door(Session(seed=1))
+    # **The helper and the building have to match** (issue #146). `at_door`
+    # stands the player against an east or west wall, so it comes with the row
+    # that module authors -- Level 3 is a column and its side walls have no gap.
+    from test_spike_doorway import Session as RowSession, at_door, walk
+    run = at_door(RowSession(seed=1))
     run.magnet = 400
     walk(run, 1, 16)
     assert run.here == scene.FAR
@@ -373,16 +376,45 @@ def test_a_fly_in_the_far_room_is_handed_the_doorway_and_comes_through():
     _beam_away(run)
     far = run.places[scene.FAR]
     door = next(d for d in far.room.doorways if d.to == scene.NEAR)
-    fly = C.Cleg(20, 4, seed=5)
+    # **Nothing in the fly's head but the magnet**, which the test's premise needs
+    # and `_beam_away` only ever half arranged: it moves the *player's* room's beam
+    # and the far room has one of its own. With Level 3 a column (issue #146) the
+    # far beam is the nearer lure, so the fly had a goal before the magnet was
+    # switched on and the first assertion was testing the opposite of what it
+    # says. Both beams are parked, and the fly is put clear of both doorways so it
+    # cannot see the player through one.
+    for place in run.places:
+        place.roaming.x, place.roaming.y = 1, 1
+    spans = {cell for d in far.room.doorways for cell in d.cells()}
+    fly = C.Cleg(20, 10, seed=5)
+    assert all(abs(fly.cx - cx) + abs(fly.cy - cy) > 6 for cx, cy in spans), \
+        "the fly is close enough to a doorway to see through it"
     fly.step_every = 1
     far.swarm.clegs[:] = [fly]
     run.step()
-    assert fly.goal is None, "the far room's fly can see the player from next door"
+    # **Not heading for the threshold**, which is the premise this needs. It used
+    # to ask for `goal is None`, and that only held because the far room's room
+    # light happened to be out of reach of the cell the fly was put on; the light
+    # is a permanent lure and the claim was never about there being no lure at
+    # all. It is that the *magnet* is what sends a fly to the doorway.
+    assert fly.goal not in spans, \
+        "the far room's fly is already heading for the way through"
+    assert fly.goal_source != sources.LURE_MAGNET
     run.magnet = 500
     run.step()
-    assert fly.goal == (door.beyond, door.middle)
+    # **`(x, y)`, which for a horizontal doorway is the transpose of the
+    # doorway's own pair** -- `beyond` is a row there and `middle` a column.
+    # This asserted `(door.beyond, door.middle)` unswapped and so did the
+    # session, so the two agreed with each other and both were wrong: from
+    # Level 3's column onwards a magnetised fly was sent to the west wall.
+    want = ((door.beyond, door.middle) if door.vertical
+            else (door.middle, door.beyond))
+    assert fly.goal == want
     assert fly.goal_source == sources.LURE_MAGNET
-    for _ in range(300):
+    # More frames than the 300 this had: the walk to a horizontal threshold from
+    # the far side of the room is longer than the sideways one it used to be, and
+    # a fly steers rather than routes.
+    for _ in range(900):
         run.step()
         if fly in run.place.swarm.clegs:
             break

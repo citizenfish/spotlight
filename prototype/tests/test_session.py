@@ -1467,8 +1467,8 @@ def test_no_shout_is_ever_written_across_a_doorway():
     """
     for seed in (1, 3, 7):
         run = Session(seed=seed, lives=99)
-        doors = {(door.column, cy) for place in run.places
-                 for door in place.room.doorways for cy in door.rows}
+        doors = {cell for place in run.places
+                 for door in place.room.doorways for cell in door.cells()}
         for _ in range(2500):
             run.step()
             if run.over is not None:

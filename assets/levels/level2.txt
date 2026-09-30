@@ -1,19 +1,26 @@
-; assets/levels/level2.txt -- Level 2, Infested: three rooms, seven people,
-; six Clegs.
+; assets/levels/level2.txt -- Level 2, Infested: the corner.
 ;
-; The second level (issue #111, templates in #121, shells in #137): the spray
-; room with a light in the middle of the floor, the beam room, and the wide
-; dark with no fixed light at all. Two flies a room, a searchlight in every
-; room (#118).
+; The second level (issues #111, #121, #137, and re-authored as **the corner**
+; in #146). Three rooms: east, then south.
 ;
-; **The walls are authored here and the contents still roll** (#137, rulings 2
-; to 5). Each room names the shells it may be built from and the roll picks
-; one; the furniture, the people and the flies roll inside it as they always
-; did. A shell may reach the border, which is what makes a corridor or a
-; chamber possible at all -- and it is gated on its bare walls by
-; `swarming.strands_a_shell`, which is seed-independent, rather than sampled.
+; **The first horizontal doorway in the game**, and the first room whose two
+; doorways are at right angles rather than opposite. That is the whole lesson:
+; until now "the way out" and "the way back" have been the two ends of the same
+; wall, and a player has never had to tell them apart. Three rooms, so it costs
+; nothing on any budget, and it is a teaching level where the mistake is cheap.
 ;
-; A shell holds at most two internal structures. `shape:` blocks below.
+; The walls are authored and the contents roll (#137, rulings 2 to 5). A shell
+; may reach the border, which is what makes a corridor or a chamber possible at
+; all -- and it is gated on its bare walls by `swarming.strands_a_shell`, which
+; is seed-independent, and on its doorways' landings by
+; `roller.blocks_a_landing` (#144).
+;
+; **A shell belongs to an axis.** A wall across an east-west walk is furniture
+; in a north-south one, and a wall standing in a doorway's own lane is refused.
+; So `the wide dark`, whose only doorway is in the north wall, is built from the
+; horizontal shells and not the vertical ones.
+;
+; The floor hue is `(col + row) & 1` of `at:` and is not authored (#145).
 
 level: 2
 name: Infested
@@ -23,62 +30,36 @@ spray: 5
 lives: 3
 magnet: 8
 wake: off
-fade: 2           ; still six seconds: this is the last level that teaches
+fade: 2           ; six seconds of wall memory: this level still teaches
 
 ; Seven people, dealt to the three rooms by the roll (issue #143): the
 ; building names the roster and the shape decides who is where.
 people: 90 80 80 70 70 60 40
 
-; spine: a division high up: border to border with a three-cell gap at
-;   rows 4-6, so the way through is nowhere near the doorways
-shape: spine
+; dogleg: a bay from the top and one from the bottom, offset, so the
+;   walk across the room bends twice
+shape: dogleg
 ################################
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............................#
-#..............................#
-#..............................#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-#..............#...............#
-################################
-
-; spine-low: the same division with its gap low down, at rows 15-17, so two
-;   rooms built from the pair do not read as the same room
-shape: spine-low
-################################
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#...............#..............#
-#..............................#
-#..............................#
-#..............................#
-#...............#..............#
-#...............#..............#
-#...............#..............#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
 ################################
 
 ; stubs: two bays, one in from the top border and one from the bottom
@@ -106,15 +87,95 @@ shape: stubs
 #.....................#........#
 ################################
 
+; vault: a smaller chamber, off centre, a door each side. **One of the
+;   four shells a junction may use** -- see the note below
+shape: vault
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..........##########..........#
+#..........#........#..........#
+#..........#........#..........#
+#..............................#
+#..........#........#..........#
+#..........#........#..........#
+#..........##########..........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; rung: a division **across** the room -- the spine turned through a
+;   right angle (issue #144), with its gap over to the west.
+;   **A horizontal wall lives in rows 6 to 15 and nowhere else:**
+;   rows 1-5 and 16-20 are a north and a south doorway's landings
+shape: rung
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+####...#########################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; ledges: two bays in from opposite side walls, offset: the dogleg turned
+shape: ledges
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+####################...........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#...........####################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; A(0,0), and the way out is in its west wall.
 room: the spray
 roll:
-segments: 3 5
+segments: 4 6
 length: 4 10
-pieces: 1 3
-band: 14 26
-away: 16
+pieces: 2 3
+band: 14 28
+away: 14
 clegs: 2
-shell: spine
+shell: dogleg
 shell: stubs
 light: 14 9 3 3
 searchlight: 3 repeat
@@ -122,33 +183,38 @@ start: 24 96
 at: 0 0
 door: east 10-12 the beam
 
+; B(1,0): west and south, the first two doorways in the
+; game that are not opposite one another. `vault` is one of
+; the four shells a room with doorways on both axes may use.
 room: the beam
 roll:
-segments: 3 5
+segments: 4 6
 length: 4 10
-pieces: 1 3
-band: 14 26
-away: 16
+pieces: 2 3
+band: 14 28
+away: 14
 clegs: 2
-shell: spine-low
 shell: stubs
+shell: vault
 searchlight: 3 repeat
 start: 16 80
 at: 1 0
 door: west 10-12 the spray
-door: east 10-12 the wide dark
+door: south 14-16 the wide dark
 
+; D(1,1): one doorway, in the north wall, so its shells are
+; the horizontal ones (#144).
 room: the wide dark
 roll:
-segments: 3 5
+segments: 4 6
 length: 4 10
-pieces: 1 3
-band: 14 26
-away: 16
+pieces: 2 3
+band: 14 28
+away: 14
 clegs: 2
-shell: spine
-shell: spine-low
+shell: rung
+shell: ledges
 searchlight: 3 repeat
 start: 16 80
-at: 2 0
-door: west 10-12 the beam
+at: 1 1
+door: north 14-16 the beam

@@ -400,15 +400,28 @@ def test_shell_on_a_mapped_room_is_refused():
 
 # --- every shell the game ships ---------------------------------------------
 
+def level_files():
+    """Every authored building: the numbered levels **and the ladder**.
+
+    The ladder (issue #146) is not a level -- `levels.levels()` globs
+    `level*.txt` and it is not one -- but it is nine authored rooms with
+    doorways in all four walls, which makes it the building these gates exist
+    for. Leaving it out would have gated three teaching levels and skipped the
+    one that needs it.
+    """
+    out = [(f"level {n}", f"level{n}.txt") for n in levels.levels()]
+    return out + [("the ladder", levels.LADDER_FILE)]
+
+
 def shipped_shells():
-    """Every shell declared by every level file, with the rooms that use it."""
+    """Every shell declared by every authored building, with the rooms using it."""
     out = []
-    for n in levels.levels():
+    for label, filename in level_files():
         _num, _name, specs, _budget, _shapes = levels.parse(
-            (levels.LEVELS_DIR / f"level{n}.txt").read_text())
+            (levels.LEVELS_DIR / filename).read_text())
         for spec in specs:
             for name, rows in spec.shells:
-                out.append((f"level {n} {spec.name}: {name}", rows,
+                out.append((f"{label} {spec.name}: {name}", rows,
                             [(side, r) for side, r, _t, _l in spec.doors]))
     return out
 
@@ -424,11 +437,11 @@ def declared_shapes():
     shell at all -- the retro-gamer hand-authored four and three were broken.
     """
     out = []
-    for n in levels.levels():
+    for label, filename in level_files():
         _num, _name, _specs, _budget, shapes = levels.parse(
-            (levels.LEVELS_DIR / f"level{n}.txt").read_text())
+            (levels.LEVELS_DIR / filename).read_text())
         for name, rows in sorted(shapes.items()):
-            out.append((f"level {n}: {name}", name, rows))
+            out.append((f"{label}: {name}", name, rows))
     return out
 
 
@@ -446,12 +459,21 @@ EVERY_BAND = ((10, 11, 12),) + levels.DOOR_BANDS
 #: asking a horizontal shell to survive an east doorway is asking the wrong
 #: question -- it is the question #144 exists to stop anybody asking of a
 #: vertical one.
+#: **Four of the twelve are clean on all four sides**, and no more can be: take
+#: the union of every lane over four sides and six bands and a wall may only
+#: stand in columns 6 to 24 by rows 6 to 14 -- so **a wall in a room with
+#: doorways on both axes cannot reach a border at all**, which is the one thing
+#: the authored shells of issue #132 were for. Those four live inside that
+#: rectangle; the other eight belong to an axis. `test_a_junction_may_only_use_a_four_sided_shell`
+#: states it as a property rather than leaving it to this table.
+FOUR_SIDED = ("boxroom", "vault", "benches", "pillars")
+EVERY_SIDE = (B.EAST, B.WEST, B.NORTH, B.SOUTH)
 BUILT_FOR = {
     "spine": (B.EAST, B.WEST), "spine-low": (B.EAST, B.WEST),
-    "stubs": (B.EAST, B.WEST), "dogleg": (B.EAST, B.WEST),
-    "boxroom": (B.EAST, B.WEST, B.NORTH, B.SOUTH),
+    "stubs": (B.EAST, B.WEST, B.SOUTH), "dogleg": (B.EAST, B.WEST, B.SOUTH),
     "rung": (B.NORTH, B.SOUTH), "rung-low": (B.NORTH, B.SOUTH),
     "ledges": (B.NORTH, B.SOUTH), "piers": (B.NORTH, B.SOUTH),
+    **{name: EVERY_SIDE for name in FOUR_SIDED},
 }
 
 
@@ -582,7 +604,7 @@ def test_the_clean_shells_are_still_clean():
     centre doorway, which the rolled-furniture band forbids and an author is
     entitled to."""
     by_name = {name: rows for _label, name, rows in DECLARED}
-    for name in ("boxroom", "dogleg", "stubs"):
+    for name in FOUR_SIDED + ("dogleg", "stubs"):
         for side in BUILT_FOR[name]:
             for span in EVERY_BAND:
                 assert roller.blocks_a_landing(by_name[name], [(side, span)]) == [], \
@@ -617,6 +639,79 @@ def test_every_declared_shell_clears_every_band_it_can_be_handed():
             f"{label} walls off the exit's own landing"
 
 
+def test_a_junction_may_only_use_a_four_sided_shell():
+    """**The constraint issue #146 did not foresee, stated as a property.**
+
+    A doorway's lane is its own span five cells in from the wall it is cut
+    through, and from Level 5 a doorway sits at any of six bands. Take the union
+    over four sides and six bands and the cells a wall may stand in are a single
+    rectangle -- columns 6 to 24 by rows 6 to 14 -- so **a wall in a room with
+    doorways on both axes cannot reach a border**, which is what a division and
+    a chamber were for.
+
+    It bites on four of the nine-room building's rooms: `B`, `C`, `F` and the
+    crossing `D`, which has a doorway in every wall. Hence `vault`, `benches`
+    and `pillars` beside `boxroom`: four shells that live inside the rectangle,
+    so a junction is not always the same room.
+    """
+    from spikes.layout import PLAY_ROWS
+    lanes = set()
+    for side in EVERY_SIDE:
+        for span in EVERY_BAND:
+            lanes |= set(roller.landing_lane(side, span))
+    lanes |= set(roller.landing_lane(B.WEST, roller.EXIT_ROWS))
+    free = {(cx, cy) for cy in range(1, PLAY_ROWS - 1) for cx in range(1, COLS - 1)
+            if (cx, cy) not in lanes}
+    xs = {cx for cx, _cy in free}
+    ys = {cy for _cx, cy in free}
+    core = {(cx, cy) for cy in range(6, 15) for cx in range(6, 25)}
+    assert core <= free, "the rectangle a four-sided shell lives in has moved"
+    assert min(xs) > 0 and max(xs) < COLS - 1 and min(ys) > 0 and max(ys) < PLAY_ROWS - 1
+    # No free cell touches a border, which is the whole claim.
+    assert not any(cx in (1, COLS - 2) or cy in (1, PLAY_ROWS - 2)
+                   for cx, cy in free if (cx, cy) in core)
+    by_name = {name: rows for _label, name, rows in DECLARED}
+    clean = {name for name, rows in by_name.items()
+             if all(not roller.blocks_a_landing(rows, [(side, span)])
+                    for side in EVERY_SIDE for span in EVERY_BAND)}
+    assert clean == set(FOUR_SIDED), clean
+
+
+def test_the_shells_a_room_names_are_clean_for_that_rooms_own_sides():
+    """Per room, and the precise form of it: a shell a room names must be clean
+    for **that room's** doorway sides, not for all four.
+
+    A room with a west and a south doorway is fine with `stubs`, whose bays are
+    clear of both those lanes -- and that is not a concession, it is the point:
+    a shell belongs to the axes a room actually uses. What cannot be done is a
+    doorway in every wall, which leaves only the four-sided shells. `the
+    crossing` is that room, and the assertion names it.
+
+    This is what will fail if a later slice gives a room a doorway on a new side
+    and forgets its shells -- which is exactly how the fault issue #144 was
+    raised for got into two shipped shells.
+    """
+    crossings = 0
+    for label, filename in level_files():
+        _n, _name, specs, _b, _s = levels.parse(
+            (levels.LEVELS_DIR / filename).read_text())
+        for spec in specs:
+            sides = {side for side, _sp, _t, _l in spec.doors}
+            for name, rows in spec.shells:
+                for side in sides:
+                    for span in EVERY_BAND:
+                        assert not roller.blocks_a_landing(rows, [(side, span)]), \
+                            f"{label} {spec.name!r} names {name!r}, which blocks " \
+                            f"its {B.SIDE_NAMES[side]} doorway at {span}"
+            if len(sides) == 4:
+                crossings += 1
+                assert all(name in FOUR_SIDED for name, _rows in spec.shells), \
+                    f"{label} {spec.name!r} has a doorway in every wall and can " \
+                    f"only use {FOUR_SIDED}"
+    assert crossings == 1, \
+        f"{crossings} rooms with a doorway in every wall; the ladder has one"
+
+
 def test_the_new_shells_run_their_walls_the_other_way_and_pass_both_gates():
     """The second half of the ruling, and the half that gets dropped: a vertical
     division is a wall across an east-west walk and *furniture* in a north-south
@@ -646,14 +741,23 @@ def test_the_new_shells_run_their_walls_the_other_way_and_pass_both_gates():
                     f"{name} blocks a {B.SIDE_NAMES[side]} landing at {span}"
 
 
-def test_no_shipped_room_names_one_of_the_new_shells_yet():
-    """They are authored and used by nothing until #146 re-authors the levels,
-    which is what keeps the event log byte-identical through this slice."""
+def test_every_shell_in_the_vocabulary_is_named_by_some_room_or_proved_unused():
+    """Twelve shells, and each is either used or deliberately not.
+
+    The four horizontal ones and the four-sided ones were authored unused in
+    #144 and #146 uses all eight. The two east-west **divisions** are the ones
+    now used by nothing: every room of the ladder has a doorway in a horizontal
+    wall, so neither spine is usable there, and Level 1 is open halls. They stay
+    declared because a shape nobody names is still checked by the gate, and they
+    are the vocabulary's pair for a room whose doorways are east and west only.
+    """
     named = {label.rsplit(": ", 1)[1] for label, _rows, _doors in SHIPPED}
-    assert named.isdisjoint({"rung", "rung-low", "ledges", "piers"}), named
-    # But they are declared, or the gate above would be checking nothing.
-    assert {"rung", "rung-low", "ledges", "piers"} <= {
-        name for _label, name, _rows in DECLARED}
+    declared = {name for _label, name, _rows in DECLARED}
+    assert declared == set(BUILT_FOR), declared ^ set(BUILT_FOR)
+    assert named == declared - {"spine", "spine-low"}, declared - named
+    # And every four-sided shell is actually used, or the junctions would all be
+    # the same room.
+    assert set(FOUR_SIDED) <= named, set(FOUR_SIDED) - named
 
 
 def test_the_roll_never_carves_a_landing_clear():

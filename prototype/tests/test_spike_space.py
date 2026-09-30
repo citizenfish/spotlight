@@ -222,9 +222,17 @@ def test_a_brood_hatches_into_the_ring_round_its_nest_as_before():
     for _ in range(3):
         assert run._hatch(nest)
     born = place.swarm.clegs[was:]
-    expected = [(at[0] + dx, at[1] + dy) for dx, dy in C.SCATTER[:3]]
-    assert [(f.cx, f.cy) for f in born] == expected
-    assert _cheb(born[0], born[2]) == 1, "the staging no longer stages"
+    # **The first three of `SCATTER` the room allows**, not the first three
+    # outright. This asserted the offsets unconditionally, which held only while
+    # the nest happened to have open floor all round it; Level 3's column
+    # (issue #146) puts this nest a cell off the bottom wall, and that wall is
+    # solid everywhere but the doorway. What the test is for is that placement is
+    # **not** governed by personal space, and that survives the filter.
+    free = [(at[0] + dx, at[1] + dy) for dx, dy in C.SCATTER
+            if not place.room.is_solid(at[0] + dx, at[1] + dy)]
+    assert [(f.cx, f.cy) for f in born] == free[:3]
+    assert min(_cheb(a, b) for a in born for b in born if a is not b) == 1, \
+        "the staging no longer stages"
 
 
 # --- through a doorway ---------------------------------------------------------
@@ -245,9 +253,13 @@ def test_a_fly_will_not_step_through_a_doorway_beside_a_fly_next_door():
     for the whole run, and the real building, lures and steps are used.
     """
     from spikes import scene
-    from tests.test_spike_doorway import DOOR_ROW, _put_flies
+    # **The helpers and the building go together** (issue #146). `DOOR_ROW` and
+    # this test's whole coordinate translation are east-west, and Level 3 is a
+    # column -- so the run is on the row that module authors for exactly this.
+    from tests.test_spike_doorway import DOOR_ROW, Session as RowSession
+    from tests.test_spike_doorway import _put_flies
 
-    run = Session(seed=1)
+    run = RowSession(seed=1)
     # The near room's beam off, so the crosser wants the door and nothing
     # else: since issue #116 each beam has its own entry, and on this seed
     # it pulls the crosser away before the staging holds.
@@ -286,9 +298,9 @@ def test_a_fly_steps_through_a_doorway_beside_another_to_reach_the_player():
     and is not refused; the same step two rows further from the player is.
     Keyed to prey exactly as at home."""
     from spikes import scene
-    from tests.test_spike_doorway import at_door
+    from tests.test_spike_doorway import Session as RowSession, at_door
 
-    run = at_door(Session(seed=1), room=scene.FAR)
+    run = at_door(RowSession(seed=1), room=scene.FAR)
     run.step()
     assert run.here == scene.FAR
     px, py = run.player.cx, run.player.cy

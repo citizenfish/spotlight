@@ -109,20 +109,38 @@ def test_the_mask_does_not_reach_through_a_doorway_into_the_next_room():
     change what a handful of cells at the screen edge look like.
     """
     room = scene.ROOM_NEAR
-    door_row = scene.DOOR_ROWS[1]
-    assert not room.is_solid(COLS, door_row), "the doorway is walkable"
-    assert room.is_wall(COLS, door_row), "but for drawing it is the edge"
-    assert tiles.mask_at(room.is_wall, COLS - 1, door_row) & tiles.EAST
+    door = room.doorways[0]
+    # **Whichever wall it is in** (issue #146): Level 3 is a column, so the
+    # doorway is south and the cell past it is a row down rather than a column
+    # along. The claim is the same one either way.
+    cx, cy = door.cells()[len(door.cells()) // 2]
+    past = (cx, PLAY_ROWS) if not door.vertical else (COLS, cy)
+    assert not room.is_solid(*past), "the doorway is walkable"
+    assert room.is_wall(*past), "but for drawing it is the edge"
+    inside = (cx, PLAY_ROWS - 1) if not door.vertical else (COLS - 1, cy)
+    reach = tiles.SOUTH if not door.vertical else tiles.EAST
+    assert tiles.mask_at(room.is_wall, *inside) & reach
 
 
 def test_the_playtest_building_exercises_nearly_every_mask():
-    """Fifteen of the sixteen, in room A alone -- which is why all sixteen have
-    to be distinct rather than merely mostly distinct."""
+    """Fourteen of the sixteen in room A alone, and all sixteen across the
+    building -- which is why all sixteen have to be distinct rather than merely
+    mostly distinct.
+
+    It was fifteen in room A until issue #146 re-authored the building; one room
+    of a rolled interior is not a promise about which masks it happens to use, so
+    the claim is made over the whole building as well, where it is exact.
+    """
     room = scene.ROOM_NEAR
     used = {tiles.mask_at(room.is_wall, cx, cy)
             for cy in range(PLAY_ROWS) for cx in range(COLS)
             if room.is_wall(cx, cy)}
-    assert len(used) >= 15
+    assert len(used) >= 14
+    everywhere = {tiles.mask_at(r.is_wall, cx, cy)
+                  for r in scene.BUILDING.rooms
+                  for cy in range(PLAY_ROWS) for cx in range(COLS)
+                  if r.is_wall(cx, cy)}
+    assert len(everywhere) >= 15
 
 
 # --- the tiles --------------------------------------------------------------
@@ -642,15 +660,24 @@ def test_the_far_rooms_light_still_covers_its_side_of_the_doorway():
     Issue #50 made the ruling on purpose, and the answer was that the map was
     being asked the wrong question: a character says what a cell is made of,
     and a light is put in a room rather than made of anything. So the first
-    line of this test is unchanged -- **the same rectangle, from an authored
-    (0, 10, 3, 3) rather than from a scan for `L`** -- and only the second one
-    moves, from room light to doorway. Both assertions together are the whole
-    claim: the cells read as an opening, and the light is exactly where it was.
+    line of this test was unchanged for four rounds -- **the same rectangle, from
+    an authored (0, 10, 3, 3) rather than from a scan for `L`** -- and only the
+    second one moved, from room light to doorway.
+
+    **Issue #146 moved the rectangle**, because Level 3 is a column and the way
+    home is in the north wall, so the light that sits on it is at (14, 0, 3, 3).
+    The claim was never the literal rectangle: it is that the cells read as an
+    opening *and* are covered by the light, which is the collision #50 settled.
+    Both are asserted against the doorway the room actually has.
     """
-    zones = scene.ROOM_FAR.light_zones()
-    assert zones == [(0, 10, 3, 3)], zones
-    assert all(scene.ROOM_FAR.rows[cy][0] == building.DOORWAY
-               for cy in scene.DOOR_ROWS)
+    far = scene.ROOM_FAR
+    home = next(d for d in far.doorways if d.to == scene.NEAR)
+    zones = far.light_zones()
+    assert zones == [(14, 0, 3, 3)], zones
+    lit = {(x, y) for left, top, w, h in zones
+           for y in range(top, top + h) for x in range(left, left + w)}
+    assert set(home.cells()) <= lit, "the light no longer covers the way home"
+    assert all(far.rows[cy][cx] == building.DOORWAY for cx, cy in home.cells())
 
 
 def test_a_doorway_character_is_not_solid_anywhere_it_is_asked():
@@ -672,11 +699,16 @@ def test_walking_through_a_doorway_still_works_both_ways():
     made of and a mistake there would be a mistake in the level rather than in
     the picture."""
     run = Session(seed=1)
-    run.player.x = (COLS - 1) * CELL
-    run.player.y = (scene.DOOR_ROWS[1] - 1) * CELL
-    for _ in range(16):
-        run.step(Intent(dx=1))
+    # Down and back up since Level 3 became a column (issue #146). A person
+    # clears a horizontal threshold at their full height, so the walk in and the
+    # walk back both take longer than the eight pixels a side wall wants.
+    door = run.building[scene.NEAR].doorways[0]
+    dx, dy = building.TOWARDS[door.side]
+    cx, cy = door.cells()[len(door.cells()) // 2]
+    run.player.x, run.player.y = cx * CELL, (cy - 1) * CELL
+    for _ in range(24):
+        run.step(Intent(dx=dx, dy=dy))
     assert run.here == scene.FAR
-    for _ in range(16):
-        run.step(Intent(dx=-1))
+    for _ in range(32):
+        run.step(Intent(dx=-dx, dy=-dy))
     assert run.here == scene.NEAR

@@ -117,13 +117,29 @@ def test_every_seed_of_every_template_rolls_a_fair_room(name):
         stranded = swarming.unswarmable(room)
         assert not stranded, f"{name} seed {seed:#x}: stranded {stranded[:5]}"
         # The shell: the border, the doorways clear, the exit where it is.
-        assert rolled.rows[0] == "#" * COLS and rolled.rows[-1] == "#" * COLS
-        for side, rows in template.doorways:
-            column = COLS - 1 if side == B.EAST else 0
-            inside = COLS - 2 if side == B.EAST else 1
-            for cy in rows:
-                assert rolled.rows[cy][column] == B.DOORWAY
-                assert rolled.rows[cy][inside] == B.FLOOR
+        #
+        # **Every wall, and a doorway may be in any of them** (issue #146). The
+        # top and bottom rows were asserted solid and only the two side walls were
+        # checked for doorways -- which was right for every building the game had
+        # until Level 3 became a column, and is now the wrong way round: a
+        # horizontal doorway is a gap in one of the rows this called solid.
+        gaps = {cell for side, span in template.doorways
+                for cell in B.Doorway(side, span, to=0).cells()}
+        for cx in range(COLS):
+            for cy in (0, PLAY_ROWS - 1):
+                want = B.DOORWAY if (cx, cy) in gaps else B.WALL
+                assert rolled.rows[cy][cx] == want, (name, seed, cx, cy)
+        for side, span in template.doorways:
+            door = B.Doorway(side, span, to=0)
+            for cx, cy in door.cells():
+                assert rolled.rows[cy][cx] == B.DOORWAY
+            # And the cell a step *inside* this room's wall, which is where a
+            # figure stands before it crosses. (`landing_cells` is the far side
+            # of the threshold and belongs to the room next door.)
+            dx, dy = B.TOWARDS[door.side]
+            for cx, cy in door.cells():
+                assert rolled.rows[cy - dy][cx - dx] == B.FLOOR, \
+                    (name, seed, cx - dx, cy - dy)
         if template.exit:
             assert rolled.rows[10][0] == rolled.rows[11][0] == B.DOOR
         # The clearance rule, read back off the rows.

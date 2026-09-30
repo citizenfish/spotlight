@@ -50,6 +50,14 @@ def test_the_level_is_as_the_note_draws_it(infested):
     assert [d.to for d in spray.doorways] == [1]
     assert sorted(d.to for d in beam.doorways) == [0, 2]
     assert [d.to for d in wide.doorways] == [1]
+    # **A corner since issue #146**: east, then south. `the beam` is the first
+    # room in the game whose two doorways are at right angles rather than
+    # opposite, which is the whole lesson of the level -- until now "the way out"
+    # and "the way back" were the two ends of the same wall.
+    assert [r.at for r in infested.rooms] == [(0, 0), (1, 0), (1, 1)]
+    assert [d.side for d in spray.doorways] == [B.EAST]
+    assert sorted(d.side for d in beam.doorways) == sorted((B.WEST, B.SOUTH))
+    assert [d.side for d in wide.doorways] == [B.NORTH]
 
 
 def test_the_level_validates_and_is_priced_as_the_note_says(infested):
@@ -138,12 +146,26 @@ def test_the_spraying_listener_still_gets_six_of_seven_out():
     pair -- the bot with a button in its hand absorbs a deal it cannot hear
     coming, and the bot navigating purely by ear does not. See
     *2026-09-29 The roster deal*.
+
+    **And 4.75 of 7 since issue #146**, with 1.62 of a life and a death on three
+    seeds in eight: 4, 4, 7, 4, 4, 7, 4, 4. Two things in that slice moved it and
+    both were meant to. Level 2 is a **corner** now, so the room in the middle has
+    its two doorways at right angles and a fly arriving from either side comes from
+    a direction the other does not. And the magnet was **broken** in any room
+    reached north or south -- `Session._magnet_cell` handed a fly the transposed
+    cell, so it walked at the wrong wall and never crossed -- which means every
+    figure for a horizontal doorway before this slice was measured with the magnet
+    switched off. It is on now, and the proxy feels it.
+
+    Three deaths in eight on a teaching level is a lot, and it is **recorded rather
+    than tuned**: the pattern 4, 4, 7, 4, 4, 7, 4, 4 says the level is either
+    cleanly won or stuck at four, which is a shape worth a look. #147 owns it.
     """
     runs = [play(LEVEL, "listener", seed, spray=True) for seed in WIDE_SEEDS]
-    assert statistics.mean(r.rescued for r in runs) >= 5.0
-    assert statistics.mean(lives_lost(r) for r in runs) <= 1.5
-    assert sum(1 for r in runs if r.over == S.NO_LIVES) <= 1, \
-        "the proxy died on more than one seed in eight"
+    assert statistics.mean(r.rescued for r in runs) >= 4.5
+    assert statistics.mean(lives_lost(r) for r in runs) <= 2
+    assert sum(1 for r in runs if r.over == S.NO_LIVES) <= 3, \
+        "the proxy died on more than three seeds in eight"
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -165,7 +187,26 @@ def test_a_statue_at_the_start_is_found_and_dies_in_about_two_minutes(seed):
 @MOVING
 def test_a_statue_in_the_beam_room_loses_its_last_life_in_a_minute_or_two(seed):
     """From the beam room's own start (`--room 1`): the searchlight finds it
-    and the magnet brings the building. 83-115 s on these seeds."""
+    and the magnet brings the building.
+
+    **98-115 s since issue #146**, from 83-115. Level 2 is a corner now and the
+    beam room is its middle: its two doorways are at right angles instead of
+    opposite, so a fly crossing from the spray room arrives through the west wall
+    and one from the wide dark through the south, and neither lines up with the
+    other.
+
+    The band barely moved in the end, and that is the magnet: with the transposed
+    goal cell fixed, a fly in the room *below* is handed the south threshold and
+    actually comes through it, where before it walked at the west wall and stayed
+    put. A corner reached from two directions is slower to converge on a statue;
+    a magnet that works in both of them is faster. The two nearly cancel.
+
+    The first bite still lands in 5 to 18 seconds -- the beam finds it as fast as
+    it ever did -- and it still loses every life, which is what the test is for.
+    """
     run = play(LEVEL, "statue", seed, room=1)
     assert run.over == S.NO_LIVES
-    assert 60 <= run.seconds <= 120
+    assert 90 <= run.seconds <= 130
+    first = next((e.frame for e in run.log if e.kind == S.BITTEN), None)
+    assert first is not None and first <= 30 * 50, \
+        "the beam no longer finds a statue quickly"

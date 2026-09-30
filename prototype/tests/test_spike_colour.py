@@ -23,7 +23,7 @@ Two rules they exist to keep:
   invisible rather than merely dim, and every lit cell is ink on the same black.
 """
 
-from spikes import lighting, panel as panel_mod, scene
+from spikes import building as B, lighting, panel as panel_mod, scene
 from spikes.layout import PLAY_ROWS
 from spikes.session import Intent, Session
 from spotlight.core.constants import (
@@ -31,7 +31,7 @@ from spotlight.core.constants import (
 )
 from spotlight.core.screen import Screen, unpack_attr
 
-DOOR_ROW = scene.DOOR_ROWS[1]
+DOOR_ROW = scene.DOOR_SPAN[1]
 
 
 def lit_room(index: int, walk_in: int = 0) -> tuple[Session, Screen]:
@@ -43,15 +43,23 @@ def lit_room(index: int, walk_in: int = 0) -> tuple[Session, Screen]:
     the picture is of a room the game put the player in.
     """
     run = Session(seed=1)
+    dx, dy = 1, 0
     if index != run.here:
+        # **Whichever wall the doorway is in** (issue #146). This walked east and
+        # placed the player against the east wall, which was right for every
+        # building the game had until Level 3 became a column; now the way through
+        # is asked for rather than assumed.
         run.here = scene.NEAR
-        run.player.x = (COLS - 1) * CELL
-        run.player.y = (DOOR_ROW - 1) * CELL
-        for _ in range(16):
-            run.step(Intent(dx=1))
+        door = next(d for d in run.building[scene.NEAR].doorways if d.to == index)
+        dx, dy = B.TOWARDS[door.side]
+        cell = door.cells()[len(door.cells()) // 2]
+        run.player.x = cell[0] * CELL
+        run.player.y = (cell[1] - 1) * CELL
+        for _ in range(24):
+            run.step(Intent(dx=dx, dy=dy))
         assert run.here == index, "the player would not walk into the far room"
     for _ in range(walk_in):
-        run.step(Intent(dx=1))
+        run.step(Intent(dx=dx, dy=dy))
     run.place.floodlight.hold(True)
     run.step()
     screen = Screen()

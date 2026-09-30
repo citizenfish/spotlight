@@ -258,9 +258,11 @@ def test_a_fly_is_red_wherever_it_is_and_its_cell_holds_only_the_fly():
 
 def test_the_player_is_bright_white_in_both_rooms_and_the_tail_is_not():
     from spikes import sprites
-    from test_spike_doorway import at_door, walk
+    # `at_door` stands the player against an east or west wall, so it comes with
+    # the row that module authors (issue #146): Level 3 is a column now.
+    from test_spike_doorway import Session as RowSession, at_door, walk
     for room in (scene.NEAR, scene.FAR):
-        run = Session(seed=1)
+        run = RowSession(seed=1)
         if room == scene.FAR:
             at_door(run)
             walk(run, 1, 16)

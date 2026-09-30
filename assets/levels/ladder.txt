@@ -1,0 +1,560 @@
+; assets/levels/ladder.txt -- the building Levels 4 and up are cut from.
+;
+; Issue #146. **Not a level**: `levels.levels()` globs `level*.txt` and this is
+; not one, so nothing loads it by number. `levels._beyond` parses it, keeps the
+; first N rooms for the level it is building, drops the doorways that led to the
+; rest, and turns the dials.
+;
+; Nine rooms, two loops and three dead ends, lettered by their place on the plan:
+;
+;      A ----- B ----- E          loops:  A-B-D-C   and   B-E-F-D
+;      |       |       |          spurs:  C-H,  D-G,  F-I
+;      C ----- D ----- F
+;      |       |       |
+;      H       G       I
+;
+;      level  rooms  shape
+;      4, 5   4      a ring                        A B C D
+;      6, 7   5      the ring and one dead end     + E off B
+;      8      7      two loops and a spur          + F, G
+;      9+     9      two loops and three spurs     + H, I
+;
+; **Eight rooms is skipped**: seven is the last size at which every room holds
+; somebody, so eight buys one empty leaf for nothing.
+;
+; **A ring of seven is not available and it is worth knowing why.** A grid graph
+; is bipartite, so every cycle on the plan has an *even* length -- six or eight,
+; never seven. Nine rooms is two four-cycles sharing an edge with three spurs
+; hung below, which is what "a ring of seven with two spurs" becomes once that is
+; respected.
+;
+; **Levels 1 to 3 are not on this ladder and are not supersets of one another.**
+; They are three teaching shapes -- a row, a corner and a column -- each meeting
+; one axis with the rest of the game held still. The superset chain starts here,
+; at the ring.
+;
+; ---------------------------------------------------------------------------
+; **Why a junction may only use four of the twelve shells**, which is the one
+; thing about this building that was not foreseen:
+;
+; A doorway's *lane* -- its own span, five cells in from the wall it is cut
+; through -- must hold no wall of the shell (#144), and from Level 5 a doorway
+; may sit at any of six bands (#135). Take the union over four sides and six
+; bands and the cells a wall may stand in are **columns 6 to 24 by rows 6 to
+; 14** and nothing else. So **a wall in a room with doorways on both axes cannot
+; reach a border**, which is the one thing the authored shells of #132 were for.
+;
+; `boxroom`, `vault`, `benches` and `pillars` live inside that rectangle. The
+; other eight belong to an axis: `spine`, `spine-low`, `stubs` and `dogleg` to
+; east-west, `rung`, `rung-low`, `ledges` and `piers` to north-south. The gate
+; in `tests/test_spike_shells.py` refuses the rest, per room and per band.
+; ---------------------------------------------------------------------------
+;
+; The dials are `levels._beyond`'s and are not authored here: the fly count is a
+; **building total** dealt across the live rooms, so every `clegs:` below is nought
+; and the number is the level's. The roster is the seven clocks below and never
+; rises with the room count.
+
+level: 4
+name: Rescue
+building: Blackwell Mill
+blood: 64
+spray: 5
+lives: 3
+magnet: 10
+wake: on
+fade: 2           ; halved at Level 7, not here (#146 revises #137's ruling 9)
+
+; **The roster's low end is 40 and not 30, and that is measured.** At four and
+; five rooms the clock floor is 29 and 36, so these are the only buildings on the
+; ladder where the shortest clocks stand as authored -- from seven rooms up the
+; floor lifts everything below 50 anyway. A person who starts on 30 has sixty
+; seconds, and **three bites cost about as much as sixteen seconds of bleeding**:
+; the swarm bites whoever is following you, not only the player. The oracle
+; cleared Level 5 on fourteen seeds of sixteen with 30 at the bottom and on all
+; sixteen with 40, so a level perfect play could not finish became one it can.
+; Seven people, and the roster never rises with the room count.
+people: 90 80 70 60 50 45 40
+
+; The two east-west divisions are declared and named by nobody. Every room
+; in this building has a doorway in a horizontal wall, so neither is usable
+; here -- but they are the vocabulary's pair for a room whose doorways are
+; east and west only, and a shape nobody names is still checked by the gate
+; (issue #144), so declaring them keeps them proved.
+; spine: a division down the room: border to border with a three-cell
+;   gap high up, so the way through is nowhere near the doorways
+shape: spine
+################################
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............................#
+#..............................#
+#..............................#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+#..............#...............#
+################################
+
+; spine-low: the same division with its gap low down, so two rooms built
+;   from the pair do not read as the same room
+shape: spine-low
+################################
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+#..............................#
+#..............................#
+#..............................#
+#...............#..............#
+#...............#..............#
+#...............#..............#
+################################
+
+; dogleg: a bay from the top and one from the bottom, offset, so the
+;   walk across the room bends twice
+shape: dogleg
+################################
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#...........#..................#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+#....................#.........#
+################################
+
+; stubs: two bays, one in from the top border and one from the bottom
+shape: stubs
+################################
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#........#.....................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+#.....................#........#
+################################
+
+; rung: a division **across** the room -- the spine turned through a
+;   right angle (issue #144), with its gap over to the west.
+;   **A horizontal wall lives in rows 6 to 15 and nowhere else:**
+;   rows 1-5 and 16-20 are a north and a south doorway's landings
+shape: rung
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+####...#########################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; rung-low: the same division lower and its gap over east
+shape: rung-low
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#########################...####
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; ledges: two bays in from opposite side walls, offset: the dogleg turned
+shape: ledges
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+####################...........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#...........####################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; piers: two short bays, one in from the west wall and one from the east:
+;   the stubs turned
+shape: piers
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+##########.....................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.....................##########
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; boxroom: a chamber with a door in each of two opposite walls. One door
+;   is refused: a wall that closes on itself has no end for a
+;   fly to follow, and no room here is enterable only one way
+shape: boxroom
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.........##########...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........#....................#
+#..................#...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........#........#...........#
+#.........##########...........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; vault: a smaller chamber, off centre, a door each side. **One of the
+;   four shells a junction may use** -- see the note below
+shape: vault
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..........##########..........#
+#..........#........#..........#
+#..........#........#..........#
+#..............................#
+#..........#........#..........#
+#..........#........#..........#
+#..........##########..........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; benches: two bars, offset, touching nothing: a room you cross in an S
+shape: benches
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#.......########...............#
+#..............................#
+#..............................#
+#..............................#
+#...............########.......#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; pillars: four blocks. The room is open and the walk is still not straight
+shape: pillars
+################################
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#........##.........##.........#
+#........##.........##.........#
+#..............................#
+#..............................#
+#........##.........##.........#
+#........##.........##.........#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+#..............................#
+################################
+
+; A(0,0). The way out is in its west wall, and it is in every building on
+; the ladder. Two doorways, east and south, so its shells are the ones clear
+; of both those lanes.
+room: the entrance hall
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: dogleg
+shell: stubs
+searchlight: 3 repeat
+start: 24 96
+at: 0 0
+door: east 10-12 the east gallery
+door: south 14-16 the west stair
+
+; B(1,0). A junction from Level 8: west, south and east. **Doorways on both
+; axes, so only a four-sided shell will do** -- a wall in such a room cannot
+; reach a border at all (see the note at the head of this file).
+room: the east gallery
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: boxroom
+shell: vault
+searchlight: 3 repeat
+start: 16 80
+at: 1 0
+door: west 10-12 the entrance hall
+door: south 14-16 the crossing
+door: east 10-12 the far gallery
+
+; C(0,1). North, east and south.
+room: the west stair
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: vault
+shell: pillars
+light: 0 10 3 3
+searchlight: 3 repeat
+start: 16 80
+at: 0 1
+door: north 14-16 the entrance hall
+door: east 10-12 the crossing
+door: south 14-16 the boiler room
+
+; D(1,1). **Four doorways at nine rooms** -- the only room in the game with
+; one in every wall, and the reason the four-sided shells exist.
+room: the crossing
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: boxroom
+shell: benches
+searchlight: 3 repeat
+start: 16 80
+at: 1 1
+door: north 14-16 the east gallery
+door: west 10-12 the west stair
+door: east 10-12 the east stair
+door: south 14-16 the plant room
+
+; E(2,0). Switched on at Level 6, where it is the building's first dead end
+; and always holds somebody. Level 8 closes it into the second loop.
+room: the far gallery
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: dogleg
+shell: stubs
+searchlight: 3 repeat
+start: 16 80
+at: 2 0
+door: west 10-12 the east gallery
+door: south 14-16 the east stair
+
+; F(2,1). Switched on at Level 8, closing E into a loop.
+room: the east stair
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: benches
+shell: pillars
+searchlight: 3 repeat
+start: 16 80
+at: 2 1
+door: west 10-12 the crossing
+door: north 14-16 the far gallery
+door: south 14-16 the store
+
+; G(1,2). A spur off the crossing, switched on at Level 8. One doorway, in
+; the north wall, so the horizontal shells (#144). **A spur keeps
+; `repeat`**: the one room you cannot go round is the one room whose light
+; you can time.
+room: the plant room
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: rung
+shell: ledges
+searchlight: 3 repeat
+start: 16 80
+at: 1 2
+door: north 14-16 the crossing
+
+; H(0,2). A spur off the west stair, switched on at Level 9.
+room: the boiler room
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: rung-low
+shell: piers
+searchlight: 3 repeat
+start: 16 80
+at: 0 2
+door: north 14-16 the west stair
+
+; I(2,2). A spur off the east stair, switched on at Level 9. With seven
+; people over nine rooms two of the three spurs are empty, and which two
+; rolls every run.
+room: the store
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 0
+shell: ledges
+shell: piers
+searchlight: 3 repeat
+start: 16 80
+at: 2 2
+door: north 14-16 the east stair
+

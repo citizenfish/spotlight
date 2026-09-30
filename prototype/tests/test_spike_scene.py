@@ -45,14 +45,23 @@ def test_every_cell_kind_has_a_hue_in_its_own_rooms_palette(room):
 
 
 def test_the_building_is_walled_all_the_way_round_except_at_its_doors(room):
-    """The only holes in a room's outer wall are ways through it."""
-    assert set(room.rows[0]) == {scene.WALL}
-    assert set(room.rows[-1]) == {scene.WALL}
+    """The only holes in a room's outer wall are ways through it.
+
+    **All four walls, since issue #146 made Level 3 a column.** This asserted the
+    top and bottom rows were solid and then checked only the two side walls for
+    doors -- which was right for every building the game had ever had, because
+    every doorway was in an east or a west wall. A doorway has been able to sit
+    in a horizontal wall since #139 and the first one shipped in #146, and the
+    test that would have caught a hole in a top wall was asserting there could
+    not be one.
+    """
     doors = {c for d in room.doorways for c in d.cells()}
     doors |= set(room.cells_of(scene.EXIT))
     for cy, line in enumerate(room.rows):
-        for cx in (0, COLS - 1):
-            assert line[cx] == scene.WALL or (cx, cy) in doors, \
+        for cx, char in enumerate(line):
+            if not (cx in (0, COLS - 1) or cy in (0, PLAY_ROWS - 1)):
+                continue
+            assert char == scene.WALL or (cx, cy) in doors, \
                 f"{room.name} has a hole at {cx},{cy} that is not a door"
 
 
@@ -174,34 +183,48 @@ def test_outside_a_room_counts_as_solid(room):
 # --- the threshold (issue #21) ----------------------------------------------
 
 def test_the_rooms_are_joined_in_a_chain_at_shared_walls():
-    """Three rooms since issue #137, so the far room has a doorway on each
-    side: west to the main room and east to the one beyond it."""
+    """Three rooms since issue #137, and since #146 the chain runs **down**:
+    Level 3 is a column, so the far room's two doorways are north to the main
+    room and south to the one beyond it.
+
+    Every test from here to the end of this section was written when a doorway
+    could only be in an east or a west wall, and they are the first things in
+    the game to exercise the vertical axis a shipped level actually uses.
+    """
     near = _room(scene.NEAR_NAME)
     far = _room(scene.FAR_NAME)
     beyond = _room(scene.ROOM_BEYOND.name)
     assert [d.to for d in near.doorways] == [far.index]
     assert sorted(d.to for d in far.doorways) == [near.index, beyond.index]
     assert [d.to for d in beyond.doorways] == [far.index]
-    assert near.doorways[0].side == B.EAST
-    assert beyond.doorways[0].side == B.WEST
-    assert {d.side for d in far.doorways} == {B.EAST, B.WEST}
+    assert near.doorways[0].side == B.SOUTH
+    assert beyond.doorways[0].side == B.NORTH
+    assert {d.side for d in far.doorways} == {B.NORTH, B.SOUTH}
 
 
-def test_the_doorway_is_at_the_same_rows_on_both_sides():
+def test_the_doorway_is_at_the_same_cells_on_both_sides():
     """The world is continuous and only the view jumps, which is only true if
     the two sides line up. A doorway that landed you somewhere else would
-    teleport a tail."""
+    teleport a tail.
+
+    Columns rather than rows since #146, because the gap is in a horizontal wall
+    -- and `Doorway` refuses the wrong question outright, which is asserted here
+    so that nobody reintroduces a `rows` on a horizontal gap.
+    """
     near, far = _room(scene.NEAR_NAME), _room(scene.FAR_NAME)
-    assert near.doorways[0].rows == far.doorways[0].rows == scene.DOOR_ROWS
+    assert near.doorways[0].cols == far.doorways[0].cols == scene.DOOR_SPAN
+    with pytest.raises(AttributeError, match="horizontal"):
+        near.doorways[0].rows
 
 
-def test_the_connecting_doorway_is_three_cells_tall():
+def test_the_connecting_doorway_is_three_cells_wide():
     """Two would fit a person. Three is an authoring kindness: the movement
     assist nudges by up to a cell, and a door the player bounces off is the
     first thing this audience reads as broken."""
     for r in ROOMS:
         for door in r.doorways:
-            assert len(door.rows) == 3
+            span = door.rows if door.vertical else door.cols
+            assert len(span) == B.DOORWAY_CELLS == 3
 
 
 def test_the_connecting_doorway_is_a_gap_and_not_a_coloured_door():
@@ -257,21 +280,26 @@ def test_the_cell_past_a_doorway_is_the_next_rooms_first_cell():
     """The whole of the crossing mechanism, and the reason nothing else in the
     game knows a doorway exists."""
     near, far = _room(scene.NEAR_NAME), _room(scene.FAR_NAME)
-    row = near.doorways[0].middle
-    assert near.across(COLS, row) == (far, 0, row)
-    assert far.across(-1, row) == (near, COLS - 1, row)
-    assert not near.is_solid(COLS, row), "the doorway does not lead anywhere"
-    assert not far.is_solid(-1, row)
+    col = near.doorways[0].middle
+    assert near.across(col, PLAY_ROWS) == (far, col, 0)
+    assert far.across(col, -1) == (near, col, PLAY_ROWS - 1)
+    assert not near.is_solid(col, PLAY_ROWS), "the doorway does not lead anywhere"
+    assert not far.is_solid(col, -1)
 
 
 def test_the_wall_beside_a_doorway_is_still_solid():
-    """A doorway is three rows out of twenty-two, and the other nineteen have
-    to stop you exactly as they did before."""
+    """A doorway is three columns out of thirty-two, and the other twenty-nine
+    have to stop you exactly as they did before.
+
+    On the south wall since #146. It read the *east* wall before, which after the
+    column arrived was a wall with no doorway in it at all -- so it would have
+    passed with the doorway machinery deleted."""
     near = _room(scene.NEAR_NAME)
-    for row in range(PLAY_ROWS):
-        if row not in scene.DOOR_ROWS:
-            assert near.is_solid(COLS, row), f"row {row} leaks into the far room"
-            assert near.across(COLS, row) is None
+    for col in range(COLS):
+        if col not in scene.DOOR_SPAN:
+            assert near.is_solid(col, PLAY_ROWS), \
+                f"column {col} leaks into the far room"
+            assert near.across(col, PLAY_ROWS) is None
 
 
 def test_a_doorway_in_a_vertical_wall_must_be_two_cells_tall():
@@ -293,30 +321,56 @@ def test_a_doorway_must_not_be_walled_up():
         walled.validate()
 
 
-def test_a_doorway_must_have_one_back_again_at_the_same_rows():
-    a = B.Room("a", ROOMS[0].rows, doorways=(B.Doorway(B.EAST, (10, 11, 12), 1),))
-    b = B.Room("b", ROOMS[1].rows, doorways=(B.Doorway(B.WEST, (10, 11), 0),))
+def test_a_doorway_must_have_one_back_again_at_the_same_cells():
+    """Built from a plain shell rather than from `ROOMS`, because the scene's own
+    rooms are a column now and their east walls have no gap to line up."""
+    rows = [["#"] * COLS]
+    rows += [["#"] + ["."] * (COLS - 2) + ["#"] for _ in range(PLAY_ROWS - 2)]
+    rows.append(["#"] * COLS)
+    for cy in (10, 11, 12):
+        rows[cy][COLS - 1] = "d"
+        rows[cy][0] = "d"
+    plain = ["".join(r) for r in rows]
+    a = B.Room("a", plain, doorways=(B.Doorway(B.EAST, (10, 11, 12), 1),))
+    b = B.Room("b", plain, doorways=(B.Doorway(B.WEST, (10, 11), 0),))
     with pytest.raises(ValueError, match="line up"):
         B.Building((a, b)).validate()
 
 
 def test_a_person_who_walks_off_the_edge_arrives_next_door():
     """The transition fires when the figure has cleared the threshold entirely.
-    At x=255 you straddle the two rooms; at x=256 you are wholly in the next
-    one, which is x=0 there. Nothing jumps but the view."""
+
+    **Downwards since #146**: at y one pixel short of the wall you straddle the
+    two rooms; a row of pixels further and you are wholly in the next one, which
+    is the top there. Nothing jumps but the view.
+
+    `cross` hands back the room and **both** coordinates since issue #139: a
+    vertical crossing keeps the row and a horizontal one keeps the column, and
+    the caller no longer has to know which kind it was. That is what makes this
+    test the mirror of what it used to be rather than a new one.
+    """
     near = _room(scene.NEAR_NAME)
-    y = scene.DOOR_ROWS[1] * CELL
-    # `cross` hands back the room and **both** coordinates since issue #139: a
-    # vertical crossing keeps the row and a horizontal one keeps the column, and
-    # the caller no longer has to know which kind it was.
-    assert scene.BUILDING.cross(near.index, 255, y) is None
-    assert scene.BUILDING.cross(near.index, COLS * CELL, y) == (1, 0, y)
-    assert scene.BUILDING.cross(1, -8, y) == (near.index, (COLS - 1) * CELL, y)
+    x = scene.DOOR_SPAN[1] * CELL
+    bottom = PLAY_ROWS * CELL
+    assert scene.BUILDING.cross(near.index, x, bottom - 1) is None
+    assert scene.BUILDING.cross(near.index, x, bottom) == (1, x, 0)
+    # And back up again, from the far room's north wall into the main room.
+    # **A person clears a horizontal threshold at their full height**, which is
+    # sixteen pixels and not eight: one cell up is still straddling it. That
+    # asymmetry between the axes is issue #139's finding and this is where it
+    # shows on a shipped level.
+    assert scene.BUILDING.cross(1, x, -CELL) is None
+    # And the y it arrives at is its own height off the floor, which is where a
+    # figure standing on the bottom row has its top pixel -- not the row itself.
+    assert scene.BUILDING.cross(1, x, -B.PERSON_HEIGHT) == \
+        (near.index, x, PLAY_ROWS * CELL - B.PERSON_HEIGHT)
 
 
 def test_walking_off_an_edge_with_no_doorway_goes_nowhere():
     near = _room(scene.NEAR_NAME)
-    assert scene.BUILDING.cross(near.index, COLS * CELL, 2 * CELL) is None
+    assert scene.BUILDING.cross(near.index, 2 * CELL, PLAY_ROWS * CELL) is None
+    # And the east wall, which in a column has no doorway anywhere in it.
+    assert scene.BUILDING.cross(near.index, COLS * CELL, 10 * CELL) is None
 
 
 # --- what each room authors -------------------------------------------------
@@ -948,29 +1002,47 @@ def test_no_room_paints_a_light_into_its_map(room):
 def test_a_light_and_a_doorway_share_the_three_cells_that_collided():
     """**The exact collision, pinned from both sides.**
 
-    Room B's three cells at column 0 are a doorway *and* they are inside the
+    Room B's three cells of the way home are a doorway *and* they are inside the
     room light, at the same time, and neither had to move to allow it. Before
     issue #50 one of those two facts could be true at a time, and the picture
     lost: the way home drew no returns.
+
+    **On the north wall since #146**, where Level 3's column puts the way home.
+    The collision is the same one -- a light zone and a doorway over the same
+    three cells -- and the point of keeping the test is that it was a real bug
+    about a doorway in a *vertical* wall, so proving it on a horizontal one is
+    proving the fix did not depend on the axis.
     """
     far = _room(scene.FAR_NAME)
     lit = {c for z in far.light_zones() for c in _zone_cells(z)}
-    for cy in scene.DOOR_ROWS:
-        assert far.is_doorway(0, cy), "the way home does not read as a doorway"
-        assert (0, cy) in lit, "the way home is not lit"
-        assert not far.is_solid(0, cy), "the way home is walled up"
+    for cx in scene.DOOR_SPAN:
+        assert far.is_doorway(cx, 0), "the way home does not read as a doorway"
+        assert (cx, 0) in lit, "the way home is not lit"
+        assert not far.is_solid(cx, 0), "the way home is walled up"
 
 
-def test_the_far_rooms_lure_is_where_it_has_always_been():
-    """**The number the whole ruling turns on.** A room light is a permanent
-    lure and a Cleg steers at the middle of the zone, so the origin is a
-    gameplay constant that a drawing change is not allowed to move. It was
-    (1, 11) when the zone was reconstructed from `L` cells and it is (1, 11)
-    now that it is authored. If it ever reads (2, 11), somebody has taken the
-    doorway column out of the light to make a picture work."""
-    zones = _room(scene.FAR_NAME).light_zones()
-    assert zones == [(0, 10, 3, 3)]
-    assert S.RoomLight(*zones[0]).origin() == (1, 11)
+def test_the_far_rooms_lure_sits_on_the_way_home_wherever_that_wall_is():
+    """**The claim the ruling turns on, and it is not the number.** A room light
+    is a permanent lure and a Cleg steers at the middle of the zone, so where the
+    zone is matters -- and what matters about it is that it covers the way home,
+    doorway cells included. It read `(0, 10, 3, 3)` while the way home was three
+    rows of the west wall; Level 3's column (#146) puts the way home in the north
+    wall and the light with it, at `(14, 0, 3, 3)`.
+
+    The old test asserted the literal origin and warned that `(2, 11)` would mean
+    somebody had taken the doorway column out of the light to make a picture
+    work. **That warning is what is worth keeping**, so it is asserted directly:
+    the zone contains every cell of the doorway."""
+    far = _room(scene.FAR_NAME)
+    zones = far.light_zones()
+    assert zones == [(14, 0, 3, 3)]
+    assert S.RoomLight(*zones[0]).origin() == (15, 1)
+    # The warning, asserted rather than written down: every cell of the way home
+    # is inside the zone.
+    lit = {c for z in zones for c in _zone_cells(z)}
+    home = next(d for d in far.doorways if d.to == scene.NEAR)
+    assert set(home.cells()) <= lit, \
+        "the doorway has been taken out of the light to make a picture work"
 
 
 def test_a_room_light_is_whatever_the_room_authored():

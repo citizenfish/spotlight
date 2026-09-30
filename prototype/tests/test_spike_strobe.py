@@ -96,9 +96,11 @@ def test_a_flash_is_the_whole_buildings_plan_and_leaves_nothing_behind():
     plan = Screen()
     screens.draw_plan(plan, run.building)
     assert _play_area_ink(frame) == _play_area_ink(plan), "the flash is not the plan"
-    x0, y0 = screens.plan_origin(run.building)
-    stride = COLS * screens.PLAN_SCALE + screens.PLAN_GUTTER
     for i, room in enumerate(run.building.rooms):
+        # **Each room's own patch**, since Level 3 is a column (#146) and the plan
+        # is a grid: `x0 + i * stride` was a row's arithmetic and it put room 1 of
+        # a column where nothing is drawn.
+        x0, y0 = screens.plan_room_origin(run.building, i)
         # **Every wall cell is a block of the plan and the furniture is not**
         # (issue #145). It used to be every `SOLID` cell, so at seven or nine
         # rooms every rolled pipe run, riser and cabinet became a two-pixel
@@ -107,7 +109,7 @@ def test_a_flash_is_the_whole_buildings_plan_and_leaves_nothing_behind():
         furniture = 0
         for cy, row in enumerate(room.rows):
             for cx, char in enumerate(row):
-                x, y = x0 + i * stride + cx * screens.PLAN_SCALE, y0 + cy * screens.PLAN_SCALE
+                x, y = x0 + cx * screens.PLAN_SCALE, y0 + cy * screens.PLAN_SCALE
                 if char == B.WALL:
                     assert frame.point(x, y), (i, cx, cy)
                 elif char in B.SOLID_FURNITURE:
@@ -117,7 +119,8 @@ def test_a_flash_is_the_whole_buildings_plan_and_leaves_nothing_behind():
         assert furniture, f"room {i} rolled no furniture, so this proves nothing"
     # The exit wears magenta on the plan, and nothing in the building is lit.
     ex, ey = run.building.exit[1]
-    cell = ((x0 + ex * screens.PLAN_SCALE) // 8, (y0 + ey * screens.PLAN_SCALE) // 8)
+    ax, ay = screens.plan_room_origin(run.building, run.building.exit[0])
+    cell = ((ax + ex * screens.PLAN_SCALE) // 8, (ay + ey * screens.PLAN_SCALE) // 8)
     assert unpack_attr(frame.get_attr(*cell))[0] == MAGENTA
     assert _shown(run) == 0 and not run._lit_people(run.place)
     run.step()                                   # dark
@@ -181,15 +184,14 @@ def test_a_flash_shows_the_people_and_not_the_flies():
         run.step()                                   # the first flash
     frame = Screen()
     run.draw(frame)
-    x0, y0 = screens.plan_origin(run.building)
-    stride = COLS * screens.PLAN_SCALE + screens.PLAN_GUTTER
     for i, room in enumerate(run.building.rooms):
+        x0, y0 = screens.plan_room_origin(run.building, i)
         for x, y, _b in room.workers:
             cx, cy = x // 8, (y + 15) // 8
-            assert frame.point(x0 + i * stride + cx * 2, y0 + cy * 2), "a person is missing"
+            assert frame.point(x0 + cx * 2, y0 + cy * 2), "a person is missing"
         for cx, cy in room.clegs:
             if not room.is_solid(cx, cy):
-                assert not frame.point(x0 + i * stride + cx * 2, y0 + cy * 2), "a fly is on the plan"
+                assert not frame.point(x0 + cx * 2, y0 + cy * 2), "a fly is on the plan"
 
 
 def test_the_black_is_the_buildings_name_and_the_strip_and_nothing_else():
@@ -358,15 +360,30 @@ def test_a_building_with_no_positions_draws_the_single_row_it_always_did():
     assert screens.plan_extent(plain)[:2] == (2, 1)
 
 
-def test_the_shipped_levels_plans_are_the_pixels_they_always_were():
-    """Three rooms in a row is what their grid says, so nothing moved."""
-    for n in levels.levels():
+def test_the_shipped_levels_plans_are_each_their_own_shape():
+    """Level 1 is still a row of three and its plan is where it always was; Levels
+    2 and 3 are a corner and a column since issue #146, so theirs moved and had
+    to.
+
+    The previous form asserted every shipped plan was a row's arithmetic, which
+    was true of the whole game's history up to this point -- which is what made it
+    worth replacing rather than deleting. What it was really guarding is that the
+    origin comes from the grid and the plan lands inside the play area, and that
+    is asserted for every shape now rather than for three rows.
+    """
+    row_origin = ((SCREEN_W - (3 * COLS * screens.PLAN_SCALE
+                               + 2 * screens.PLAN_GUTTER)) // 2,
+                  (PLAY_ROWS * CELL - PLAY_ROWS * screens.PLAN_SCALE) // 2)
+    assert screens.plan_origin(levels.level(1)) == row_origin
+    assert screens.plan_extent(levels.level(1))[:2] == (3, 1)
+    assert screens.plan_extent(levels.level(2))[:2] == (2, 2)
+    assert screens.plan_extent(levels.level(3))[:2] == (1, 3)
+    for n in (1, 2, 3, 4, 6, 8, 9):
         building = levels.level(n)
-        rooms = len(building)
-        was = ((SCREEN_W - (rooms * COLS * screens.PLAN_SCALE
-                            + (rooms - 1) * screens.PLAN_GUTTER)) // 2,
-               (PLAY_ROWS * CELL - PLAY_ROWS * screens.PLAN_SCALE) // 2)
-        assert screens.plan_origin(building) == was, f"level {n} moved"
+        x0, y0 = screens.plan_origin(building)
+        _cols, _rows, width, height = screens.plan_extent(building)
+        assert x0 >= 0 and y0 >= 0, n
+        assert x0 + width <= SCREEN_W and y0 + height <= PLAY_ROWS * CELL, n
 
 
 # --- what the loader now refuses --------------------------------------------

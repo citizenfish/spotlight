@@ -746,11 +746,91 @@ def clock_floor(rooms: int) -> int:
 VARY_FROM = 5
 MOST_FLIES = 9
 
-#: The rest of the ladder (issue #137, ruling 9). `pace:` moves one step and
-#: stops; the spray walks 5 -> 4 -> 3; doorways leave the middle of the wall.
-PACE_FROM, LATE_PACE = 4, 5
-SPRAY_FROM, SPRAY_AGAIN, LATE_SPRAY = 4, 7, 3
-DOORS_OFF_CENTRE = 4
+#: **The ladder, one new thing a level** (issue #146, rulings 6 to 8). It
+#: revises three rows of the previous round's ruling 9, which was taken three
+#: days earlier and is superseded rather than forgotten: six-second wall memory
+#: now runs to Level 6 rather than Level 3, `pace: 5` arrives at Level 8 rather
+#: than 4, and `spray: 4` at Level 10 rather than 4.
+#:
+#: The reason the earlier position changed is that ruling 9 was taken when Level
+#: 4 gained nothing structural, and it now gains a **ring**. Halving the wall
+#: memory on the level that introduces a topology makes the topology
+#: unlearnable, and Level 4 was already the steepest single step in the game --
+#: it moved four dials at once while Levels 6 to 9 were nearly flat. Spreading
+#: them out addresses both with one move, and **Level 4 is expected to get
+#: easier**.
+#:
+#:     level  rooms  what is new                doors   flies  spray  pace  fade
+#:     4      4      a fourth room and a ring   centre  6      5      6     2
+#:     5      4      doorways leave the middle  off     6      5      6     2
+#:     6      5      one room with one way out  off     6      5      6     2
+#:     7      5      the wall memory halves     off     7      5      6     1
+#:     8      7      a second loop, two junctions off    8      5      6     1
+#:     9      9      two more rooms; a dead end can be empty
+#:                                              off     9      5      6     1
+#:     10     9      spray 5 to 4, and the beam quickens
+#:                                              off     9      4      5     1
+#:     13     9      spray 4 to 3               off     9      3      5     1
+#:     14+    9      the clock, to the floor    off     9      3      5     1
+#:
+#: **`pace: 5` is at Level 10 and not Level 8** (ruled 2026-09-30), which revises
+#: ruling 8 a second time -- it went from Level 4 to Level 8 in the issue and from
+#: Level 8 to Level 10 here, and both times for a measured reason.
+#:
+#: At Level 8 **perfect play could not finish the level**: the oracle cleared six
+#: seeds of eight, and on the worst it freed all seven people and then lost all
+#: three lives to twenty-seven bites. What made that visible was fixing the
+#: transposed magnet cell (`Session._magnet_cell`): before it, a magnetised fly in
+#: a room reached north or south walked at the wrong wall and never crossed, so the
+#: magnet did not work in any of this round's new shapes. With it working, Level 8
+#: was two rooms, the eighth fly *and* the quicker beam at one level-up -- three
+#: things, which is exactly the fault the round was raised to fix about Level 4.
+#:
+#: Moving it to 10 clears every level from 1 to 9 on all eight seeds **and leaves
+#: no row of the ladder moving more than two dials**, which the issue's own table
+#: did not manage. Level 9 at `PACE_FROM = 9` also cleared; 10 was taken because it
+#: is the arrangement that obeys "one new thing a level" best.
+#:
+#: `magnet:` is refused outright: measured, it is not monotonic (55 of 56 saved
+#: at five seconds, **42** at ten, 55 at twenty), so a ladder up it walks a
+#: curve that is not one.
+PACE_FROM, LATE_PACE = 10, 5
+#: The spray steps down at these levels, one charge each, to `LATE_SPRAY`.
+SPRAY_FROM, SPRAY_AGAIN, LATE_SPRAY = 10, 13, 3
+DOORS_OFF_CENTRE = 5
+#: Where the six-second wall memory ends: the levels that teach hold the room in
+#: mind for twice as long, and that now runs to the end of Level 6.
+FADE_HALVES_AT = 7
+#: Where the clock starts tightening. Everything before it is a new *shape* or a
+#: new dial; the clock is what is left once the building has stopped growing.
+CLOCK_FROM = 14
+
+#: The nine-room building Levels 4 and up are cut from (issue #146). Not a
+#: level: `levels()` globs `level*.txt` and this is not one, so nothing loads it
+#: by number.
+LADDER_FILE = "ladder.txt"
+
+#: How many of the ladder's rooms are switched on, by level. The chain is
+#: 4, 4, 5, 5, 7, 9 -- and **eight is skipped deliberately**: seven is the last
+#: size at which every room holds somebody, so eight buys one empty leaf for
+#: nothing.
+LADDER_ROOMS = {4: 4, 5: 4, 6: 5, 7: 5, 8: 7}
+MOST_ROOMS = 9
+
+#: The building's fly count by level, as a **total** and never a per-room
+#: number. Six until the building stops being a teaching shape, then one more a
+#: level to `MOST_FLIES`.
+FLIES_AT = {7: 7, 8: 8}
+
+
+def ladder_rooms(n: int) -> int:
+    """How many of the ladder's nine rooms Level `n` switches on."""
+    return LADDER_ROOMS.get(n, MOST_ROOMS)
+
+
+def ladder_flies(n: int) -> int:
+    """The building's whole swarm at Level `n`."""
+    return FLIES_AT.get(n, 6 if n < 7 else MOST_FLIES)
 
 #: Where a doorway sits once it stops sitting in the middle. Cycled by level,
 #: so a level number names a building: the same rows every run of Level 6.
@@ -782,63 +862,84 @@ def _level(n: int, seed: int) -> Building:
 
 
 def _beyond(n: int, seed: int) -> Building:
-    """Level `n` past the last file: the last file's shells, tightened."""
+    """Level `n` past the last file: the ladder cut to size, dials turned.
+
+    Issue #146. It used to be Level 3 re-rolled with the clock cut, which was
+    the whole of the progression once the fly count topped out -- and Level 3 is
+    a three-room column, so no amount of dial-turning could ever have produced a
+    ring. The ladder is its own authored building of nine rooms
+    (`ladder.txt`), and a level takes **the first `ladder_rooms(n)` of them**:
+    four for the ring, five with the first dead end, seven for two loops and a
+    spur, nine for two loops and three spurs.
+
+    Cutting rooms means cutting the doorways that led to them, which is the whole
+    mechanism: the file authors every edge of the nine-room shape and a level
+    keeps the ones with both ends switched on. Nothing about the shape is
+    computed -- it is authored once and sliced.
+
+    **Levels 1 to 3 are not on this ladder**, and they are not supersets of one
+    another either: a row, a corner and a column, three teaching shapes that
+    each meet one axis with the rest of the game held still. The superset chain
+    starts here.
+    """
     from . import seeds
-    path = LEVELS_DIR / f"level{LAST_FILE}.txt"
-    number, name, specs, budget, _shapes = parse(path.read_text(), str(path))
-    above = n - LAST_FILE
+    path = LEVELS_DIR / LADDER_FILE
+    _number, name, specs, budget, _shapes = parse(path.read_text(), str(path))
+    if len(specs) != MOST_ROOMS:
+        raise ValueError(f"{path}: the ladder authors {len(specs)} rooms, "
+                         f"and the biggest building is {MOST_ROOMS}")
     for spec in specs:
         if spec.roll is None:
-            raise ValueError(f"{path}: level {n} needs every room of level "
-                             f"{LAST_FILE} to roll, and {spec.name!r} does not")
-    # The first level at the floor: where the level's shortest clock, cut
-    # `CLOCK_STEP` a level, first reaches it.
-    # The floor is the building's, not the constant's (issue #143): a level
-    # whose rooms are still being added reaches its floor later, because the
-    # floor rose with the rooms.
-    floor = clock_floor(len(specs))
-    shortest = min(budget.people)
-    floor_level = LAST_FILE + max(0, -(-(shortest - floor) // CLOCK_STEP))
-    roster = tuple(max(floor, blood - CLOCK_STEP * above)
-                   for blood in budget.people)
+            raise ValueError(f"{path}: every room of the ladder must roll, "
+                             f"and {spec.name!r} does not")
+
+    # **The rooms that are on**, and then the doorways whose far end is also on.
+    live = ladder_rooms(n)
+    specs = specs[:live]
+    on = {spec.name for spec in specs}
     for spec in specs:
-        if n >= VARY_FROM:
+        spec.doors = [d for d in spec.doors if d[2] in on]
+
+    # The clock holds until the building has stopped growing and every dial has
+    # arrived; from `CLOCK_FROM` it tightens `CLOCK_STEP` a level to the floor,
+    # which is the building's own and rose with the rooms (issue #143).
+    floor = clock_floor(len(specs))
+    cut = CLOCK_STEP * max(0, n - CLOCK_FROM + 1)
+    roster = tuple(max(floor, blood - cut) for blood in budget.people)
+
+    for spec in specs:
+        # **A spur keeps `repeat`** (ruling 12): the one room you cannot go
+        # round is the one room whose light you can learn to time. Everything
+        # else varies once the player has met the ring.
+        if n >= VARY_FROM and len(spec.doors) > 1:
             spec.searchlight.vary = True
-        # **The dials that were frozen at Level 3** (issue #137, ruling 9).
-        # Six of the eight a level file can turn used to be identical at
-        # Level 3 and Level 400, and the whole of the progression was the clock
-        # and the fly count -- which is why Levels 2 to 6 measured 84, 86, 91
-        # and 83 per cent and felt like one level renamed.
-        #
-        # `pace:` moves **one** step and stops. Pace 4 costs +616 T-states a
-        # frame, which is affordable, and breaks the one local skill the beam
-        # teaches -- you learn a repeating route and time your crossing -- which
-        # is not. `magnet:` is refused outright: measured, it is not monotonic
-        # (55 of 56 saved at five seconds, **42** at ten, 55 at twenty), so a
-        # ladder up it walks a curve that is not one.
         if n >= PACE_FROM:
             spec.searchlight.pace = LATE_PACE
         # Doorways stop sitting at the exact middle of the wall (#135, ruling
-        # 8). A player had never once had to remember which way out of a room.
-        # Which rows they move to is the level's, not a roll: the same level
-        # number gives the same building, and a doorway that moved per seed
-        # would be a room you cannot learn at all.
+        # 8), from Level 5 rather than Level 4 (#146). Which band they move to is
+        # the level's and not a roll: the same level number gives the same
+        # building, and a doorway that moved per seed would be a room you cannot
+        # learn at all.
         if n >= DOORS_OFF_CENTRE:
-            spec.doors = [(side, _shifted(rows, n), to, line)
-                          for side, rows, to, line in spec.doors]
-    extra = max(0, n - floor_level)
-    have = sum(spec.roll.get("clegs", 0) for spec in specs)
-    specs[-1].roll["clegs"] = specs[-1].roll.get("clegs", 0) + \
-        min(extra, max(0, MOST_FLIES - have))
+            spec.doors = [(side, _shifted(span, n), to, line)
+                          for side, span, to, line in spec.doors]
+
+    # **The swarm is a building total** and never a per-room number (ruling 12),
+    # so it is dealt here rather than authored: evenly over the live rooms with
+    # the remainder to the deepest, which are the rooms a player reaches last.
+    flies = ladder_flies(n)
+    for i, spec in enumerate(specs):
+        spec.roll["clegs"] = flies // live + (1 if i >= live - flies % live else 0)
+
     budget = budget._replace(
         people=roster,
-        # Six seconds of wall memory is for the levels that teach; from here
-        # the room goes out of your head in three (ruling 9). Free -- two
-        # T-states a frame -- and it is the dial that decides whether the walls
-        # this round authored are ever actually seen.
-        fade=1,
-        # The spray walks down as the building grows: five, then four, then
-        # three (ruling 9).
+        # Six seconds of wall memory is for the levels that teach, and that now
+        # runs to the end of Level 6 rather than Level 3 (#146 revising #137's
+        # ruling 9): halving it on the level that introduces a topology makes
+        # the topology unlearnable.
+        fade=2 if n < FADE_HALVES_AT else 1,
+        # The spray walks down once the building has stopped growing: five, then
+        # four at Level 10, then three at 13.
         spray=max(LATE_SPRAY, budget.spray - (1 if n >= SPRAY_FROM else 0)
                   - (1 if n >= SPRAY_AGAIN else 0)))
     building = build(specs, f"{path} as level {n}",

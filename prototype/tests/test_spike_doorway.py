@@ -26,11 +26,94 @@ from spikes import (
     building, clegs as clegs_mod, lighting, rescue as rescue_mod, scene,
     session,
 )
-from spikes.session import Intent, Session
+from spikes import levels
+from spikes.session import Intent
+from spikes.session import Session as _Session
+from spikes.layout import PLAY_ROWS
 from spotlight.core.constants import CELL, COLS
 from spotlight.core.screen import Screen
 
-DOOR_ROW = scene.DOOR_ROWS[1]
+#: **A row of three, authored here, since issue #146 made Level 3 a column.**
+#:
+#: Every test in this module is about *crossing an east-west threshold* -- the
+#: continuity of the walk, what carries through it and what stops at it -- and it
+#: was written against `scene.BUILDING` because that happened to be a row. It is
+#: not one any more.
+#:
+#: The fixture is authored here rather than borrowed from a shipped level, and
+#: that is the point: **this module was coupled to the shape of Level 3 and had no
+#: business being.** Level 1 is still a row but carries one fly and four people,
+#: so half of these would have measured the wrong building. What the module needs
+#: is a row with flies and people in every room, a beam that varies in the middle
+#: one, and a light on the way home -- which is what Level 3 used to be.
+#:
+#: The four-sided cases are not lost and were never here: `test_spike_corners.py`
+#: walks a 2x2 ring every way (#139), and `test_spike_scene.py` asserts the
+#: shipped column's own crossings since #146.
+DOOR_ROWS = (10, 11, 12)
+DOOR_ROW = DOOR_ROWS[1]
+
+_ROOM = """
+room: {name}
+roll:
+segments: 4 6
+length: 4 10
+pieces: 2 3
+band: 14 28
+away: 14
+clegs: 2
+shell: spine
+shell: dogleg
+{light}searchlight: 3 {beam}
+start: {start}
+at: {col} 0
+{doors}
+"""
+
+
+def _row_text() -> str:
+    out = ("level: 3\nname: Rescue\nbuilding: The Hollins Hotel\n"
+           "blood: 64\nspray: 5\nlives: 3\nmagnet: 10\nwake: on\nfade: 2\n"
+           "people: 90 80 70 60 50 40 30\n")
+    import re
+    source = (levels.LEVELS_DIR / levels.LADDER_FILE).read_text()
+    for name in ("spine", "dogleg"):
+        block = re.search(rf"^shape: {name}\n((?:[#.dD]{{32}}\n)+)", source, re.M)
+        out += f"shape: {name}\n" + block.group(1)
+    rooms = (("the main room", "repeat", "", "24 96",
+              ("door: east 10-12 the far room",)),
+             ("the far room", "vary", "light: 0 10 3 3\n", "16 80",
+              ("door: west 10-12 the main room",
+               "door: east 10-12 the boiler room")),
+             ("the boiler room", "repeat", "", "16 80",
+              ("door: west 10-12 the far room",)))
+    for col, (name, beam, light, start, doors) in enumerate(rooms):
+        out += _ROOM.format(name=name, beam=beam, light=light, start=start,
+                            col=col, doors="\n".join(doors))
+    return out
+
+
+_ROW = {}
+
+
+def row(seed: int = 1):
+    """The fixture building, rolled for `seed` and cached like a level is."""
+    if seed not in _ROW:
+        number, name, specs, budget, _shapes = levels.parse(_row_text(), "<row>")
+        from spikes import seeds as seeds_mod
+        b = levels.build(specs, "<row>", roll_seed=seeds_mod.roll_seed(seed, number),
+                         people=budget.people,
+                         people_seed=seeds_mod.people_seed(seed, number))
+        b.level, b.title, b.name, b.budget, b.seed = (
+            number, name, budget.building, budget, seed)
+        _ROW[seed] = b
+    return _ROW[seed]
+
+
+def Session(**kw):  # noqa: N802 -- it stands in for the class
+    """A run on the row, unless the caller names its own building."""
+    kw.setdefault("building", row(kw.get("seed", 1)))
+    return _Session(**kw)
 
 
 def at_door(run, room=scene.NEAR, offset=0):
@@ -148,7 +231,7 @@ def test_you_cannot_see_into_the_far_room_from_the_near_rooms_doorway():
     near, far = run.places[scene.NEAR], run.places[scene.FAR]
     assert near.field.level_at(COLS - 1, DOOR_ROW) != lighting.DARK, \
         "the player is not even lighting the doorway they are standing in"
-    for cy in scene.DOOR_ROWS:
+    for cy in DOOR_ROWS:
         for cx in range(0, 7):
             assert far.field.level_at(cx, cy) in (lighting.DARK, lighting.LIT), \
                 "unexpected level"
@@ -197,7 +280,7 @@ def test_the_far_room_is_lit_at_its_doorway_from_the_first_frame():
     run = Session(seed=1)
     run.step()
     far = run.places[scene.FAR]
-    for cy in scene.DOOR_ROWS:
+    for cy in DOOR_ROWS:
         assert far.field.level_at(0, cy) == lighting.LIT
 
 
@@ -215,7 +298,7 @@ def test_the_far_rooms_light_does_not_make_the_tail_prey():
     run = Session(seed=1)
     run.step()
     far = run.places[scene.FAR]
-    for cy in scene.DOOR_ROWS:
+    for cy in DOOR_ROWS:
         assert far.field.level_at(0, cy) == lighting.LIT
         assert not far.field.prey_at(0, cy)
 
@@ -227,7 +310,7 @@ def test_every_room_has_a_searchlight_and_the_far_rooms_varies():
     assert run.places[scene.NEAR].roaming is not None
     assert run.places[scene.FAR].roaming is not None
     assert run.places[scene.FAR].roaming.vary
-    assert len(run.searchlights) == len(scene.BUILDING)
+    assert len(run.searchlights) == len(run.building)
     # Still the only varying one, with three rooms as with two.
     assert [p.index for p in run.places if p.roaming.vary] == [scene.FAR]
 
@@ -482,7 +565,7 @@ def test_a_fly_stepping_through_a_doorway_is_refused_a_cell_a_fly_next_door_hold
                 if c.state != clegs_mod.ATTACHED}
         if any((c.cx, c.cy) == (COLS - 1, cy) and (0, cy) in held
                for c in run.places[scene.NEAR].swarm.clegs
-               for cy in scene.DOOR_ROWS):
+               for cy in DOOR_ROWS):
             waited += 1
     assert waited > 0, "the staging never put a fly at a held threshold"
 
@@ -617,7 +700,7 @@ def test_the_player_in_the_doorway_next_door_is_not_held_ground():
     from_near = run._held_beyond(run.places[scene.NEAR])
     assert not from_near(COLS, cell[1]), "refused a fly the way onto the player"
     # Anywhere the player is not, the same fly holds its cell.
-    fly.cy = cell[1] + 1 if cell[1] + 1 in scene.DOOR_ROWS else cell[1] - 1
+    fly.cy = cell[1] + 1 if cell[1] + 1 in DOOR_ROWS else cell[1] - 1
     assert from_near(COLS, fly.cy)
 
 
@@ -680,8 +763,8 @@ def test_dying_in_a_doorway_scatters_no_fly_onto_one_next_door():
     cell in `SCATTER`'s order on this side.
     """
     run = Session(seed=1)
-    far = _die_in_the_doorway(run, attached=4, landing_rows=scene.DOOR_ROWS)
-    assert all((c.cx, c.cy) == (0, row) for c, row in zip(far, scene.DOOR_ROWS)), \
+    far = _die_in_the_doorway(run, attached=4, landing_rows=DOOR_ROWS)
+    assert all((c.cx, c.cy) == (0, row) for c, row in zip(far, DOOR_ROWS)), \
         "the staging did not keep the landing held"
     assert _scattered_onto_the_landing(run) == set()
     freed = [c for c in run.places[scene.NEAR].swarm.clegs[:4]]
@@ -790,9 +873,14 @@ def test_a_tail_follows_the_player_through_a_doorway_one_at_a_time():
     """
     run = Session(seed=1)
     tail = _tail_of(run, 3)
-    at_door(run, scene.NEAR, offset=-6)
+    # **Three cells back and not six.** The roll is entitled to stand a riser at
+    # column 25: the doorway's landing band is columns 26 to 30, so 25 is outside
+    # it and a solid there blocks nothing -- you walk round it, above or below.
+    # What it does block is a test that teleports six cells back and holds `dx=1`
+    # in a straight line, which is this convenience rather than the game.
+    at_door(run, scene.NEAR, offset=-3)
     arrived = []
-    for _ in range(400):
+    for _ in range(800):
         run.step(Intent(dx=1))
         here = [w for w in tail if w.room == scene.FAR]
         if len(here) > len(arrived):
@@ -998,7 +1086,7 @@ def test_the_call_says_the_door_and_not_the_person():
         seen |= {id(w) for w in who}
         # Their own call cells belong to the far room's field. Nothing about
         # where they are standing reaches this room.
-        far_room = scene.BUILDING.rooms[scene.FAR]
+        far_room = run.building.rooms[scene.FAR]
         own = set(run.call_cells)          # the near room's own shouts
         # **Asked with the arguments the session uses.** `call_cells` takes the
         # cells people are standing on as well as the room's walls -- a shout
@@ -1010,12 +1098,30 @@ def test_the_call_says_the_door_and_not_the_person():
         for cx, cy in {cell for w in who
                        for cell in w.call_cells(people, far_room.is_solid)}:
             assert run.places[scene.FAR].field.level_at(cx, cy) == lighting.LIT
-            # A cell the near room lights for its own reasons -- its own
-            # shouts, or a revealing light such as the beam -- proves nothing;
-            # a shout reveals nobody, so a LIT cell that reveals is not one.
-            if (cx, cy) not in own and not run.field.reveals_at(cx, cy):
-                assert run.field.level_at(cx, cy) != lighting.LIT, \
-                    "a far-room caller lit a cell in the near room"
+        # **And nothing of theirs reaches this room -- stated as a difference.**
+        #
+        # This used to walk the far caller's own cells and assert each was not
+        # lit here, excluding cells the near room lights for its own reasons: its
+        # own shouts, and anything revealing. That exclusion was never complete
+        # and Level 3's old geometry was the only reason it passed. The near room
+        # lights cells for at least three other reasons -- a wall its beam has
+        # passed is remembered and reveals nobody, the player's glow lights
+        # without revealing, and the far room's beam spills through the doorway --
+        # and issue #146's re-authoring put a far caller's cell on one of them.
+        #
+        # So the claim is a difference instead: **the only thing the far room's
+        # shouting adds to this room's light is the word over the door.** Nothing
+        # about where they stand can reach it, because the same run with the calls
+        # switched off differs by exactly those four cells.
+        quiet = Session(seed=seed)
+        quiet.calls_on = False
+        _make_them_shout(quiet, scene.FAR)
+        lit = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
+               if run.field.level_at(cx, cy) == lighting.LIT}
+        was = {(cx, cy) for cy in range(PLAY_ROWS) for cx in range(COLS)
+               if quiet.field.level_at(cx, cy) == lighting.LIT}
+        assert lit - was <= set(cells), \
+            f"the far room's shouting lit {sorted(lit - was - set(cells))} here"
     assert door is not None
     assert len(seen) > 1, "only ever heard the same person, so nothing is shown"
 
@@ -1028,19 +1134,19 @@ def _three_rooms():
     """
     from spikes import building as B
     empty = tuple("#" * COLS if cy in (0, 21) else
-                  ("#" if cy not in scene.DOOR_ROWS else ".")
+                  ("#" if cy not in DOOR_ROWS else ".")
                   + "." * (COLS - 2)
-                  + ("#" if cy not in scene.DOOR_ROWS else ".")
+                  + ("#" if cy not in DOOR_ROWS else ".")
                   for cy in range(22))
     with_exit = tuple(("D" + line[1:]) if cy in (10, 11) else line
                       for cy, line in enumerate(empty))
     a = B.Room("a", with_exit, player_start=(16 * CELL, 5 * CELL),
-               doorways=(B.Doorway(B.EAST, scene.DOOR_ROWS, 1),))
+               doorways=(B.Doorway(B.EAST, DOOR_ROWS, 1),))
     b = B.Room("b", empty,
-               doorways=(B.Doorway(B.WEST, scene.DOOR_ROWS, 0),
-                         B.Doorway(B.EAST, scene.DOOR_ROWS, 2)))
+               doorways=(B.Doorway(B.WEST, DOOR_ROWS, 0),
+                         B.Doorway(B.EAST, DOOR_ROWS, 2)))
     c = B.Room("c", empty, workers=((16 * CELL, 5 * CELL, 30),),
-               doorways=(B.Doorway(B.WEST, scene.DOOR_ROWS, 1),))
+               doorways=(B.Doorway(B.WEST, DOOR_ROWS, 1),))
     return B.Building((a, b, c))
 
 
@@ -1057,7 +1163,9 @@ def test_only_the_adjacent_room_carries(monkeypatch):
     monkeypatch.setattr(scene, "BUILDING", house)
     a, b, c = 0, 1, 2
 
-    run = Session(seed=1)
+    # Named, not defaulted: this module's `Session` puts a run on its own row
+    # fixture, and the whole point of this test is the hand-built house.
+    run = Session(seed=1, building=house)
     assert run.here == a
     assert run.total == 1
     heard_in_a = False

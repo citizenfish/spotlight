@@ -227,11 +227,23 @@ def test_no_worker_starts_below_the_floor():
 
 def test_the_levels_past_the_last_file_tighten_to_the_buildings_floor():
     """`_beyond` cuts every clock three blood a level and stops at the floor
-    of the building it is cutting -- not at the bare constant."""
-    floor = levels.clock_floor(len(levels.level(3).rooms))
+    of the building it is cutting -- not at the bare constant.
+
+    **The building it is cutting is the ladder's nine rooms since issue #146**,
+    not Level 3's three, so the floor it stops at is 64 and not 22. That is the
+    whole point of the floor scaling with the rooms: the deepest levels hold the
+    biggest building, and 22 blood in a nine-room building is a person nobody can
+    reach.
+    """
+    floor = levels.clock_floor(levels.MOST_ROOMS)
+    assert floor == 64
     deep = levels.level(60)
+    assert len(deep.rooms) == levels.MOST_ROOMS
     assert min(deep.budget.people) == floor
     assert min(w[2] for room in deep.rooms for w in room.workers) == floor
+    # And the clock holds until the building has stopped growing (#146): Level 13
+    # still has the roster the ladder authored, raised only by the floor.
+    assert max(levels.level(13).budget.people) == 90
 
 
 # --- the gate -----------------------------------------------------------------

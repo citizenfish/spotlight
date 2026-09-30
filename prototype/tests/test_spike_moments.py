@@ -96,12 +96,16 @@ def _cross_a_doorway(run):
     doorway -- the crosser walks a route inside one room -- so this is the only
     way to reach the event.
     """
+    # **Whichever wall the doorway is in** (issue #146). `door.column` raises
+    # outright on a horizontal gap, so this could not cross Level 3's column at
+    # all. A person clears a horizontal threshold at its full height rather than
+    # its width, so the budget is generous rather than exact.
     door = run.place.room.doorways[0]
-    run.player.x = door.column * CELL
-    run.player.y = (door.middle - 1) * CELL
-    facing = 1 if door.side == building_mod.EAST else -1
-    for _ in range(32):
-        run.step(Intent(dx=facing))
+    cx, cy = sorted(door.cells())[len(door.cells()) // 2]
+    run.player.x, run.player.y = cx * CELL, (cy - 1) * CELL
+    dx, dy = building_mod.TOWARDS[door.side]
+    for _ in range(48):
+        run.step(Intent(dx=dx, dy=dy))
         if [e for e in run.frame_events if e.kind == S.CROSSED]:
             return run
     raise AssertionError("the player would not walk through the doorway")
@@ -236,8 +240,17 @@ def test_a_flash_marks_where_it_happened_and_follows_nobody():
     run = _settle(Session(seed=1))
     _free_somebody(run)
     where = run.moments.cells(run.here)
+    # Walked in a direction that is actually open, chosen before any frame is
+    # spent: the flash has a lifetime, so trying each in turn runs it out. This
+    # used to hold `dx=1` and assume east was clear; Level 3's column (issue #146)
+    # is the first shipped building where it was not, and a player who cannot move
+    # proves nothing about a flash that stays put.
+    room, cx, cy = run.place.room, run.player.cx, run.player.cy
+    dx, dy = next((d, e) for d, e in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                  if not room.is_solid(cx + d, cy + e)
+                  and not room.is_solid(cx + d, cy + e - 1))
     for _ in range(15):
-        run.step(Intent(dx=1))
+        run.step(Intent(dx=dx, dy=dy))
     assert run.player.occupied_cells() != where, "nobody moved off the cells"
     assert run.moments.cells(run.here) == where
 
