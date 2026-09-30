@@ -171,11 +171,78 @@ class LightField:
     per-room colour.
     """
 
-    __slots__ = ("charge", "_display", "_illum", "_memory", "_reveal",
-                 "_prey", "_touched", "_stale", "_owed")
+    __slots__ = ("_charge", "_display", "_illum", "_memory", "_reveal",
+                 "_prey", "_touched", "_stale", "_owed",
+                 "_writes", "_decays", "_bumps", "_bumps_at_decay",
+                 "_solid", "_aged")
 
     def __init__(self) -> None:
-        self.charge = bytearray(_CELLS)
+        self._charge = bytearray(_CELLS)
+        #: **The closed form the lazy fade rests on** (issue #148).
+        #:
+        #: A cell's charge is a countdown of one a decaying frame, floored at
+        #: nought, topped up to a source's memory by `max`. Write `g` for the
+        #: running ledger of what the schedule has done since the base below was
+        #: taken -- minus one a decay, plus one for every `linger` bump a solid
+        #: cell got -- and the charge now is
+        #:
+        #:     max(base + g, every write's own memory + its own g)
+        #:
+        #: floored at nought. Everything the issue warned a per-cell stamp could
+        #: not carry falls out of that, because the ledger is the *schedule* and
+        #: not a frame count:
+        #:
+        #: * **`linger`'s parity** is `+1` in `g` on the frames it runs, so a
+        #:   wall's net decay of one per two needs no special case.
+        #: * **Held frames** never touch `g`, so elapsed frames and elapsed
+        #:   decays cannot be confused -- there is no frame number anywhere.
+        #: * **The death clause** is the dip below: `g` comes back up across a
+        #:   frame that both decays and bumps, but the death happens at the
+        #:   post-decay moment one lower, and the post-decay values *are*
+        #:   monotone. Miss it and every wall is resurrected the frame after it
+        #:   dies, which is what the harness caught when this was first written.
+        #:
+        #: `tests/test_the_fade_harness.py` is what says so, and it fails on a
+        #: field that decays twice and on a `linger` that bumps a dead cell.
+        #:
+        #: **The writes are sparse and that is not an optimisation.** A key per
+        #: cell was tried and it is a second per-cell array -- and one that does
+        #: not fit a byte, because a write is worth `memory - g` and `g` falls
+        #: without bound. The module's own gate refuses that, rightly: the field
+        #: is one byte a cell and the docstring makes a virtue of it. What a far
+        #: room actually writes in a frame is the beam's disc and its room
+        #: lights, so the journal is dozens of entries where the field is 704,
+        #: and it is emptied into the base every time the field materialises.
+        self._writes: dict[int, tuple[int, int, int]] = {}
+        #: Decaying commits, and `linger` bumps, since the field was made.
+        self._decays = 0
+        self._bumps = 0
+        #: The bump count as of the most recent decay -- **the dip**, and the
+        #: one thing the closed form above is not complete without.
+        #:
+        #: `g` returns to its old value across a frame that both decays and
+        #: bumps, but the death happens at the *post-decay* moment, one lower.
+        #: So a cell is alive only if `key` plus that dip is still positive, and
+        #: the dip is the minimum of `g` over any window ending now -- the
+        #: post-decay values are non-increasing even though `g` itself is not.
+        #: Miss it and every wall is resurrected the frame after it dies, which
+        #: is what the harness caught when this was written without it.
+        self._bumps_at_decay = 0
+        #: Which cells `linger` bumps -- the room's solid cells, learnt from
+        #: the first call and fixed for the life of the room. None until then,
+        #: which is a field whose walls never linger (`fade: 1`).
+        #:
+        #: **A set of indices and not a mask**, because a mask is a byte a cell
+        #: and the field is one byte a cell -- `test_the_field_holds_one_byte_per_cell_and_no_second_one`
+        #: is the gate that said so, and it was right. On the Z80 nothing is
+        #: stored at all: the room's own wall map answers it.
+        self._solid: frozenset | None = None
+        #: Whether `_charge` is the charge as of now. **A far
+        #: room never reaches this**: the point of the whole thing is that a
+        #: room nobody is looking at bumps two counters and writes its keys,
+        #: and pays for the 704-byte pass once, on the frame it is re-entered
+        #: and the screen is repainted anyway.
+        self._aged = True
         #: The level each cell actually shows: the fade, overridden by any
         #: source shining on it now. Rebuilt by `commit` -- **lazily, for a
         #: room nobody is looking at** (issue #136). Read it through the
@@ -200,6 +267,98 @@ class LightField:
         #: frame and the field is still one charge byte per cell.
         self._prey = bytearray(_CELLS)
         self._touched: list[int] = []
+
+    # --- the charge, aged on demand ----------------------------------------
+
+    def _age(self) -> None:
+        """Bring `_charge` up to the ledger and re-base. One pass, when asked.
+
+        This is the 704-byte pass the slice exists to stop paying every frame
+        for every room. A room the player is in pays it once a frame because
+        `_show` reads the charge anyway; a room nobody is looking at pays it on
+        the frame it is re-entered, which repaints the screen regardless.
+
+        It re-bases as it goes -- the ledger returns to nought and the journal
+        empties -- so nothing accumulates without bound and the base stays a
+        byte.
+        """
+        charge, mask = self._charge, self._solid
+        d, b, dip_b = self._decays, self._bumps, self._bumps_at_decay
+        if d or b:
+            for idx in range(_CELLS):
+                c = charge[idx]
+                if not c:
+                    continue
+                if mask is not None and idx in mask:
+                    c = 0 if c - d + dip_b <= 0 else c - d + b
+                else:
+                    c -= d
+                charge[idx] = 0 if c < 0 else 0xFF if c > 0xFF else c
+        for idx, (memory, at_d, at_b) in self._writes.items():
+            c = self._since(memory, at_d, at_b, mask is not None and idx in mask)
+            if c > charge[idx]:
+                charge[idx] = c
+        self._writes.clear()
+        self._decays = self._bumps = self._bumps_at_decay = 0
+        self._aged = True
+
+    def _since(self, memory: int, at_d: int, at_b: int, solid: bool) -> int:
+        """What a write of `memory` made at ledger `(at_d, at_b)` is worth now."""
+        if solid:
+            if memory - (self._decays - at_d) + (self._bumps_at_decay - at_b) <= 0:
+                return 0                     # died at the dip; nothing revives
+            c = memory - (self._decays - at_d) + (self._bumps - at_b)
+        else:
+            c = memory - (self._decays - at_d)
+        return 0 if c < 0 else 0xFF if c > 0xFF else c
+
+    @property
+    def charge(self) -> bytearray:
+        """The fade, one byte a cell, aged to now.
+
+        **Read it, do not assign to it.** It materialises from the base and the
+        ledger, so a write to the bytearray it hands back is discarded the next
+        time the ledger moves; `load` is the door for putting a charge in.
+        """
+        if not self._aged:
+            self._age()
+        return self._charge
+
+    def load(self, charge) -> None:
+        """Set the field to `charge`, as if every cell had just been written.
+
+        **The one door through which a charge may be put into the field**, and
+        it exists because `charge` is a view now. That was the API change issue
+        #148 warned about, and this is the whole of it: reading needs nothing
+        said, and writing needs saying.
+
+        For tests, tools and the debug clear. Nothing in a frame uses it: a
+        source writes through `add`.
+        """
+        if len(charge) != _CELLS:
+            raise ValueError(f"a field is {_CELLS} cells, not {len(charge)}")
+        self._charge[:] = bytes(charge)
+        self._writes.clear()
+        self._decays = self._bumps = self._bumps_at_decay = 0
+        self._aged = True
+
+    def _at(self, idx: int) -> int:
+        """One cell's charge, without ageing the field. For the hot paths."""
+        solid = self._solid is not None and idx in self._solid
+        c = self._charge[idx]
+        if c:
+            if solid:
+                c = (0 if c - self._decays + self._bumps_at_decay <= 0
+                     else c - self._decays + self._bumps)
+            else:
+                c -= self._decays
+            c = 0 if c < 0 else 0xFF if c > 0xFF else c
+        write = self._writes.get(idx)
+        if write is not None:
+            was = self._since(write[0], write[1], write[2], solid)
+            if was > c:
+                c = was
+        return c
 
     # --- sources -----------------------------------------------------------
 
@@ -272,14 +431,20 @@ class LightField:
         eager one. There is at most one `linger` per owed picture, because
         `commit` owes a fresh one and clears this.
         """
-        charge = self.charge
-        owed, stale = self._owed, self._stale
-        for idx in solid_cells:
-            c = charge[idx]
-            if 0 < c < 0xFF:
-                if stale:
+        if self._solid is None:
+            # Learnt once and fixed for the life of the room, which is what
+            # lets the ledger carry the bump for every wall at once.
+            self._solid = frozenset(solid_cells)
+        if self._stale:
+            # The picture owed by this frame's commit is the charge as it stood
+            # *before* the bump, and only the cells about to change can differ.
+            owed = self._owed
+            for idx in solid_cells:
+                c = self._at(idx)
+                if 0 < c < 0xFF:
                     owed[idx] = c
-                charge[idx] = c + 1
+        self._bumps += 1
+        self._aged = False
 
     def commit(self, decay: bool = True, shown: bool = True) -> None:
         """Decay everything, top up what was lit, then work out what shows.
@@ -310,11 +475,26 @@ class LightField:
         field in between, and a sweeping searchlight writes every frame.
         """
         if decay:
-            self.charge[:] = self.charge.translate(_DECAY)
+            # **Two counters and the touched list, and that is the whole frame**
+            # (issue #148). The decay used to be a 704-byte `translate` here,
+            # for every room, whether or not anybody was looking at it; now the
+            # ledger moves by one and a write is worth `memory - g` for ever,
+            # so the only cells touched are the ones a source actually lit.
+            # **Two counters and the touched list, and that is the whole frame**
+            # (issue #148). The decay used to be a 704-byte `translate` here,
+            # for every room, whether or not anybody was looking at it. Now the
+            # ledger moves by one and a write is journalled against it, so the
+            # only cells this frame costs are the ones a source actually lit.
+            self._decays += 1
+            self._bumps_at_decay = self._bumps
+            self._aged = False
+            writes, d, b = self._writes, self._decays, self._bumps
             for idx in self._touched:
                 memory = self._memory[idx]
-                if memory > self.charge[idx]:
-                    self.charge[idx] = memory
+                if memory:
+                    was = writes.get(idx)
+                    if was is None or memory - (d - was[1]) < memory:
+                        writes[idx] = (memory, d, b)
         # A held frame leaves the charge exactly as it was: no decay and no
         # top-up either, or the beam at its first station would be remembered
         # eighteen frames before the game had shown it.
@@ -436,13 +616,23 @@ class LightField:
         if frames <= 0:
             return
         if frames >= CHARGE_LIT:
-            self.charge[:] = bytes(len(self.charge))
+            self._forget()
         else:
-            table = bytes(max(0, c - frames) for c in range(256))
-            self.charge[:] = self.charge.translate(table)
+            # Ageing by N in one go is the ledger moving by N, which is what it
+            # was always doing the long way round -- and the reason this can
+            # never take `commit`'s place is unchanged: it is only the same as
+            # decaying N times if nothing wrote in between.
+            self._decays += frames
+            self._bumps_at_decay = self._bumps
+            self._aged = False
         self._display[:] = self.charge.translate(_LEVEL_OF)
         self._stale = False
         self._owed.clear()
+
+    def _forget(self) -> None:
+        """Every cell dark, with no write behind it. The debug clear, and the
+        zero case of `catch_up`."""
+        self.load(bytes(_CELLS))
         # Nothing is shining on the room you were not in, so nothing reveals
         # anybody in it either. Clearing this is what stops a worker who was
         # standing in your cone as you walked out being prey for ever.

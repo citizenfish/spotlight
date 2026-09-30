@@ -331,9 +331,18 @@ def test_the_field_holds_one_byte_per_cell_and_no_second_one():
     per_cell = [name for name in L.LightField.__slots__
                 if isinstance(getattr(f, name), (bytes, bytearray, list))
                 and len(getattr(f, name)) == cells]
-    assert sorted(per_cell) == ["_display", "_illum", "_memory", "_prey",
-                                "_reveal", "charge"], \
+    assert sorted(per_cell) == ["_charge", "_display", "_illum", "_memory",
+                                "_prey", "_reveal"], \
         "a new per-cell array in the light field: is it a byte a cell worth?"
+    # `charge` is a property over `_charge` since issue #148, which is the same
+    # 704 bytes under a different name -- and **this gate is what kept it that
+    # way.** The lazy fade was first written with a signed key per cell, which
+    # is a second per-cell array *and* one that does not fit a byte, since a
+    # write is worth `memory - g` and `g` falls without bound. The gate refused
+    # it, so the writes are a sparse journal against a one-byte base instead,
+    # and `linger`'s solid cells are a set of indices rather than a mask.
+    assert isinstance(L.LightField.charge, property)
+    assert not isinstance(f._writes, (bytes, bytearray, list))
     # `_stale` (issue #136) is one flag for the whole field and not a byte a
     # cell: it says whether `_display` has been rebuilt from the charge yet,
     # which a room nobody is looking at leaves until somebody asks. On the Z80
@@ -526,12 +535,14 @@ def test_lingering_over_a_list_is_the_same_bytes_as_over_the_field():
     start = bytes(rng.choice((0, 1, 40, L.CHARGE_LIT, 0xFF))
                   for _ in range(len(a.charge)))
     for field in (a, b):
-        field.charge[:] = start
+        field.load(start)
         field._stale = False
     # The old rule, spelled out, against the list the game now walks.
-    for i in range(len(a.charge)):
-        if solid[i] and 0 < a.charge[i] < 0xFF:
-            a.charge[i] += 1
+    want = bytearray(a.charge)
+    for i in range(len(want)):
+        if solid[i] and 0 < want[i] < 0xFF:
+            want[i] += 1
+    a.load(want)
     b.linger(cells)
     assert bytes(a.charge) == bytes(b.charge)
 
@@ -556,8 +567,12 @@ def test_a_picture_built_late_is_the_picture_that_was_owed():
     solid = (5 * COLS + 5,)
     for charge in (L.LIT_THRESHOLD, L.LIT_THRESHOLD + 1, 1, 0, 0xFF):
         eager, lazy = L.LightField(), L.LightField()
+        start = bytearray(COLS * layout.PLAY_ROWS)
+        start[solid[0]] = charge
         for field in (eager, lazy):
-            field.charge[solid[0]] = charge
+            # Through `load`, since #148: a single cell of `charge` is a cell of
+            # a materialised view and assigning to it goes nowhere.
+            field.load(start)
         eager.begin(); eager.commit(decay=False, shown=True)
         eager.linger(solid)
         lazy.begin(); lazy.commit(decay=False, shown=False)
