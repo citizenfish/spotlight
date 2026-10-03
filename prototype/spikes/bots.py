@@ -277,25 +277,57 @@ class Wanderer(Bot):
     #: what stopped you, and short enough that nobody would stand there.
     WEDGED_FRAMES = 25
 
+    #: How long it keeps following a wall once it has met one (issue #151).
+    #: Long enough to reach the end of a long one -- a room is thirty-two cells
+    #: across and a stride is a cell -- and it still gives up at `TURN_EVERY`,
+    #: so it never circumnavigates on purpose.
+    FOLLOW_FRAMES = 40
+
     def __init__(self, seed: int = 1) -> None:
         super().__init__(seed)
         self._dx = self._dy = 0
         self._left = 0
         self._was = None
         self._wedged = 0
+        #: Which way it turns at a wall, drawn once. A bot that always turned
+        #: the same way would trace one handedness of every room in the game.
+        self._hand = 1 if self._random() & 1 else -1
 
     def intent(self, run) -> Intent:
         at = (run.here, run.player.x, run.player.y)
         self._wedged = self._wedged + 1 if at == self._was else 0
         self._was = at
-        if self._left <= 0 or self._wedged >= self.WEDGED_FRAMES:
-            r = self._random()
-            self._dx = (r & 0b11) - 1
-            self._dy = ((r >> 2) & 0b11) - 1
-            self._dx = max(-1, min(1, self._dx))
-            self._dy = max(-1, min(1, self._dy))
-            self._left = self.TURN_EVERY
+        if self._wedged >= self.WEDGED_FRAMES:
+            # **It follows the wall instead of turning at random** (issue
+            # #151), which is the same fix the Cleg had in #131 and for the
+            # same reason: a random walker beside a long wall picks a new
+            # direction into it about half the time, so it ping-pongs in a band
+            # that never happens to contain the gap.
+            #
+            # **This is not here to rescue T4**, which is withdrawn -- see the
+            # vault's *The wanderer, and the end of T4*. It is here because a
+            # reference bot had stopped seeing the machinery the buildings are
+            # now built out of: since #139 a doorway can be in any of four
+            # walls, since #135 it is off the middle from Level 5 and since
+            # #146 it moves band every level, and the bot was spending its run
+            # in the room it started in. An instrument that never crosses a
+            # threshold cannot tell you anything about a building of nine
+            # rooms.
+            #
+            # It is still a poor player and must stay one. This is one turn at
+            # a wall and nothing else: no route, no memory of the building, and
+            # it never hears a shout. A hand on the wall in the dark is what a
+            # first-timer does, and it costs a Z80 a negated register pair.
+            self._dx, self._dy = -self._dy * self._hand, self._dx * self._hand
+            if not (self._dx or self._dy):
+                self._dx = self._hand
+            self._left = self.FOLLOW_FRAMES
             self._wedged = 0
+        elif self._left <= 0:
+            r = self._random()
+            self._dx = max(-1, min(1, (r & 0b11) - 1))
+            self._dy = max(-1, min(1, ((r >> 2) & 0b11) - 1))
+            self._left = self.TURN_EVERY
         self._left -= 1
         return Intent(dx=self._dx, dy=self._dy)
 

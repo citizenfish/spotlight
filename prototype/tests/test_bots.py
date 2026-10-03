@@ -317,6 +317,77 @@ def test_the_wanderer_wastes_fewer_frames_than_it_used_to():
         f"not a material drop: {with_rule} against {without}"
 
 
+# --- a hand on the wall (issue #151) ---------------------------------------
+
+def _nowhere(x=100, y=100):
+    """A run that tells a bot where it is and nothing else.
+
+    Anything the Wanderer touches beyond these two attributes raises, which is
+    how the "no route, no map, no shout" property below is asserted rather
+    than asserted about.
+    """
+    return SimpleNamespace(here=0, player=SimpleNamespace(x=x, y=y))
+
+
+def test_the_wanderer_turns_along_a_wall_rather_than_at_random():
+    """The turn is a rotation, so it never reverses back into what stopped it.
+
+    Before issue #151 a wedge picked a fresh random direction, and beside a
+    long wall that is a coin: about half of the nine choices push back into it.
+    A quarter turn cannot, whichever way the wall runs.
+    """
+    bot = bots.Wanderer(seed=7)
+    run, turns = _nowhere(), []
+    for _ in range(bots.Wanderer.WEDGED_FRAMES * 6):
+        before = (bot._dx, bot._dy)
+        after = bot.intent(run)
+        if (after.dx, after.dy) != before:
+            turns.append((before, (after.dx, after.dy)))
+    assert len(turns) > 1, "it never gave up on a wall it could not pass"
+    for (dx, dy), (nx, ny) in turns[1:]:      # the first is its opening throw
+        assert dx * nx + dy * ny == 0, f"not a quarter turn: {dx,dy} -> {nx,ny}"
+        assert (nx, ny) != (0, 0), "it stopped pressing"
+        assert (nx, ny) != (-dx, -dy), "it turned back into the wall"
+
+
+def test_the_wanderer_turns_the_same_way_all_run_but_not_every_run():
+    """One handedness per run, drawn from the seed.
+
+    A bot that always turned the same way would trace one chirality of every
+    room in the game and a wall it met on its weak side would be a wall it
+    never got past -- the same kind of systematic blindness as the doorway
+    always being in the middle of the wall, which is what #135 removed.
+    """
+    hands = {bots.Wanderer(seed=s)._hand for s in range(1, 20)}
+    assert hands == {-1, 1}, f"the draw is not a draw: {hands}"
+    bot = bots.Wanderer(seed=7)
+    was = bot._hand
+    for _ in range(bots.Wanderer.WEDGED_FRAMES * 6):
+        bot.intent(_nowhere())
+    assert bot._hand == was, "it changed hands mid-run"
+
+
+def test_the_wanderer_knows_only_where_it_stands():
+    """It has no route, no memory of the building, and it never hears a shout.
+
+    That is its whole job -- it is the floor, and a floor that learns is not
+    one -- and it is why the wall-following of #151 is one turn and not the
+    beginning of a route-finder. Asserted the way `swarming` asserts that its
+    check is not a flood fill: on a run object that has nothing else on it, so
+    a route, a map or a shout could not be read even by accident.
+    """
+    bot = bots.Wanderer(seed=3)
+    for step in range(200):
+        bot.intent(_nowhere(100 + step, 100))
+    assert not hasattr(bot, "seen"), "it started remembering the building"
+    assert not hasattr(bot, "route"), "it acquired a route"
+    # ...and nothing it keeps between frames is bigger than a handful of bytes,
+    # because a Z80 has to hold it: a direction, a countdown, a hand, and the
+    # position it is comparing against.
+    assert set(vars(bot)) == {"_seed", "_dx", "_dy", "_left", "_was",
+                              "_wedged", "_hand"}, vars(bot)
+
+
 # --- the Scout (issue #24) -------------------------------------------------
 
 def test_the_scout_knows_nothing_it_has_not_seen():

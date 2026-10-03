@@ -24,7 +24,22 @@ SEEDS = tuple(S.DEFAULT_SEED + i for i in range(4))
 #: hand one seed a catastrophe -- the Level 3 listener takes 0 of 7 on two
 #: seeds in sixteen -- and a mean of four is then a coin rather than a
 #: measurement (issue #130).
+#:
+#: **Eight is for a gate with a wide band or a qualitative answer** -- does the
+#: oracle clear it, does a statue ever survive, does the beam open on the
+#: player. It is *not* enough for a difference of ten or twenty points in
+#: rescues: measured over 48 seeds, the blocks of eight inside one level span
+#: 21 to 25 points, and the first eight are the extreme block on two levels of
+#: three. Anything a ruling rests on uses `RULING_SEEDS`; see the vault's
+#: *2026-09-30 Eight seeds cannot see a level* (issue #150, ruled 2026-09-30).
 WIDE_SEEDS = tuple(S.DEFAULT_SEED + i for i in range(8))
+
+#: The seeds a figure a **ruling** depends on is taken over (ruled 2026-09-30).
+#: Thirty-two, because that is where the number stops moving: from 32 to 48 no
+#: level shifts by more than two points, while 8 and 16 are wrong by up to
+#: fourteen. The suite itself stays on `WIDE_SEEDS` -- this is for the
+#: measurement scripts in the vault, which is where rulings are taken.
+RULING_SEEDS = tuple(S.DEFAULT_SEED + i for i in range(32))
 
 #: Three minutes, the longest clock in any level.
 THREE_MINUTES = 180 * 50
