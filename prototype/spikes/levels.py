@@ -805,6 +805,34 @@ FADE_HALVES_AT = 7
 #: new dial; the clock is what is left once the building has stopped growing.
 CLOCK_FROM = 14
 
+#: **What a new room costs, in blood on every clock** (issue #152). Measured,
+#: the fourth room makes the dark listener walk **seventy-three per cent further
+#: per person delivered** -- 1336 pixels against Level 3's 773 -- and puts
+#: thirty-four seconds between the start and the first rescue. Against that the
+#: ladder was compensating with fifteen blood on a building total of 420, three
+#: and a half per cent, so Level 4 read sixteen points below Level 3 where the
+#: allowance is ten.
+#:
+#: Fourteen, and the number is measured rather than chosen: paired over
+#: ninety-six seeds against the shipped roster, +14 is **69%** against 61%
+#: (48 seeds better, 30 worse), where +16 reads 78% and +18 reads 75% -- both
+#: significant and both *above or level with* Level 3's 74%, which would invert
+#: or flatten the ramp instead of stepping down it. +12 and below cannot be told
+#: from doing nothing.
+#:
+#: **A constant added to every clock, never a scaling**: the spacing is what T7
+#: rests on -- twenty seconds between deaths is clocks ten blood apart -- and
+#: adding a constant leaves every gap alone.
+#:
+#: **Level 4 only, and not per room.** The bill is not proportional to rooms:
+#: with the dials held still, walking per rescue runs 860, 1161, 1518, 1460,
+#: 2347, 2002 and 1399 pixels from three rooms to nine, rising to seven and
+#: falling back, because the swarm is dealt `flies // rooms` and six flies over
+#: nine rooms is nought or one a room. A per-room bonus would badly overpay the
+#: top of the ladder. Levels 5 and up are **unmeasured and untouched**; see
+#: *2026-10-03 The fourth room, not the ring* in the vault.
+ROOM_BLOOD = {4: 14}
+
 #: The nine-room building Levels 4 and up are cut from (issue #146). Not a
 #: level: `levels()` globs `level*.txt` and this is not one, so nothing loads it
 #: by number.
@@ -905,7 +933,11 @@ def _beyond(n: int, seed: int) -> Building:
     # which is the building's own and rose with the rooms (issue #143).
     floor = clock_floor(len(specs))
     cut = CLOCK_STEP * max(0, n - CLOCK_FROM + 1)
-    roster = tuple(max(floor, blood - cut) for blood in budget.people)
+    # `ROOM_BLOOD` is added **after** the floor and the cut, so it is a gift to
+    # every clock and not a raising of the floor: the gaps between clocks are
+    # what T7 is stated on and they come through untouched.
+    gift = ROOM_BLOOD.get(n, 0)
+    roster = tuple(max(floor, blood - cut) + gift for blood in budget.people)
 
     for spec in specs:
         # **A spur keeps `repeat`** (ruling 12): the one room you cannot go

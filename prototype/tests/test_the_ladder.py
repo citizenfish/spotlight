@@ -231,6 +231,49 @@ def test_the_clock_holds_until_the_building_has_stopped_growing():
     assert set(levels.level(60).budget.people) == {floor}
 
 
+def test_the_fourth_room_is_paid_for_in_blood_and_only_at_level_four():
+    """Issue #152. The fourth room makes the dark listener walk seventy-three
+    per cent further per person delivered, and the ladder was compensating with
+    three and a half per cent more blood; `ROOM_BLOOD` is the measured
+    difference. Levels 5 and up are unmeasured and must not quietly inherit it.
+    """
+    # The expected roster for a level, computed the way `_beyond` does but with
+    # no gift at all. **Not simply "the same as Level 5"**: `clock_floor` grows
+    # seven blood a room, so a seven-room level lifts the short clocks on its
+    # own account -- the first cut of this test read that as a leaked gift and
+    # failed on Level 8, which is the floor doing its job.
+    _n, _name, specs, budget, _s = levels.parse(
+        (levels.LEVELS_DIR / levels.LADDER_FILE).read_text())
+
+    def without_a_gift(n):
+        floor = levels.clock_floor(levels.ladder_rooms(n))
+        cut = levels.CLOCK_STEP * max(0, n - levels.CLOCK_FROM + 1)
+        return tuple(max(floor, blood - cut) for blood in budget.people)
+
+    gift = levels.ROOM_BLOOD[4]
+    assert set(levels.ROOM_BLOOD) == {4}, "a second level grew a gift"
+    assert levels.level(4).budget.people == \
+        tuple(b + gift for b in without_a_gift(4))
+    for n in (5, 6, 7, 8, 9, 10, 13, 14, 20):
+        assert levels.level(n).budget.people == without_a_gift(n), n
+
+
+def test_the_gift_leaves_every_gap_between_clocks_alone():
+    """It is added, never scaled, because the **spacing** is what T7 rests on:
+    twenty seconds between deaths is clocks ten blood apart. A multiplier would
+    stretch every gap and a floor would crush the short ones."""
+    def gaps(roster):
+        got = sorted(roster, reverse=True)
+        return [a - b for a, b in zip(got, got[1:])]
+
+    # Levels 4 and 5 are both four-room buildings cut from the same ladder, so
+    # their clocks differ by the gift and nothing else.
+    assert gaps(levels.level(4).budget.people) == \
+        gaps(levels.level(5).budget.people)
+    assert min(levels.level(4).budget.people) - \
+        min(levels.level(5).budget.people) == levels.ROOM_BLOOD[4]
+
+
 def test_the_doorways_leave_the_middle_at_level_five_and_not_before():
     for n in (1, 2, 3, 4):
         for room in levels.level(n).rooms:
