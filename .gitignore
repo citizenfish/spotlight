@@ -11,6 +11,8 @@ venv/
 # Spectrum build output (keep the directory, drop its contents)
 spectrum/build/*
 !spectrum/build/.gitkeep
+# The assembler's symbol listing: a build artefact the tests regenerate.
+spectrum/src/*.sym
 
 # Headless run reports (spikes/spike_driver.py). Measurements, not source --
 # the ones that mean something get written up in the vault.
