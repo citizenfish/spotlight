@@ -20,9 +20,27 @@ SCREEN          EQU $4000
 ATTRS           EQU $5800
 THIRD           EQU $0800       ; bytes in one third of the display file
 
-; Bright white on black, the whole play area. The light field is the next
-; slice; until it exists a room is drawn lit so there is something to compare.
-PLAY_ATTR       EQU %01000111
+; The light field's own constants, which are `spikes/lighting.py`'s and must
+; stay its (issue #155). The one tuning knob is the fade.
+FADE_FRAMES     EQU 150         ; three seconds, lit to black
+LIT_FRAMES      EQU 30          ; a fifth of it: how long a cell still reads lit
+LIT_THRESHOLD   EQU 120         ; above this LIT, above nought DIM, else DARK
+CHARGE_LIT      EQU 150         ; a full top-up
+CHARGE_SWEEP    EQU 10          ; the beam's wake on the floor
+CHARGE_WALL     EQU 150         ; and on a wall, which is how a room is known
+
+DARK            EQU 0
+DIM             EQU 1
+LIT             EQU 2
+
+; The room's hue. **Light decides brightness; the cell's contents decide hue**
+; -- so this is the contents' half, one ink for the floor and walls of a room,
+; and the level supplies the BRIGHT bit on top.
+ROOM_INK        EQU 6           ; yellow, which is what `hue_at` gives this room
+
+; The beam: a disc of 37 cells, seven rows of half-widths. **The same table the
+; magnet fires by** in the prototype, so the drawn edge is the rule's edge.
+BEAM_RADIUS     EQU 3
 
 ; Where the player stands, in cells. Cell-aligned on purpose: shifting a
 ; sprite to an arbitrary pixel column is the sprite routine's own slice, and
@@ -40,6 +58,7 @@ main:
         call    enter_room
         call    draw_player
 .loop:  halt                            ; the 50Hz interrupt, and nothing else
+        call    light_frame
         call    draw_frame
         jr      .loop
 
@@ -55,17 +74,85 @@ main:
 ; actually changed.
 enter_room:
         call    build_masks
+        call    clear_shown             ; nothing is drawn yet, so: all dark
         call    clear_play
         call    draw_room
+        ret
+
+; Arriving draws every cell at the level it is showing, and `draw_room` has
+; just done that -- but `SHOWN` has to agree, or the first frame would repaint
+; the whole room again. The field is empty on arrival, so every cell is dark.
+clear_shown:
+        ld      hl, SHOWN
+        ld      de, SHOWN + 1
+        ld      bc, COLS * PLAY_ROWS - 1
+        ld      (hl), DARK
+        ldir
         ret
 
 ; One frame's drawing, and only that: put the room back where the player was
 ; standing, then draw them where they are. The tests call this and count what
 ; it costs, so nothing that is not per-frame work belongs in it.
 draw_frame:
+        call    paint_changed
         call    erase_player
         call    read_keys
         call    draw_player
+        ret
+
+; Every cell whose level has moved since it was last drawn, redrawn at the
+; level it is showing now.
+;
+; `SHOWN` holds the level each cell was last drawn at, so this is the exact
+; repaint set and not an approximation -- which is what byte-identity with the
+; prototype demands: the fade crosses a threshold on a frame nothing wrote to
+; the cell, and that cell still has to change on screen.
+;
+; **This walks all 704 cells to find them**, and the measured truth is that only
+; 8 of them change on a median frame and 58 on the worst. The walk is the cost of
+; *finding* the set rather than of drawing it; see the vault note for what that
+; costs and what to do about it.
+paint_changed:
+        ld      b, 0
+.row:   ld      c, 0
+.cell:  push    bc
+        call    level_at                ; A = the level now
+        ld      e, a
+        push    de
+        call    shown_addr
+        pop     de
+        ld      a, (hl)
+        cp      e
+        jr      z, .same
+        ld      (hl), e                 ; remember what we are about to draw
+        pop     bc
+        push    bc
+        call    draw_cell
+        pop     bc
+        jr      .next
+.same:  pop     bc
+.next:  inc     c
+        ld      a, c
+        cp      COLS
+        jr      nz, .cell
+        inc     b
+        ld      a, b
+        cp      PLAY_ROWS
+        jr      nz, .row
+        ret
+
+; in:  B = cy, C = cx ; out: HL = the cell's byte in `SHOWN`
+shown_addr:
+        ld      a, b
+        add     a, a
+        add     a, SHOWN_ROW & $FF
+        ld      l, a
+        ld      h, SHOWN_ROW >> 8
+        ld      a, (hl)
+        inc     l
+        ld      h, (hl)
+        add     a, c
+        ld      l, a
         ret
 
 ; Everything the screen needs on arrival, for the test that compares the
@@ -88,6 +175,274 @@ erase_player:
         pop     bc
         inc     b
         call    draw_cell
+        ret
+
+; --- the light field -------------------------------------------------------
+;
+; One byte of charge a cell. A source tops a cell up; the charge falls by one a
+; frame; what the cell *shows* is a threshold on it -- above `LIT_THRESHOLD`
+; lit, above nought dim, else dark and invisible.
+;
+; **The fade is a ledger and not a pass** (issue #155, and the prototype's #148).
+; Measured on this simulator, decaying all 704 cells costs **40,857 T-states a
+; frame -- 124% of `ENTITY_CEILING`** before a single cell is drawn, and through
+; a translate table it is worse at 45,388, because `ex de,hl` twice a cell costs
+; more than the jump it saves. A counter costs **48**.
+;
+; So the charge is **not stored decayed**. `DECAYS` counts frames; a cell's
+; stored charge is what it was when last written, and its charge *now* is
+; `stored - (DECAYS - written_at)`, floored at nought. One byte a cell records
+; the `DECAYS` it was written at, which is the journal -- the prototype keeps a
+; sparse dict and the Z80 keeps a parallel array, because 704 bytes is cheaper
+; here than a lookup.
+
+; One frame of light: the ledger ticks, then every source writes.
+light_frame:
+        call    fade_tick
+        call    beam_emit
+        ret
+
+; **The whole of the fade's per-frame cost.** Measured on this simulator,
+; decaying all 704 cells costs 40,857 T-states a frame -- 124% of
+; `ENTITY_CEILING` -- and through a translate table 45,388, because `ex de,hl`
+; twice a cell is dearer than the jump it saves. This is 48.
+fade_tick:
+        ld      hl, (DECAYS)
+        inc     hl
+        ld      (DECAYS), hl
+        ret
+
+; What a cell is **showing**, which is not the same as what it remembers.
+;
+; `LightField` keeps the two apart and says why: *"a searchlight is as bright as
+; a spotlight and forgotten far sooner"*. So a cell under the beam reads LIT
+; while the beam is on it, even though the charge it leaves behind is only
+; `CHARGE_SWEEP` -- ten frames, a fifth of a second. The fade is the memory; the
+; source is the present.
+;
+; So the level is the brighter of the two: what the charge says, and what a
+; source is putting there this frame. **A cell is lit now exactly when its
+; stamp is this frame**, which needs no second array and no clearing pass.
+;
+; in:  B = cy, C = cx ; out: A = DARK, DIM or LIT. BC survives.
+level_at:
+        push    de
+        call    charge_at               ; A = the remembered charge
+        or      a
+        jr      z, .dark                ; **no charge, so nothing is on it**
+        ld      l, a
+        ld      h, LEVEL_OF >> 8
+        ld      a, (hl)                 ; ...as a level
+        ld      e, a
+        call    lit_now                 ; is a source on it this frame?
+        jr      z, .done
+        ld      a, LIT                  ; the beam's own level
+        cp      e
+        jr      nc, .out                ; brightest wins; nothing sums
+.done:  ld      a, e
+.out:   pop     de
+        ret
+
+        ; A source that writes a cell always leaves it some charge, so a cell
+        ; with none cannot be lit now and the stamp need not be consulted.
+        ;
+        ; **Which is also what stops the room being born lit.** On arrival the
+        ; frame counter is nought and every stamp is nought, so `lit_now`
+        ; matched on all 704 cells and `enter_room` drew the whole room bright
+        ; -- an unlit room, fully visible, which is the opposite of the game.
+.dark:  pop     de
+        xor     a
+        ret
+
+; Z if no source wrote this cell this frame, NZ if one did.
+;
+; in:  B = cy, C = cx ; out: flags. BC survives, HL and A do not.
+lit_now:
+        push    de
+        call    when_addr               ; HL = the cell's 16-bit stamp
+        ld      e, (hl)
+        inc     h                       ; the high byte is a page on
+        ld      d, (hl)
+        ld      hl, (DECAYS)
+        ld      a, e
+        cp      l
+        jr      nz, .no
+        ld      a, d
+        cp      h
+        jr      nz, .no
+        pop     de
+        ld      a, 1
+        and     a                       ; NZ: written this very frame
+        ret
+.no:    pop     de
+        xor     a                       ; Z
+        ret
+
+; in:  B = cy, C = cx ; out: A = the charge now, 0 if it has run out
+;
+; **A wall fades at half rate** (`fade: 2`, which is how Levels 1 to 6 ship):
+; three seconds of wall memory becomes six, because a swept wall is how a room
+; is known. The prototype does it by adding a charge back on even frames --
+; `linger`, and the `_bumps` counters #148 needed to stop a cell reviving after
+; it died at the dip.
+;
+; **Here it is a shift, and the dip cannot happen.** Nothing is ever added
+; back: the charge is a monotone function of elapsed frames, so
+;
+;     floor:  charge = stored - elapsed
+;     wall:   charge = stored - ((elapsed + 1) >> 1)
+;
+; Verified against `LightField` with `linger` running, cell for cell, over 0 to
+; 300 frames -- the `+ 1` is what makes it `ceil` and matches exactly.
+;
+; **The stamp is sixteen bits and has to be.** A wall holds `CHARGE_WALL` at
+; half rate, which is **300 frames** -- longer than a byte -- so a one-byte
+; stamp made a cell written 256 frames ago read as written this instant, at full
+; charge. Walls would have flickered back to life once every five seconds.
+charge_at:
+        push    de
+        call    chg_addr                ; HL = the cell's charge byte
+        ld      a, (hl)
+        or      a
+        jr      z, .out                 ; never written, or already run out
+        push    af
+        call    when_addr
+        ld      e, (hl)
+        inc     h
+        ld      d, (hl)                 ; DE = the frame it was written at
+        ld      hl, (DECAYS)
+        ld      a, l
+        sub     e
+        ld      e, a
+        ld      a, h
+        sbc     a, d
+        ld      d, a                    ; DE = frames since, sixteen bits
+
+        ; Is this a wall? **The index cache already knows** -- a wall's entry is
+        ; a doubled mask, 0 to 30, and floor's is 32 to 62 -- so solidity is a
+        ; byte read here and not a 292 T-state `is_solid`.
+        push    de
+        call    idx_addr
+        ld      a, (hl)
+        pop     de
+        cp      32
+        jr      nc, .fall               ; floor: the whole elapsed time
+        inc     de                      ; wall: (elapsed + 1) >> 1
+        srl     d
+        rr      e
+
+.fall:  ld      a, d
+        or      a
+        jr      nz, .gone               ; 256 frames or more: nothing survives
+        pop     af                      ; the stored charge
+        sub     e
+        jr      nc, .out
+.zero:  xor     a                       ; it has faded out
+.out:   pop     de
+        ret
+.gone:  pop     af
+        jr      .zero
+
+; Where a cell's 16-bit write stamp lives: the low bytes a page-aligned block
+; after the charge, the high bytes the page after that, so `inc h` steps from
+; one to the other.
+;
+; in:  B = cy, C = cx ; out: HL = the low byte. BC survives, DE does not.
+when_addr:
+        call    chg_addr
+        ld      a, h
+        add     a, (WHEN - CHARGE) >> 8
+        ld      h, a
+        ret
+
+; Top a cell up. **Brightest wins and nothing sums** -- a cell already showing
+; more than this keeps it, which is `LightField.add`'s rule.
+;
+; in:  B = cy, C = cx, A = the charge to write
+add_light:
+        push    de
+        ld      e, a
+        push    bc
+        call    charge_at               ; what it is showing now
+        ld      d, a
+        pop     bc
+        ld      a, e
+        cp      d
+        jr      c, .done                ; it is already brighter: leave it
+        call    when_addr               ; the frame it was written at, both
+        ld      a, (DECAYS)              ; bytes -- see `charge_at`
+        ld      (hl), a
+        inc     h
+        ld      a, (DECAYS + 1)
+        ld      (hl), a
+        call    chg_addr
+        ld      (hl), e                 ; ...and the charge itself
+.done:  pop     de
+        ret
+
+; Where a cell's charge lives. Page-aligned like the index cache, so a row's
+; low byte is a multiple of 32 and adding `cx` cannot carry.
+;
+; in:  B = cy, C = cx ; out: HL = the byte. BC survives, DE does not.
+chg_addr:
+        ld      a, b
+        add     a, a
+        add     a, CHG_ROW & $FF
+        ld      l, a
+        ld      h, CHG_ROW >> 8
+        ld      a, (hl)
+        inc     l
+        ld      h, (hl)
+        add     a, c
+        ld      l, a
+        ret
+
+; The beam, writing its disc into the field.
+;
+; **Its position is an input, not something this computes** (issue #155): the
+; beam's motion comes from the run's xorshift and the station order, which is a
+; slice of its own. `BEAM_X`/`BEAM_Y` are written from outside -- by the test,
+; and by the beam's own code when it exists.
+;
+; A solid cell takes `CHARGE_WALL` and a floor cell `CHARGE_SWEEP`: the ground
+; behind the beam goes out in a fifth of a second so the beam reads as a hole
+; punched through the dark, but **the wall it passed is known for the whole
+; fade**, which with no torch is the only way a room is known.
+beam_emit:
+        ld      a, (BEAM_Y)
+        sub     BEAM_RADIUS
+        ld      b, a                    ; cy of the disc's top row
+        ld      ix, DISC                ; the half-width of each row
+        ld      e, BEAM_RADIUS * 2 + 1  ; rows to do
+.row:   ld      a, (BEAM_X)
+        sub     (ix+0)
+        ld      c, a                    ; cx of this row's left end
+        ld      a, (ix+0)
+        add     a, a
+        inc     a
+        ld      d, a                    ; cells in this row
+.cell:  push    bc
+        push    de
+        ; **Solidity comes from the index cache, not `is_solid`.** A wall's
+        ; cached entry is a doubled mask (0 to 30) and floor's is 32 to 62, so
+        ; this is a byte read where `is_solid` is 292 T-states -- and it is read
+        ; 37 times a frame, once per disc cell.
+        call    idx_addr
+        ld      a, (hl)
+        cp      32
+        ld      a, CHARGE_SWEEP
+        jr      nc, .write
+        ld      a, CHARGE_WALL
+.write: call    add_light
+        pop     de
+        pop     bc
+        inc     c
+        dec     d
+        jr      nz, .cell
+        inc     b
+        inc     ix
+        dec     e
+        jr      nz, .row
         ret
 
 ; --- the play area, cleared -------------------------------------------------
@@ -122,10 +477,14 @@ clear_play:
         dec     c
         jr      nz, .band
 
+        ; **Black on black, not the room's hue** (issue #155). A room nobody
+        ; has lit is invisible, which is the whole premise: dark is an
+        ; attribute of nought, and every cell the light reaches writes its own
+        ; as it is drawn.
         ld      hl, ATTRS
         ld      de, ATTRS + 1
         ld      bc, COLS * PLAY_ROWS - 1
-        ld      (hl), PLAY_ATTR
+        ld      (hl), 0
         ldir
         ret
 
@@ -134,7 +493,8 @@ clear_play:
 ; For every cell: solid cells wear one of the sixteen wall tiles, chosen by
 ; their four neighbours; floor wears one of sixteen blocks chosen by position,
 ; `(cy & 3) * 4 + (cx & 3)`, which is `floor.py`'s rule and the reason the
-; stipple does not tile visibly.
+; stipple does not tile visibly. **Each at the level it is showing** (issue
+; #155), so a room with no light in it draws nothing at all.
 
 draw_room:
         ld      b, 0                    ; cy
@@ -155,12 +515,75 @@ draw_room:
 ; One cell of room: the tile its own geometry and position choose.
 ;
 ; in: B = cy, C = cx
+; One cell of room, at the level it is showing (issue #155).
+;
+; **A dark cell draws nothing.** It would be invisible anyway -- dark is black
+; ink on black paper -- so this is the same picture for less work, and
+; `tiles.draw` says the port does it this way too. The cell is cleared, because
+; what was there a frame ago may have been lit.
 draw_cell:
+        push    bc
+        call    level_at
+        pop     bc
+        or      a
+        jr      nz, .seen
+        push    bc
+        call    attr_cell               ; black on black
+        pop     bc
+        call    cell_addr
+        jp      clear_cell
+
+.seen:  push    af                      ; the level chooses the table
+        push    bc
+        call    attr_cell
+        pop     bc
+        pop     af
         push    bc
         call    tile_of                 ; DE = the tile's eight bytes
         pop     bc
         call    cell_addr               ; HL = the cell, top pixel row
         call    blit_tile
+        ret
+
+; Eight rows of nothing, for a cell the light has left.
+clear_cell:
+        xor     a
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a : inc h
+        ld      (hl), a
+        ret
+
+; One cell's attribute, on the rule the prototype states in as many words:
+;
+;     **light decides brightness; the cell's contents decide hue.**
+;
+; Both are single-valued per cell, so exactly one thing chooses an attribute and
+; clash stays impossible. Dark is black on black -- not merely dim but
+; invisible -- so it is not the room's ink at all.
+;
+; in:  B = cy, C = cx, A = the level
+attr_cell:
+        ; **Keep the level on the stack, not in E.** `attr_addr` builds its
+        ; address through DE, so a level stashed there is gone by the time it
+        ; returns -- which painted every lit cell black and is the second
+        ; register-clobber of this slice. The first was `cell_addr` in #154.
+        push    af
+        call    attr_addr               ; HL = the cell's attribute byte
+        pop     af
+        or      a
+        jr      z, .dark
+        dec     a
+        jr      z, .dim
+        ld      (hl), %01000000 | ROOM_INK      ; LIT: bright, the room's hue
+        ret
+.dim:   ld      (hl), ROOM_INK                  ; DIM: the hue, unbright
+        ret
+.dark:  ld      (hl), 0                         ; DARK: black on black
         ret
 
 ; Which tile a cell wears: **three reads and no arithmetic** (issue #154).
@@ -182,9 +605,18 @@ draw_cell:
 ; pointer instead would have baked the light level into the cache and had to be
 ; rebuilt every frame, which is the thing being avoided.
 ;
-; in:  B = cy, C = cx
+; in:  B = cy, C = cx, **A = the level** (DIM or LIT; dark draws nothing)
 ; out: DE = eight bytes of tile. **BC survives; HL and A do not.**
 tile_of:
+        ; Which table: lit now, or remembered. The index is the same either
+        ; way -- that is the whole reason #154 cached an index and not a
+        ; pointer -- so this is one byte of page.
+        cp      LIT
+        ld      a, TILES_LIT >> 8
+        jr      z, .table
+        ld      a, TILES_DIM >> 8
+.table: ld      (tile_page), a
+
         ld      a, b                    ; the cached index for this cell
         add     a, a
         add     a, IDX_ROW & $FF
@@ -197,8 +629,9 @@ tile_of:
         ld      l, a
         ld      a, (hl)                 ; A = the index, doubled
         ld      l, a
-        ld      h, TILES >> 8           ; ...and the table is page-aligned too,
-        ld      e, (hl)                 ; so the index *is* the low byte
+        ld      a, (tile_page)          ; ...and the table is page-aligned too,
+        ld      h, a                    ; so the index *is* the low byte
+        ld      e, (hl)
         inc     l
         ld      d, (hl)
         ret
@@ -531,6 +964,25 @@ cy = 0
 cy = cy + 1
         EDUP
 
+; ...and of the charge. The journal sits a fixed `WHEN - CHARGE` after it, so
+; one address serves both.
+        ALIGN 64
+CHG_ROW:
+cy = 0
+        DUP PLAY_ROWS
+        DEFW CHARGE + cy * COLS
+cy = cy + 1
+        EDUP
+
+; ...and of the level each cell was last drawn at.
+        ALIGN 64
+SHOWN_ROW:
+cy = 0
+        DUP PLAY_ROWS
+        DEFW SHOWN + cy * COLS
+cy = cy + 1
+        EDUP
+
 ; **One table, page-aligned**: sixteen wall shapes then sixteen floor blocks, so
 ; a cell's cached index is literally the low byte of its entry's address and
 ; `tile_of` needs no arithmetic at all. Sixty-four bytes, and the alignment is
@@ -540,7 +992,7 @@ cy = cy + 1
 ; (`WALL_DIM`, `FLOOR_DIM`); it is a different table, not a different index,
 ; which is why the cache holds the index and not a pointer.
         ALIGN 256
-TILES:
+TILES_LIT:
         DEFW WALL_LIT_00, WALL_LIT_01, WALL_LIT_02, WALL_LIT_03
         DEFW WALL_LIT_04, WALL_LIT_05, WALL_LIT_06, WALL_LIT_07
         DEFW WALL_LIT_08, WALL_LIT_09, WALL_LIT_10, WALL_LIT_11
@@ -550,11 +1002,63 @@ TILES:
         DEFW FLOOR_LIT_08, FLOOR_LIT_09, FLOOR_LIT_10, FLOOR_LIT_11
         DEFW FLOOR_LIT_12, FLOOR_LIT_13, FLOOR_LIT_14, FLOOR_LIT_15
 
+; A cell the light has left but the player still remembers: the wall's outline
+; with its courses dotted, and no stipple on the floor at all. Same indices,
+; different table -- which is what the index cache buys.
+        ALIGN 256
+TILES_DIM:
+        DEFW WALL_DIM_00, WALL_DIM_01, WALL_DIM_02, WALL_DIM_03
+        DEFW WALL_DIM_04, WALL_DIM_05, WALL_DIM_06, WALL_DIM_07
+        DEFW WALL_DIM_08, WALL_DIM_09, WALL_DIM_10, WALL_DIM_11
+        DEFW WALL_DIM_12, WALL_DIM_13, WALL_DIM_14, WALL_DIM_15
+        DEFW FLOOR_DIM_00, FLOOR_DIM_01, FLOOR_DIM_02, FLOOR_DIM_03
+        DEFW FLOOR_DIM_04, FLOOR_DIM_05, FLOOR_DIM_06, FLOOR_DIM_07
+        DEFW FLOOR_DIM_08, FLOOR_DIM_09, FLOOR_DIM_10, FLOOR_DIM_11
+        DEFW FLOOR_DIM_12, FLOOR_DIM_13, FLOOR_DIM_14, FLOOR_DIM_15
+
+; charge -> level, as the prototype's `_LEVEL_OF`: above the threshold lit,
+; above nought dim, else dark. A table, because a Z80 compares no faster than
+; it indexes.
+        ALIGN 256
+LEVEL_OF:
+c = 0
+        DUP 256
+        ; **The sum of two comparisons, negated.** Nought is dark, up to the
+        ; threshold is dim, over it is lit -- so the two comparisons give the
+        ; three levels with no conditional at all.
+        ;
+        ; The negation is not decoration: **sjasmplus's comparisons yield −1 for
+        ; true**, not 1, so the unnegated sum built a table of 0, 255, 254 and
+        ; every lit cell read as a level nothing recognised. The suite now
+        ; compares this table against the prototype's `_LEVEL_OF` byte for byte,
+        ; because a table that is wrong in the same way everywhere is invisible
+        ; in a picture until you look for it.
+        DEFB -((c > LIT_THRESHOLD) + (c > 0))
+c = c + 1
+        EDUP
+
+; The beam's disc: a half-width a row. `3 5 7 7 7 5 3` is 37 cells, and the
+; prototype's `disc_widths` says why -- it is the one set a drawn circle agrees
+; with cell for cell.
+DISC:   DEFB 1, 2, 3, 3, 3, 2, 1
+
 ; --- state ------------------------------------------------------------------
 
 mask_acc:   DEFB 0
 player_cx:  DEFB PLAYER_CX
 player_cy:  DEFB PLAYER_CY
+tile_page:  DEFB 0          ; which tile table this cell reads, lit or dim
+
+; The frames that have passed, which is the whole of the fade's per-frame cost.
+; Two bytes so it does not wrap inside a room, though only the low byte is
+; compared: nothing outlives `FADE_FRAMES`, which is under 256.
+DECAYS:     DEFW 0
+
+; Where the beam is, in cells. **Written from outside this slice** (issue
+; #155): its motion is the run's xorshift and the station order, and that is a
+; slice of its own.
+BEAM_X:     DEFB 6
+BEAM_Y:     DEFB 5
 
 ; --- the generated tables ---------------------------------------------------
 
@@ -575,3 +1079,15 @@ code_end:
 ; carry branch.
 IDX:    EQU (code_end + 255) & $FF00
 IDX_END: EQU IDX + COLS * PLAY_ROWS
+
+; The charge a cell holds, and the frame each was written at -- the journal.
+; Page-aligned for the same reason the index cache is, and `WHEN` a whole number
+; of pages after `CHARGE` so `chg_addr` serves both with one add.
+; The charge a cell holds, the frame each was written at -- the journal, two
+; bytes a cell and a page apart so `inc h` reaches the high byte -- and the level
+; each was last drawn at. All page-aligned, for the same reason the index cache
+; is: a row's low byte is a multiple of 32, so adding `cx` cannot carry.
+CHARGE: EQU (IDX_END + 255) & $FF00
+WHEN:   EQU CHARGE + 768
+SHOWN:  EQU WHEN + 1536
+FIELD_END: EQU SHOWN + COLS * PLAY_ROWS

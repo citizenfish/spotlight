@@ -42,10 +42,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "spectrum" / "src"
 BUILD = ROOT / "spectrum" / "build"
 
-#: What `main.asm` draws the play area in, and what the reference must use: the
-#: light field is the next slice, so a room is drawn lit or there is nothing to
-#: compare. Bright white on black.
-PLAY_ATTR = attr_byte(ink=7, paper=0, bright=True)
+#: The room's hue, which `main.asm` calls `ROOM_INK`. **Light decides
+#: brightness; the cell's contents decide hue** -- so this is the contents'
+#: half, and the level supplies the BRIGHT bit on top of it. Yellow, which is
+#: what `levels.hue_at` gives this room.
+ROOM_INK = 6
 
 #: Where `main.asm` stands the player, in cells. Kept here so one edit moves
 #: both the port and its reference, which is the whole point of the comparison.
@@ -94,6 +95,56 @@ def assemble() -> bytes:
     if done.returncode:
         pytest.fail(f"sjasmplus refused main.asm:\n{done.stdout}\n{done.stderr}")
     return (BUILD / "spotlight.bin").read_bytes()
+
+
+def light_run(blob, frames: int = 1, beam=None, limit: int = 2_000_000):
+    """Arrive in the room, then run `frames` light-and-draw frames.
+
+    The port's own loop without the `halt`: `enter_room` then, per frame,
+    `light_frame` and `draw_frame`. Driving it through the real entry points
+    rather than poking the field is the point -- what is compared is what the
+    game would show.
+    """
+    memory = [0] * 65536
+    memory[ORIGIN:ORIGIN + len(blob)] = list(blob)
+    memory[0x7000] = 0x76
+    machine = simulator.Simulator(memory)
+    machine.registers[12] = 0x7FFE
+
+    def call(label):
+        memory[0x7FFE], memory[0x7FFF] = 0x00, 0x70
+        machine.registers[12] = 0x7FFE
+        machine.registers[PC] = symbol(label)
+        before = machine.registers[T]
+        for _ in range(limit):
+            machine.run()
+            if machine.registers[PC] == 0x7000:
+                return machine.registers[T] - before
+        pytest.fail(f"{label} did not return inside {limit} instructions")
+
+    call("enter_room")
+    # **The beam's position is an input** (issue #155), one cell per frame, so a
+    # test can light something and then move away and watch it fade. Its
+    # *motion* -- the xorshift and the station order -- is a slice of its own.
+    path = beam_path(frames, beam)
+    cost = 0
+    for where in path:
+        memory[symbol("BEAM_X")], memory[symbol("BEAM_Y")] = where
+        cost = call("light_frame") + call("draw_frame")
+    return machine, cost
+
+
+def beam_path(frames: int, beam=None):
+    """One beam cell per frame. A single pair means a beam that does not move;
+    a sequence is used as given and its last cell repeats if it is short."""
+    if beam is None:
+        beam = (BEAM_X, BEAM_Y)
+    if isinstance(beam[0], int):
+        return [tuple(beam)] * frames
+    path = [tuple(p) for p in beam]
+    if len(path) < frames:
+        path += [path[-1]] * (frames - len(path))
+    return path[:frames]
 
 
 def run(label: str, blob: bytes, limit: int = 200_000):
@@ -153,34 +204,101 @@ def shell_rows() -> tuple[str, ...]:
     return levels.parse(text)[4][SHELL]
 
 
-def reference() -> Screen:
-    """The same room and the same player, drawn by the prototype's own code.
-
-    Not a second implementation: `tiles.blit`, `floor`'s table and
-    `sprites.draw` are the functions the game draws with, so if the port and
-    this disagree the port is wrong.
-    """
-    rows = shell_rows()
+def solid_of(rows):
+    """`Room.is_wall`'s rule for a bare shell: **off the room counts as wall**,
+    which is what makes the outer wall show one face, inward."""
+    from spikes import building as B
 
     def solid(cx: int, cy: int) -> bool:
         if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
-            return True                 # off the room counts as wall
-        from spikes import building as B
+            return True
         return rows[cy][cx] == B.WALL
+    return solid
+
+
+#: Where `main.asm` starts the beam, and the radius it sweeps with. The port
+#: takes its position as an input -- the beam's *motion* is the run's xorshift
+#: and a slice of its own (issue #155) -- so the reference forces the same cell.
+BEAM_X, BEAM_Y, BEAM_RADIUS = 6, 5, 3
+
+
+def field_after(frames: int, beam=None):
+    """The prototype's own `LightField`, driven the way the port drives it.
+
+    Not a model of the port: this *is* `lighting.LightField`, with the beam's
+    disc written in by `sources.disc_widths` and the same two charges the
+    shipped beam uses -- `CHARGE_WALL` on a wall, because the wall the beam
+    passed is how a room is known, and `CHARGE_SWEEP` on floor, because the
+    ground behind it goes out in a fifth of a second.
+    """
+    from spikes import lighting, sources
+    rows = shell_rows()
+    solid = solid_of(rows)
+    field = lighting.LightField()
+    #: The solid cells, as indices -- what `linger` wants (issue #141).
+    walls = frozenset((cy * COLS + cx)
+                      for cy in range(PLAY_ROWS) for cx in range(COLS)
+                      if solid(cx, cy))
+    widths = sources.disc_widths(BEAM_RADIUS)
+    field_frames: list[int] = []
+    for bx, by in beam_path(frames, beam):
+        field.begin()
+        for dy, half in zip(range(-BEAM_RADIUS, BEAM_RADIUS + 1), widths):
+            for dx in range(-half, half + 1):
+                cx, cy = bx + dx, by + dy
+                charge = (lighting.CHARGE_WALL if solid(cx, cy)
+                          else lighting.CHARGE_SWEEP)
+                field.add(cx, cy, lighting.LIT, charge)
+        field.commit()
+        # **`linger` is a per-frame call on even frames**, not setup: that is
+        # how `Session` drives it when `fade: 2`, which is how Levels 1 to 6
+        # ship, and it is what makes a wall's memory last six seconds where the
+        # floor's lasts three.
+        frame = len(field_frames) + 1
+        field_frames.append(frame)
+        if frame % 2 == 0:
+            field.linger(walls)
+    return field
+
+
+def reference(frames: int = 1, beam=None, player=True) -> Screen:
+    """The room as the prototype draws it, at the levels the field is showing.
+
+    Not a second implementation: `tiles.blit`, `floor`'s tables, `attr_for` and
+    `sprites.draw` are the functions the game draws with, so if the port and
+    this disagree the port is wrong.
+    """
+    from spikes import lighting
+    rows = shell_rows()
+    solid = solid_of(rows)
+    field = field_after(frames, beam)
 
     screen = Screen()
-    screen.clear(attr_byte(ink=7, paper=0))
+    screen.clear(lighting.attr_for(lighting.DARK, ROOM_INK))
     for cy in range(PLAY_ROWS):
         for cx in range(COLS):
+            level = field.level_at(cx, cy)
+            screen.set_attr(cx, cy, lighting.attr_for(level, ROOM_INK))
+            if level == lighting.DARK:
+                continue                # dark draws nothing; it is invisible
+            lit = level == lighting.LIT
             if solid(cx, cy):
-                art = tiles.WALL_LIT[tiles.mask_at(solid, cx, cy)]
+                table = tiles.WALL_LIT if lit else tiles.WALL_DIM
+                art = table[tiles.mask_at(solid, cx, cy)]
             else:
-                art = floor_mod.FLOOR_LIT[(cy & 3) * 4 + (cx & 3)]
+                table = floor_mod.FLOOR_LIT if lit else floor_mod.FLOOR_DIM
+                art = table[(cy & 3) * 4 + (cx & 3)]
             tiles.blit(screen, cx, cy, art)
-            screen.set_attr(cx, cy, PLAY_ATTR)
-    sprites.draw(screen, bitmaps_gen.PLAYER_N,
-                 PLAYER_CX * CELL, PLAYER_CY * CELL)
+    if player:
+        sprites.draw(screen, bitmaps_gen.PLAYER_N,
+                     PLAYER_CX * CELL, PLAYER_CY * CELL)
     return screen
+
+
+def attrs_of(screen: Screen) -> bytes:
+    """The play area's attribute bytes, which is the half #153 and #154 could
+    not compare: they drew the whole area one flat colour."""
+    return bytes(screen.attrs[:COLS * PLAY_ROWS])
 
 
 def display_file(screen: Screen) -> bytearray:
