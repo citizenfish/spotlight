@@ -54,6 +54,7 @@ main:
 ; costs to arrive somewhere, and the per-frame budget is spent on the cells that
 ; actually changed.
 enter_room:
+        call    build_masks
         call    clear_play
         call    draw_room
         ret
@@ -156,13 +157,63 @@ draw_room:
 ; in: B = cy, C = cx
 draw_cell:
         push    bc
+        call    tile_of                 ; DE = the tile's eight bytes
+        pop     bc
+        call    cell_addr               ; HL = the cell, top pixel row
+        call    blit_tile
+        ret
+
+; Which tile a cell wears: **three reads and no arithmetic** (issue #154).
+;
+; It began as four `is_solid` calls at 292 T-states each -- 1,331 for the mask,
+; 64% of a wall cell, and nearly ten times what `tiles.mask_at` costed the whole
+; mask at. Caching the mask took it to 228. Caching the **pre-doubled index into
+; one tile table** takes it to about a hundred, because the cell's whole
+; identity is then one byte:
+;
+;   * a wall cell's index is its four-neighbour mask, 0 to 15;
+;   * a floor cell's is 16 + `(cy & 3) * 4 + (cx & 3)`, which is a function of
+;     the cell's **position** and so is just as constant as the mask;
+;   * both are stored doubled, because the table holds words.
+;
+; **None of it is lighting.** The index says which of the sixteen wall shapes or
+; sixteen floor blocks a cell is; which *table* -- lit or remembered -- the
+; light field chooses, and that is the next slice's to vary. Caching a tile
+; pointer instead would have baked the light level into the cache and had to be
+; rebuilt every frame, which is the thing being avoided.
+;
+; in:  B = cy, C = cx
+; out: DE = eight bytes of tile. **BC survives; HL and A do not.**
+tile_of:
+        ld      a, b                    ; the cached index for this cell
+        add     a, a
+        add     a, IDX_ROW & $FF
+        ld      l, a
+        ld      h, IDX_ROW >> 8
+        ld      a, (hl)
+        inc     l                       ; the table is page-aligned
+        ld      h, (hl)
+        add     a, c
+        ld      l, a
+        ld      a, (hl)                 ; A = the index, doubled
+        ld      l, a
+        ld      h, TILES >> 8           ; ...and the table is page-aligned too,
+        ld      e, (hl)                 ; so the index *is* the low byte
+        inc     l
+        ld      d, (hl)
+        ret
+
+; Every cell's tile index, worked out once on arrival (`enter_room`). 704 bytes
+; of working store: *The port begins* measured that memory is not this machine's
+; constraint -- the art is 1,704 bytes with 42,240 free -- while cycles are.
+build_masks:
+        ld      b, 0
+.row:   ld      c, 0
+.cell:  push    bc
         call    is_solid
         jr      z, .floor
-
-        call    mask_at                 ; A = the four-neighbour mask
-        ld      hl, WALL_TILES
-        jr      .tile
-
+        call    mask_at                 ; 0-15, the four-neighbour mask
+        jr      .store
 .floor: ld      a, b
         and     %00000011               ; cy & 3
         add     a, a
@@ -171,32 +222,59 @@ draw_cell:
         ld      a, c
         and     %00000011               ; cx & 3
         add     a, e
-        ld      hl, FLOOR_TILES
-
-.tile:  add     a, a                    ; two bytes an entry
-        add     a, l
-        ld      l, a
-        jr      nc, .got
-        inc     h
-.got:   ld      e, (hl)
-        inc     hl
-        ld      d, (hl)                 ; DE = the tile's eight bytes
+        add     a, 16                   ; the floor blocks follow the walls
+.store: add     a, a                    ; doubled: the table holds words
         pop     bc
-        call    cell_addr               ; HL = the cell, top pixel row
-        call    blit_tile
+        push    bc
+        push    af
+        call    idx_addr
+        pop     af
+        ld      (hl), a
+        pop     bc
+        inc     c
+        ld      a, c
+        cp      COLS
+        jr      nz, .cell
+        inc     b
+        ld      a, b
+        cp      PLAY_ROWS
+        jr      nz, .row
+        ret
+
+; Where a cell's cached index lives. Only `build_masks` calls this -- `tile_of`
+; has it inlined, because at 62 T-states the `call` and `ret` are a fifth of it.
+;
+; in:  B = cy, C = cx ; out: HL = the byte's address. BC survives.
+idx_addr:
+        ld      a, b
+        add     a, a
+        add     a, IDX_ROW & $FF
+        ld      l, a
+        ld      h, IDX_ROW >> 8
+        ld      a, (hl)
+        inc     l
+        ld      h, (hl)
+        add     a, c
+        ld      l, a
         ret
 
 ; Eight bytes into one cell. Within a character cell the next pixel row is
 ; the next value of the address's high byte, so stepping down is `inc h`.
 ;
 ; in:  HL = the cell's top row, DE = tile data
+; Unrolled (issue #154): the loop was `ld a,(de) : ld (hl),a : inc de : inc h :
+; djnz` at 37 T-states a row; straight through it is 24, so the eight rows cost
+; about 192 against 296. Twelve bytes of code for a hundred T-states a cell, and
+; a cell is the port's currency.
 blit_tile:
-        ld      b, 8
-.row:   ld      a, (de)
-        ld      (hl), a
-        inc     de
-        inc     h
-        djnz    .row
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a : inc de : inc h
+        ld      a, (de) : ld (hl), a
         ret
 
 ; --- the room's geometry ----------------------------------------------------
@@ -305,18 +383,25 @@ mask_at:
 ; so the three parts never interfere and stepping a pixel row is `inc h`.
 ;
 ; in:  B = cy, C = cx ; out: HL = that cell's top pixel row
+; A table read (issue #154), where it was two masks, three rotations and an
+; `or`. Twenty-two words, one a character row.
+;
+; **It must not touch DE**, because `draw_cell` is holding the tile pointer
+; there -- the first cut of this did `ld de, ROW_ADDR` and drew the whole room
+; out of whatever the row table happened to point at. `ROW_ADDR` is page-aligned
+; instead, so the index is one byte: `cy * 2` plus the table's offset inside its
+; page, which cannot carry because 21*2 + 192 is still under 256.
 cell_addr:
         ld      a, b
-        and     %00011000
-        or      $40
-        ld      h, a
-        ld      a, b
-        and     %00000111
-        rrca
-        rrca
-        rrca                            ; (cy & 7) * 32
-        or      c
+        add     a, a                    ; two bytes an entry
+        add     a, ROW_ADDR & $FF
         ld      l, a
+        ld      h, ROW_ADDR >> 8
+        ld      a, (hl)                 ; the row's low byte
+        inc     l                       ; cannot leave the page, as above
+        ld      h, (hl)                 ; ...and its high byte
+        add     a, c                    ; + cx, which cannot carry: the low byte
+        ld      l, a                    ; is a multiple of 32 and cx < 32
         ret
 
 ; in:  B = cy, C = cx ; out: HL = that cell's attribute
@@ -424,13 +509,42 @@ read_keys:
 BIT_OF:
         DEFB $80,$40,$20,$10,$08,$04,$02,$01
 
-WALL_TILES:
+; Each character row's screen address, which the display file's own shape makes
+; non-linear: H = $40 | (cy & $18) | dy, L = (cy & 7) << 5.
+;
+; **Page-aligned** so `cell_addr` can index it with one byte and leave DE alone.
+        ALIGN 64
+ROW_ADDR:
+cy = 0
+        DUP PLAY_ROWS
+        DEFW $4000 | ((cy & $18) << 8) | ((cy & 7) << 5)
+cy = cy + 1
+        EDUP
+
+; And each row of the index cache, for the same reason: one byte of index
+; arithmetic instead of five `add hl,hl`.
+        ALIGN 64
+IDX_ROW:
+cy = 0
+        DUP PLAY_ROWS
+        DEFW IDX + cy * COLS
+cy = cy + 1
+        EDUP
+
+; **One table, page-aligned**: sixteen wall shapes then sixteen floor blocks, so
+; a cell's cached index is literally the low byte of its entry's address and
+; `tile_of` needs no arithmetic at all. Sixty-four bytes, and the alignment is
+; what buys the three-read lookup.
+;
+; The light field will want a second one of these for remembered cells
+; (`WALL_DIM`, `FLOOR_DIM`); it is a different table, not a different index,
+; which is why the cache holds the index and not a pointer.
+        ALIGN 256
+TILES:
         DEFW WALL_LIT_00, WALL_LIT_01, WALL_LIT_02, WALL_LIT_03
         DEFW WALL_LIT_04, WALL_LIT_05, WALL_LIT_06, WALL_LIT_07
         DEFW WALL_LIT_08, WALL_LIT_09, WALL_LIT_10, WALL_LIT_11
         DEFW WALL_LIT_12, WALL_LIT_13, WALL_LIT_14, WALL_LIT_15
-
-FLOOR_TILES:
         DEFW FLOOR_LIT_00, FLOOR_LIT_01, FLOOR_LIT_02, FLOOR_LIT_03
         DEFW FLOOR_LIT_04, FLOOR_LIT_05, FLOOR_LIT_06, FLOOR_LIT_07
         DEFW FLOOR_LIT_08, FLOOR_LIT_09, FLOOR_LIT_10, FLOOR_LIT_11
@@ -447,4 +561,17 @@ player_cy:  DEFB PLAYER_CY
         INCLUDE "rooms.asm"
         INCLUDE "bitmaps.asm"
 
-        SAVEBIN "../build/spotlight.bin", main, $ - main
+code_end:
+        SAVEBIN "../build/spotlight.bin", main, code_end - main
+
+; --- the mask cache ---------------------------------------------------------
+;
+; 704 bytes of working store, **after** the saved image so it costs nothing on
+; tape: it is built on arrival, never loaded. One byte a cell: a wall's
+; four-neighbour mask, or $FF for floor.
+
+; **Page-aligned**, so a row's low byte is a multiple of 32 and adding `cx`
+; cannot carry -- which is what lets `tile_of` do `add a,c : ld l,a` with no
+; carry branch.
+IDX:    EQU (code_end + 255) & $FF00
+IDX_END: EQU IDX + COLS * PLAY_ROWS

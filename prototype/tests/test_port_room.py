@@ -87,19 +87,92 @@ def test_arriving_in_a_room_is_not_a_frames_work(blob):
         "before moving it into the loop"
 
 
-def test_a_cell_costs_what_the_beam_can_afford(blob):
-    """How many cells a frame can be repainted is the port's real currency,
-    because that is what a moving beam does.
+#: What a frame actually has to repaint, measured off the prototype over
+#: **204,825 frames** -- four bots, eight seeds, Level 9, three minutes each
+#: (issue #154, `2026-10-05 what a cell costs/repaints.py`). A cell needs
+#: redrawing when what it shows changes, which is what `LightField.display` is,
+#: plus the cells figures and flies stand in and the ones they just left.
+#:
+#: Arrivals are excluded, **including the run's own first frame**: unexcluded,
+#: the worst frame is 59 cells of light and it is frame one on every seed and
+#: every bot, the beam appearing out of nothing. That is `enter_room`'s work and
+#: counting it would have set this bar at twice the real figure.
+WORST_FRAME_CELLS = 58
+NINETY_NINTH_CELLS = 34
 
-    **1,926 T-states a cell, so seventeen cells inside `ENTITY_CEILING`.** The
-    beam's disc is thirty-seven cells (`sources.disc_widths`, 3 5 7 7 7 5 3), so
-    a step of the beam repaints its leading and trailing edges and not the whole
-    disc -- which is affordable, but only just, and the next slice should expect
-    to make this cheaper. `tiles.mask_at` costs the four bit tests at about 120
-    T-states; this pays five calls of `is_solid` with three register pairs saved
-    each time, so there is a lot of it to win back.
+
+def test_a_cell_costs_what_the_beam_can_afford(blob):
+    """How many cells a frame can repaint is the port's real currency, because
+    that is what a moving beam does.
+
+    **434 T-states a cell, from 1,926 -- 4.44x** (issue #154), by caching each
+    cell's tile index on arrival instead of deriving it per frame. The worst
+    frame the prototype produces is 58 cells, which is **77% of
+    `ENTITY_CEILING`** and 36% of a 50Hz frame; the 99th percentile is 34 cells
+    at 45% of the ceiling.
+
+    **The gate is the 99th percentile inside the ceiling, and the worst frame
+    inside a whole frame.** Those are different bars on purpose. The 99th is
+    what governs whether the game feels smooth and it has to leave room for
+    everything that is not drawing. The 58-cell frame happens about twice an
+    hour -- it is the beam changing station, which lights a whole new disc and
+    darkens the old one -- and one frame of jitter twice an hour is not worth
+    buying margin for; what matters is that it cannot overrun a frame and drop
+    one.
     """
     _machine, cost = portharness.run("draw_cell", blob)
-    assert ENTITY_CEILING // cost >= 12, \
-        f"a cell costs {cost:,} T-states, so only " \
-        f"{ENTITY_CEILING // cost} fit in a frame"
+    ninety_ninth = NINETY_NINTH_CELLS * cost
+    worst = WORST_FRAME_CELLS * cost
+    assert ninety_ninth < ENTITY_CEILING, (
+        f"a cell costs {cost:,} T-states, so the 99th-percentile frame of "
+        f"{NINETY_NINTH_CELLS} cells costs {ninety_ninth:,} against a ceiling "
+        f"of {ENTITY_CEILING:,}")
+    assert worst < FRAME_TSTATES, (
+        f"the worst frame of {WORST_FRAME_CELLS} cells costs {worst:,} "
+        f"T-states and a 50Hz frame is {FRAME_TSTATES:,}")
+
+
+def test_the_cached_index_is_geometry_and_not_lighting(blob):
+    """The cache holds a **tile index**, not a tile pointer, and that is the
+    whole reason it can be built once on arrival.
+
+    A wall cell's index is its four-neighbour mask (0-15); a floor cell's is
+    16 + `(cy & 3) * 4 + (cx & 3)`, which is a function of where the cell is and
+    so is just as fixed as the mask. Which *table* the index is read from -- lit
+    now, remembered later -- is the light field's to choose, and it is the next
+    slice's. Had the cache held a pointer it would have baked in the light level
+    and needed rebuilding every frame, which is the cost this removes.
+
+    Checked against the prototype's own `tiles.mask_at` rather than recomputed
+    here, so the two machines cannot disagree about what a cell is.
+    """
+    from spikes import building as B, tiles
+    machine, _cost = portharness.run("enter_room", blob, limit=1_500_000)
+    base = portharness.symbol("IDX")
+    rows = portharness.shell_rows()
+
+    def solid(cx, cy):
+        if not (0 <= cx < COLS and 0 <= cy < PLAY_ROWS):
+            return True
+        return rows[cy][cx] == B.WALL
+
+    for cy in range(PLAY_ROWS):
+        for cx in range(COLS):
+            got = machine.memory[base + cy * COLS + cx]
+            if solid(cx, cy):
+                want = tiles.mask_at(solid, cx, cy)
+            else:
+                want = 16 + (cy & 3) * 4 + (cx & 3)
+            assert got == want * 2, (cx, cy, got, want * 2)
+
+
+def test_the_cache_is_accounted_for_in_48k(blob):
+    """704 bytes of working store, after the saved image so it costs nothing on
+    tape, and nowhere near the constraint: the whole thing is 3,520 bytes with
+    29,248 free above it."""
+    start = portharness.symbol("IDX")
+    end = portharness.symbol("IDX_END")
+    assert end - start == COLS * PLAY_ROWS == 704
+    assert start >= portharness.ORIGIN + len(blob), \
+        "the cache overlaps the code"
+    assert end < 0xFF00, "the cache runs into the stack"

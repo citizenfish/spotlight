@@ -185,9 +185,22 @@ def mask_at(is_wall, cx: int, cy: int) -> int:
     test plan; the rule lives in the predicate rather than here so that this
     stays four bit tests and nothing else.
 
-    **Recomputed, never stored** -- see the module docstring. On the Z80 this is
-    four bit tests against an 88-byte solidity bitmap with an implicit solid
-    border, about 120 T-states.
+    **Recomputed here, cached on the Z80** -- and the estimate that used to be
+    in this docstring was wrong by an order of magnitude, which is worth keeping
+    rather than quietly correcting. It said *"four bit tests against an 88-byte
+    solidity bitmap with an implicit solid border, about 120 T-states"*. Written
+    and measured (issue #154), one bit test is **292 T-states** and the four are
+    **1,331** -- sixty-four per cent of what a wall cell cost to draw, because
+    each test saves three register pairs, bounds-checks twice and computes a
+    16-bit address with two carry branches.
+    120 T-states was a count of the arithmetic with none of the plumbing.
+
+    So the port does store it: the walls do not move while you are in a room, so
+    every cell's mask is worked out once on arrival into 704 bytes, and the trade
+    this docstring was defending -- cycles against memory -- goes the other way
+    on the real numbers. Memory is not that machine's constraint; cycles are.
+    **Recomputing is still right here**, where there are no cycles to save and a
+    stored copy could go stale. See *2026-10-05 What a cell costs* in the vault.
     """
     mask = 0
     if is_wall(cx, cy - 1):
