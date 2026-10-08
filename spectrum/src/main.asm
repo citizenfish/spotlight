@@ -74,6 +74,7 @@ main:
 ; actually changed.
 enter_room:
         call    build_masks
+        call    clear_schedule          ; nothing is filed and nothing is due
         call    clear_shown             ; nothing is drawn yet, so: all dark
         call    clear_play
         call    draw_room
@@ -104,19 +105,124 @@ draw_frame:
 ; level it is showing now.
 ;
 ; `SHOWN` holds the level each cell was last drawn at, so this is the exact
-; repaint set and not an approximation -- which is what byte-identity with the
-; prototype demands: the fade crosses a threshold on a frame nothing wrote to
-; the cell, and that cell still has to change on screen.
+; repaint set and not an approximation -- which byte-identity with the prototype
+; demands, because the fade crosses a threshold on frames nothing wrote to the
+; cell and those cells still have to change on screen.
 ;
-; **This walks all 704 cells to find them**, and the measured truth is that only
-; 8 of them change on a median frame and 58 on the worst. The walk is the cost of
-; *finding* the set rather than of drawing it; see the vault note for what that
-; costs and what to do about it.
+; **It is told which cells, not asked** (issue #156). Asking all 704 cost
+; 277,322 T-states a frame -- 845% of `ENTITY_CEILING` -- to find the eight that
+; moved on a median frame. A cell's charge is deterministic, so the frame it next
+; changes level is known the moment it is written, and `schedule` files it under
+; that frame. Here the bucket for this frame is walked and nothing else.
+;
+; Two sources of change, and both are handled:
+;
+;   * **the fade** crossing a threshold, which is what the schedule holds;
+;   * **the beam moving**, which makes cells it has left stop reading `LIT`
+;     whatever their charge says. Those are the disc's own cells, and only when
+;     the beam actually moves -- at `pace: 6` that is one frame in six.
 paint_changed:
-        ld      b, 0
-.row:   ld      c, 0
-.cell:  push    bc
-        call    level_at                ; A = the level now
+        call    due_now                 ; the fade's own transitions
+        call    beam_edges              ; and the cells the beam left behind
+        ret
+
+; The cells filed under this frame, each checked and redrawn if it has moved,
+; then re-filed for whenever it next changes.
+due_now:
+        ld      a, (DECAYS)
+        call    head_addr               ; HL = the bucket for this frame
+        ld      e, (hl)
+        inc     h
+        ld      d, (hl)                 ; DE = the first cell in it, or nil
+        dec     h
+        ld      (hl), $FF               ; the bucket is emptied as it is walked
+        inc     h
+        ld      (hl), $FF
+
+.next:  ld      a, d
+        and     e
+        inc     a
+        ret     z                       ; nil: the chain is done
+
+        push    de
+        ; The link to the next cell before this one is touched, because
+        ; re-filing it will overwrite its link.
+        ld      hl, LINK_LO
+        add     hl, de
+        ld      c, (hl)
+        ld      hl, LINK_HI
+        add     hl, de
+        ld      b, (hl)
+        push    bc                      ; the rest of the chain
+
+        ; **Is this entry still the live one?** `DUE` is the authority, and
+        ; there are three answers, not two:
+        ;
+        ;   * its low byte disagrees with this frame -- the cell was re-written
+        ;     and filed somewhere else, so this entry is **stale** and dropped,
+        ;     which is what keeps the chains from multiplying;
+        ;   * it agrees entirely -- the cell is **due**, so check and re-file;
+        ;   * it agrees in the low byte but not the high -- the cell is due in
+        ;     some multiple of 256 frames' time and this bucket has merely come
+        ;     round early, so **put it back**.
+        ;
+        ; That last case is not hypothetical and was the bug: a wall holds
+        ; `CHARGE_WALL` at half rate, so it is due **299 frames** out, past the
+        ; horizon of 256 buckets. Dropping those entries meant a swept wall was
+        ; never looked at again and stayed lit for ever.
+        ; **Out of the chain now**, because walking a bucket empties it. So this
+        ; is the one moment a cell can be moved without corrupting anything.
+        ld      hl, FILED
+        add     hl, de
+        ld      (hl), $FF
+
+        ld      hl, DUE_LO
+        add     hl, de
+        ld      a, (hl)
+        ld      hl, (DECAYS)
+        cp      l
+        jr      nz, .elsewhere          ; due on some other frame: re-file
+        ld      hl, DUE_HI
+        add     hl, de
+        ld      a, (hl)
+        ld      hl, (DECAYS)
+        cp      h
+        jr      z, .due
+
+.elsewhere:
+        ; Not due now -- either the cell was written since and its due frame
+        ; moved, or it is due in a multiple of 256 frames' time and this bucket
+        ; has merely come round early. A wall holds `CHARGE_WALL` at half rate
+        ; and is due **299 frames** out, past the horizon of 256 buckets, so
+        ; this case is ordinary rather than exotic.
+        ld      hl, DUE_LO
+        add     hl, de
+        ld      a, (hl)
+        inc     a
+        jr      z, .stale               ; no due frame at all: nothing to file
+        dec     a
+        call    file_cell
+        jr      .stale
+
+.due:   ld      b, d                    ; the index, high byte in B as
+        ld      c, e                    ; `cell_of` wants it
+        call    cell_of                 ; B = cy, C = cx
+        push    bc
+        call    check_cell
+        pop     bc
+        call    reschedule
+.stale: pop     bc                      ; the rest of the chain
+        pop     de
+        ld      e, c
+        ld      d, b
+        jr      .next
+
+; One cell: redraw it if what it shows has moved from what was drawn.
+;
+; in:  B = cy, C = cx
+check_cell:
+        push    bc
+        call    level_at
         ld      e, a
         push    de
         call    shown_addr
@@ -126,19 +232,354 @@ paint_changed:
         jr      z, .same
         ld      (hl), e                 ; remember what we are about to draw
         pop     bc
-        push    bc
-        call    draw_cell
-        pop     bc
-        jr      .next
+        jp      draw_cell
 .same:  pop     bc
-.next:  inc     c
+        ret
+
+; The cells the beam has stopped covering, and the ones it has started. Only
+; when it has moved: at `pace: 6` the beam holds its cell for six frames, and on
+; those frames nothing enters or leaves the disc at all.
+beam_edges:
+        ld      a, (BEAM_X)
+        ld      hl, (WAS_BEAM)
+        cp      l
+        jr      nz, .moved
+        ld      a, (BEAM_Y)
+        cp      h
+        ret     z                       ; it has not moved: nothing to do
+
+.moved: ; **The cells the beam has left.** They were lit by it and may not be any
+        ; more, so each is checked -- and this is where they are scheduled, the
+        ; work `write_charge` deliberately does not do while the beam is on
+        ; them. The cells the beam has just *reached* are written and drawn by
+        ; `beam_emit`, so they need nothing here.
+        ld      hl, (WAS_BEAM)
+        ld      a, l
+        ld      (disc_x), a
+        ld      a, h
+        ld      (disc_y), a
+        call    check_disc
+        ld      a, (BEAM_X)
+        ld      l, a
+        ld      a, (BEAM_Y)
+        ld      h, a
+        ld      (WAS_BEAM), hl
+        ret
+
+; Is a cell inside the beam's disc as it stands now? Z if it is.
+;
+; in:  B = cy, C = cx ; out: Z if inside. BC survives.
+in_beam:
+        ld      a, (BEAM_Y)
+        sub     b
+        jr      nc, .dy
+        neg
+.dy:    cp      BEAM_RADIUS + 1
+        jr      nc, .out                ; too far up or down
+        ; **The row's half-width is `DISC[radius - |dy|]`**, not `DISC[|dy|]`:
+        ; the table runs from the disc's top row to its bottom, so the centre
+        ; is in the middle of it. Indexing by the distance from the centre read
+        ; the widths inside out -- a one-cell band where the disc is widest.
+        ld      e, a
+        ld      a, BEAM_RADIUS
+        sub     e
+        ld      hl, DISC
+        add     a, l
+        ld      l, a
+        jr      nc, .nc
+        inc     h
+.nc:    ld      a, (hl)
+        ld      e, a
+        ld      a, (BEAM_X)
+        sub     c
+        jr      nc, .dx
+        neg
+.dx:    cp      e
+        jr      z, .in
+        jr      c, .in
+.out:   ld      a, 1
+        and     a                       ; NZ: outside
+        ret
+.in:    xor     a                       ; Z: inside
+        ret
+
+; Every cell of the disc centred on `disc_x`, `disc_y`, checked.
+check_disc:
+        ld      a, (disc_y)
+        sub     BEAM_RADIUS
+        ld      b, a
+        ld      ix, DISC
+        ld      a, BEAM_RADIUS * 2 + 1
+        ld      (disc_rows), a
+.row:   ld      a, (disc_x)
+        sub     (ix+0)
+        ld      c, a
+        ld      a, (ix+0)
+        add     a, a
+        inc     a
+        ld      (disc_cells), a
+.cell:  ld      a, b
+        cp      PLAY_ROWS
+        jr      nc, .skip               ; off the room: nothing to draw
         ld      a, c
         cp      COLS
+        jr      nc, .skip
+        ; **Only the cells it actually left.** A cell still inside the new disc
+        ; is still lit, so it has not changed and needs no schedule -- the same
+        ; argument as the write path's. When the beam steps one cell, seven of
+        ; the thirty-seven leave; checking and rescheduling all of them cost
+        ; 139,862 T-states a frame, four times the budget, to do seven cells'
+        ; worth of work.
+        push    bc
+        call    in_beam
+        pop     bc
+        jr      z, .skip
+        push    bc
+        call    check_cell
+        pop     bc
+        push    bc
+        call    reschedule              ; now that the beam has gone
+        pop     bc
+.skip:  inc     c
+        ld      a, (disc_cells)
+        dec     a
+        ld      (disc_cells), a
         jr      nz, .cell
         inc     b
-        ld      a, b
-        cp      PLAY_ROWS
+        inc     ix
+        ld      a, (disc_rows)
+        dec     a
+        ld      (disc_rows), a
         jr      nz, .row
+        ret
+
+; --- the schedule ----------------------------------------------------------
+;
+; One bucket a frame, 256 of them, and one live entry a cell. Filing is three
+; stores; firing is the chain for this frame and nothing else.
+
+; File a cell under the frame it next changes level at.
+;
+; in:  B = cy, C = cx, HL = &CHARGE[cell] is **not** needed -- the charge is
+;      read here -- and DE is spent.
+; **A cell is filed at most once, and that is the whole correctness argument.**
+;
+; The first cut filed it again on every write, and a cell re-filed while still
+; linked into an older chain had its link overwritten -- which orphaned every
+; entry behind it in that chain. Cells simply vanished from the schedule and
+; stayed lit for ever; the one I chased was (2,2), due at frame 22 and present
+; in no bucket at all.
+;
+; So `FILED` records which bucket a cell is in, and a write only *files* a cell
+; that is not filed already. A write to a cell that is already filed just moves
+; `DUE`; the entry sitting in the old bucket will come up, find itself not due,
+; and re-file under the new `DUE` -- which is safe, because walking a bucket
+; empties it, so an entry being processed is in no chain at all.
+reschedule:
+        push    bc
+        call    next_change             ; HL = the frame it next changes at
+file_at:
+        ld      (sched_at), hl
+        call    cell_index              ; DE = the cell's index
+        ld      hl, DUE_LO
+        add     hl, de
+        ld      a, (sched_at)
+        ld      (hl), a
+        ld      hl, DUE_HI
+        add     hl, de
+        ld      a, (sched_at + 1)
+        ld      (hl), a
+
+        ld      a, (sched_at)
+        and     a
+        ld      a, (sched_at + 1)
+        inc     a
+        jr      z, .done                ; `$FFFF`: it will not change again
+
+        ld      hl, FILED
+        add     hl, de
+        ld      a, (hl)
+        inc     a
+        jr      nz, .done               ; already in a bucket: leave it there
+        ld      a, (sched_at)
+        call    file_cell
+.done:  pop     bc
+        ret
+
+; Put a cell at the head of a bucket's chain. Three stores and no search, which
+; is the whole point of the schedule.
+;
+; in:  DE = the cell's index, A = the bucket (a frame's low byte)
+file_cell:
+        push    af
+        ld      hl, FILED
+        add     hl, de
+        pop     af
+        ld      (hl), a                 ; which bucket this cell is now in
+        call    head_addr               ; HL = that frame's bucket
+        ld      a, (hl)                 ; the chain it holds now becomes
+        ld      c, a                    ; this cell's link
+        inc     h
+        ld      a, (hl)
+        ld      b, a
+        dec     h
+        ld      a, e
+        ld      (hl), a                 ; and the cell becomes the head
+        inc     h
+        ld      a, d
+        ld      (hl), a
+
+        ld      hl, LINK_LO
+        add     hl, de
+        ld      (hl), c
+        ld      hl, LINK_HI
+        add     hl, de
+        ld      (hl), b
+        ret
+
+; When a cell next changes the level it shows.
+;
+; The charge falls by one a frame (half that for a wall), so a cell written with
+; charge `c` at frame `w` drops below the lit threshold at `w + (c - threshold)`
+; and reaches nothing at `w + c` -- doubled, less one, for a wall. Whichever of
+; those is still ahead is the answer.
+;
+; in:  B = cy, C = cx ; out: HL = the frame
+; **It must be the *next* change, not the first one**, and that is the whole
+; subtlety. A cell written lit has two changes ahead of it -- down to remembered,
+; then out -- and after the first has happened the answer is the second.
+;
+; The first cut read only the stored charge, so a wall that had just gone dim was
+; re-filed for the frame it went dim on: a frame already past, whose bucket will
+; not come round again inside the run. The wall stayed dim for ever and the
+; 400-frame comparison caught it.
+;
+; So the current charge decides which transition is still ahead, and the stored
+; charge and the write frame say when it falls due.
+;
+; in:  B = cy, C = cx ; out: HL = the frame, or `$FFFF` for never again
+next_change:
+        push    bc
+        call    chg_addr
+        ld      a, (hl)
+        ld      (stored), a
+        ld      a, h                    ; the journal, three pages up
+        add     a, (WHEN - CHARGE) >> 8
+        ld      h, a
+        ld      e, (hl)
+        inc     h
+        ld      d, (hl)                 ; DE = the frame it was written at
+        pop     bc
+        push    de
+
+        push    bc
+        call    charge_at               ; what it is showing *now*
+        pop     bc
+        or      a
+        jr      z, .never               ; already out: nothing more will happen
+        cp      LIT_THRESHOLD + 1
+        jr      c, .to_dark             ; already remembered: next stop is out
+
+        ld      a, (stored)             ; still lit: next stop is remembered
+        sub     LIT_THRESHOLD
+        jr      .span
+.to_dark:
+        ld      a, (stored)
+.span:  ld      e, a
+        ld      d, 0                    ; DE = charge to burn through
+
+        push    bc
+        call    idx_addr                ; a wall burns it at half rate
+        ld      a, (hl)
+        pop     bc
+        cp      32
+        jr      nc, .add
+        ex      de, hl
+        add     hl, hl                  ; twice as many frames...
+        dec     hl                      ; ...less one, which is the `ceil`
+        ex      de, hl
+
+.add:   pop     hl                      ; the frame it was written at
+        add     hl, de
+        ret
+
+.never: pop     hl                      ; nothing is scheduled for a dark cell;
+        ld      hl, $FFFF               ; the beam writing it is what wakes it
+        ret
+
+; Where a frame's bucket head lives: the low bytes page-aligned, the high bytes
+; the page after, so `inc h` steps between them.
+;
+; in:  A = the frame, low byte ; out: HL = the head's low byte
+head_addr:
+        ld      l, a
+        ld      h, HEAD_LO >> 8
+        ret
+
+; The cell's index, from its coordinates and back again. `cy * 32 + cx`, which
+; is five doublings -- cheap enough at twice a frame per changed cell.
+;
+; in:  B = cy, C = cx ; out: DE = the index
+cell_index:
+        ld      h, 0
+        ld      l, b
+        add     hl, hl
+        add     hl, hl
+        add     hl, hl
+        add     hl, hl
+        add     hl, hl
+        ld      a, l
+        add     a, c
+        ld      e, a
+        ld      d, h
+        ret
+
+; in:  BC = the index (B high, C low) ; out: B = cy, C = cx
+cell_of:
+        ld      a, c
+        and     COLS - 1
+        ld      l, a                    ; cx
+        ld      a, c
+        and     ~(COLS - 1) & $FF
+        ld      c, a
+        ld      a, b
+        ; cy = index >> 5, and the index is at most 703 so the high byte is at
+        ; most 2: five shifts of a sixteen-bit value, done as three of the high
+        ; byte folded in.
+        ld      h, a
+        ld      a, c
+        rlca
+        rlca
+        rlca
+        ld      c, a
+        ld      a, h
+        rlca
+        rlca
+        rlca
+        and     %11111000
+        or      c
+        ld      b, a                    ; cy
+        ld      c, l
+        ret
+
+; Everything filed, emptied. Called on arrival, when nothing is drawn and
+; nothing is due.
+clear_schedule:
+        ld      hl, HEAD_LO
+        ld      de, HEAD_LO + 1
+        ld      bc, 512 - 1
+        ld      (hl), $FF
+        ldir
+        ld      hl, DUE_LO
+        ld      de, DUE_LO + 1
+        ld      bc, 2 * COLS * PLAY_ROWS - 1
+        ld      (hl), $FF
+        ldir
+        ld      hl, FILED
+        ld      de, FILED + 1
+        ld      bc, COLS * PLAY_ROWS - 1
+        ld      (hl), $FF
+        ldir
         ret
 
 ; in:  B = cy, C = cx ; out: HL = the cell's byte in `SHOWN`
@@ -302,14 +743,41 @@ lit_now:
 charge_at:
         push    de
         call    chg_addr                ; HL = the cell's charge byte
+        call    charge_from
+        pop     de
+        ret
+
+; The same, given the address instead of the coordinates -- which is what lets
+; `beam_emit` walk a row with one pointer (issue #156).
+;
+; in:  HL = &CHARGE[cell] ; out: A = the charge now. HL and DE are spent.
+; **BC must survive.** `write_charge` keeps the charge it means to write in C,
+; and `level_at` needs the cell's coordinates in BC afterwards for `lit_now` --
+; so the first cut of this, which used C as a scratch for the index, broke the
+; picture on 26 of 31 frame counts. The index is read *before* the stamp and
+; carried on the stack instead.
+charge_from:
         ld      a, (hl)
         or      a
-        jr      z, .out                 ; never written, or already run out
-        push    af
-        call    when_addr
+        ret     z                       ; never written, or already run out
+        push    af                      ; the stored charge
+
+        ; Three pages below the charge is the index cache. **Is this a wall?** A
+        ; wall's entry is a doubled mask, 0 to 30, and floor's is 32 to 62, so
+        ; solidity is a byte read and not a 292 T-state `is_solid`.
+        ld      a, h
+        sub     (CHARGE - IDX) >> 8
+        ld      h, a
+        ld      a, (hl)
+        push    af                      ; ...which rule applies
+
+        ld      a, h                    ; up to the journal
+        add     a, ((CHARGE - IDX) >> 8) + ((WHEN - CHARGE) >> 8)
+        ld      h, a
         ld      e, (hl)
         inc     h
         ld      d, (hl)                 ; DE = the frame it was written at
+
         ld      hl, (DECAYS)
         ld      a, l
         sub     e
@@ -318,13 +786,7 @@ charge_at:
         sbc     a, d
         ld      d, a                    ; DE = frames since, sixteen bits
 
-        ; Is this a wall? **The index cache already knows** -- a wall's entry is
-        ; a doubled mask, 0 to 30, and floor's is 32 to 62 -- so solidity is a
-        ; byte read here and not a 292 T-state `is_solid`.
-        push    de
-        call    idx_addr
-        ld      a, (hl)
-        pop     de
+        pop     af                      ; the index again
         cp      32
         jr      nc, .fall               ; floor: the whole elapsed time
         inc     de                      ; wall: (elapsed + 1) >> 1
@@ -336,12 +798,12 @@ charge_at:
         jr      nz, .gone               ; 256 frames or more: nothing survives
         pop     af                      ; the stored charge
         sub     e
-        jr      nc, .out
-.zero:  xor     a                       ; it has faded out
-.out:   pop     de
+        ret     nc
+        xor     a                       ; it has faded out
         ret
 .gone:  pop     af
-        jr      .zero
+        xor     a
+        ret
 
 ; Where a cell's 16-bit write stamp lives: the low bytes a page-aligned block
 ; after the charge, the high bytes the page after that, so `inc h` steps from
@@ -361,23 +823,11 @@ when_addr:
 ; in:  B = cy, C = cx, A = the charge to write
 add_light:
         push    de
-        ld      e, a
-        push    bc
-        call    charge_at               ; what it is showing now
-        ld      d, a
-        pop     bc
-        ld      a, e
-        cp      d
-        jr      c, .done                ; it is already brighter: leave it
-        call    when_addr               ; the frame it was written at, both
-        ld      a, (DECAYS)              ; bytes -- see `charge_at`
-        ld      (hl), a
-        inc     h
-        ld      a, (DECAYS + 1)
-        ld      (hl), a
+        push    af
         call    chg_addr
-        ld      (hl), e                 ; ...and the charge itself
-.done:  pop     de
+        pop     af
+        call    write_charge
+        pop     de
         ret
 
 ; Where a cell's charge lives. Page-aligned like the index cache, so a row's
@@ -408,41 +858,155 @@ chg_addr:
 ; behind the beam goes out in a fifth of a second so the beam reads as a hole
 ; punched through the dark, but **the wall it passed is known for the whole
 ; fade**, which with no torch is the only way a room is known.
+; **One address a row, not five a cell** (issue #156). It was 688 T-states a
+; cell: `add_light` derived the charge's address, the journal's and the index
+; cache's separately, each from `cy` and `cx`, and `charge_at` derived all three
+; again to answer what the cell was showing.
+;
+; The disc is walked in rows, so within a row every one of those addresses
+; advances by exactly one byte. And they are a fixed number of **pages** apart
+; -- the index cache three below the charge, the journal three and four above --
+; so one pointer serves all four with `ld a,h / add a,n / ld h,a`.
 beam_emit:
         ld      a, (BEAM_Y)
         sub     BEAM_RADIUS
         ld      b, a                    ; cy of the disc's top row
         ld      ix, DISC                ; the half-width of each row
-        ld      e, BEAM_RADIUS * 2 + 1  ; rows to do
+        ld      a, BEAM_RADIUS * 2 + 1
+        ld      (rows_left), a
 .row:   ld      a, (BEAM_X)
         sub     (ix+0)
         ld      c, a                    ; cx of this row's left end
         ld      a, (ix+0)
         add     a, a
         inc     a
-        ld      d, a                    ; cells in this row
-.cell:  push    bc
-        push    de
-        ; **Solidity comes from the index cache, not `is_solid`.** A wall's
-        ; cached entry is a doubled mask (0 to 30) and floor's is 32 to 62, so
-        ; this is a byte read where `is_solid` is 292 T-states -- and it is read
-        ; 37 times a frame, once per disc cell.
-        call    idx_addr
+        ld      (cells_left), a
+        push    bc
+        call    chg_addr                ; once for the whole row
+        pop     bc
+
+.cell:  push    hl
+        ; Solidity from the index cache, three pages below the charge. A wall's
+        ; entry is a doubled mask (0 to 30) and floor's is 32 to 62, so this is
+        ; a byte read where `is_solid` is 292 T-states.
+        ld      a, h
+        sub     (CHARGE - IDX) >> 8
+        ld      h, a
         ld      a, (hl)
         cp      32
         ld      a, CHARGE_SWEEP
-        jr      nc, .write
+        jr      nc, .got
         ld      a, CHARGE_WALL
-.write: call    add_light
-        pop     de
-        pop     bc
-        inc     c
-        dec     d
+.got:   pop     hl
+        call    write_charge            ; HL = the charge byte, A = the charge
+        inc     l                       ; the next cell of this row
+        ld      a, (cells_left)
+        dec     a
+        ld      (cells_left), a
         jr      nz, .cell
-        inc     b
+
+        inc     b                       ; the next row of the disc
         inc     ix
-        dec     e
+        ld      a, (rows_left)
+        dec     a
+        ld      (rows_left), a
         jr      nz, .row
+        ret
+
+; Top a cell up, given its charge byte's address rather than its coordinates.
+;
+; **Brightest wins and nothing sums**, which is `LightField.add`'s rule: a cell
+; already showing more than this keeps it. The check is kept even though the beam
+; always wins today -- a floor cell holds at most `CHARGE_SWEEP` and the beam
+; writes `CHARGE_SWEEP` -- because the player's glow and the room's lights are
+; sources too, and one of them putting `CHARGE_LIT` on a floor cell must not be
+; erased by the beam passing over it.
+;
+; in:  HL = &CHARGE[cell], A = the charge to write
+; out: HL unchanged. BC survives.
+write_charge:
+        push    bc
+        ld      c, a                    ; the charge we mean to write
+        ld      b, (hl)                 ; what is stored there now
+        inc     b
+        dec     b
+        jr      z, .write               ; nothing there: write
+        ; **A cheap sufficient test, then the exact one.** The charge a cell is
+        ; showing can only be less than what was stored in it -- decay takes it
+        ; down and nothing puts it back -- so if this write beats the *stored*
+        ; value it certainly beats the current one, and the expensive
+        ; computation can be skipped.
+        ;
+        ; Which it always does today: a floor cell holds at most `CHARGE_SWEEP`
+        ; and the beam writes `CHARGE_SWEEP`; a wall holds at most `CHARGE_WALL`
+        ; and the beam writes that. So this is the path taken 37 times a frame,
+        ; and it saves running `charge_from` on every one of them. The exact
+        ; comparison is still here for the sources that have not arrived yet --
+        ; the player's glow, the room's own lights -- one of which may well hold
+        ; a cell brighter than the beam does.
+        ld      a, c
+        cp      b
+        jr      nc, .write              ; beats what was stored: write
+        push    hl
+        call    charge_from             ; A = what it is showing *now*
+        pop     hl
+        cp      c
+        jr      z, .write
+        jr      nc, .done               ; it is brighter already: leave it
+.write: ld      (hl), c
+        push    hl
+        ld      a, h                    ; the journal, three pages up
+        add     a, (WHEN - CHARGE) >> 8
+        ld      h, a
+        ld      a, (DECAYS)
+        ld      (hl), a
+        inc     h
+        ld      a, (DECAYS + 1)
+        ld      (hl), a
+        pop     hl
+        ; **A write changes the cell now**, and the level needs no working out:
+        ; a cell a source has just written reads `LIT`, because the level is the
+        ; brighter of the charge's and the source's and this source is `LIT`. So
+        ; this is a byte compare where `check_cell` would run `level_at` whole.
+        ;
+        ; `SHOWN` is nine pages above the charge, so the cell's own coordinates
+        ; are not needed either -- they are worked out only in the rare branch
+        ; that actually draws.
+        push    hl
+        ld      a, h
+        add     a, (SHOWN - CHARGE) >> 8
+        ld      h, a
+        ld      a, (hl)
+        cp      LIT
+        jr      z, .drawn
+        ld      (hl), LIT
+        pop     hl
+        push    hl
+        push    bc
+        call    addr_cell               ; B = cy, C = cx, only when drawing
+        ld      a, LIT
+        call    draw_at
+        pop     bc
+.drawn: pop     hl
+        ; **Nothing is scheduled while the beam is still on the cell.** Its
+        ; level is `LIT` whatever the charge says, so a due frame computed now
+        ; would be recomputed next frame and the frame after -- 37 cells' worth
+        ; of arithmetic, every frame, to answer a question that only matters
+        ; once the beam has gone. `beam_edges` schedules the cells it leaves
+        ; behind, which is seven of them once every six frames at `pace: 6`.
+.done:  pop     bc
+        ret
+
+; The coordinates of the cell a charge address belongs to -- the inverse of
+; `chg_addr`, for the row walk, which has the address and not the pair.
+;
+; in:  HL = &CHARGE[cell] ; out: B = cy, C = cx
+addr_cell:
+        ld      a, h
+        sub     CHARGE >> 8
+        ld      b, a                    ; which page: 0, 1 or 2
+        ld      c, l
+        call    cell_of
         ret
 
 ; --- the play area, cleared -------------------------------------------------
@@ -525,6 +1089,9 @@ draw_cell:
         push    bc
         call    level_at
         pop     bc
+        ; Fall through with A = the level, which `draw_at` is the entry for when
+        ; the caller already knows it.
+draw_at:
         or      a
         jr      nz, .seen
         push    bc
@@ -1045,6 +1612,19 @@ DISC:   DEFB 1, 2, 3, 3, 3, 2, 1
 ; --- state ------------------------------------------------------------------
 
 mask_acc:   DEFB 0
+rows_left:  DEFB 0          ; `beam_emit`'s counters, in memory because the
+cells_left: DEFB 0          ; row walk needs every register pair it has
+disc_x:     DEFB 0          ; which disc `check_disc` is walking
+disc_y:     DEFB 0
+disc_rows:  DEFB 0
+disc_cells: DEFB 0
+sched_at:   DEFW 0          ; the frame `reschedule` is filing under
+stored:     DEFB 0          ; the charge `next_change` is reasoning about
+
+; Where the beam was last frame, so `beam_edges` can tell whether it moved.
+; Starts on the beam's own cell, so the first frame finds no edges and the
+; disc is drawn by `beam_emit` and the schedule alone.
+WAS_BEAM:   DEFB 6, 5
 player_cx:  DEFB PLAYER_CX
 player_cy:  DEFB PLAYER_CY
 tile_page:  DEFB 0          ; which tile table this cell reads, lit or dim
@@ -1090,4 +1670,16 @@ IDX_END: EQU IDX + COLS * PLAY_ROWS
 CHARGE: EQU (IDX_END + 255) & $FF00
 WHEN:   EQU CHARGE + 768
 SHOWN:  EQU WHEN + 1536
-FIELD_END: EQU SHOWN + COLS * PLAY_ROWS
+; The schedule (issue #156): each frame's bucket head, and each cell's due
+; frame and link. `$FF` throughout means nil, which is why `clear_schedule`
+; fills with it.
+HEAD_LO: EQU (SHOWN + COLS * PLAY_ROWS + 255) & $FF00
+HEAD_HI: EQU HEAD_LO + 256
+DUE_LO:  EQU HEAD_HI + 256
+DUE_HI:  EQU DUE_LO + COLS * PLAY_ROWS
+LINK_LO: EQU DUE_HI + COLS * PLAY_ROWS
+LINK_HI: EQU LINK_LO + COLS * PLAY_ROWS
+; Which bucket a cell is filed in, or `$FF` for none -- what keeps a cell from
+; being filed twice and orphaning the chain behind it.
+FILED:   EQU LINK_HI + COLS * PLAY_ROWS
+FIELD_END: EQU FILED + COLS * PLAY_ROWS

@@ -160,41 +160,92 @@ def test_the_fade_is_a_ledger_and_not_a_pass(blob):
     assert cost * 400 < 40_857, "a whole-field decay would be cheaper than this"
 
 
-@pytest.mark.xfail(reason="issue #156: the repaint set is found by scanning all "
-                          "704 cells, which costs ten times the budget",
-                   strict=True)
-def test_a_frame_fits_the_frame(blob):
-    """**The gate this slice does not meet, recorded rather than quietly
-    dropped.**
+#: A beam sweeping the room as `pace: 6` has it -- one cell every six frames,
+#: which is what `sources.Roaming`'s sweep does. The frames where it *steps* are
+#: the expensive ones, and this is the rate they really arrive at.
+PACE = 6
+REAL_SWEEP = [(cx, 5) for cx in range(3, 29) for _ in range(PACE)]
 
-    The picture is right and the fade is a ledger, but `paint_changed` finds the
-    cells that changed by asking all 704 of them, at about 400 T-states each:
-    **349,731 T-states a frame, 1,065% of `ENTITY_CEILING` and five whole
-    frames.**
 
-    The cells that actually change are few -- measured off the prototype over
-    204,825 frames, a median of 8 and a worst of 58 (issue #154). So this is the
-    cost of *finding* the set, not of drawing it, and the remedy is to schedule
-    each cell's next level change when it is written rather than search for it.
-    That is issue #156.
+def test_no_frame_overruns_a_fiftieth_of_a_second(blob):
+    """**The gate #155 could not meet and #156 does** (issue #156).
+
+    Before: 342,913 T-states a frame, flat -- `paint_changed` asked all 704
+    cells whether they had changed to find the eight that had, and that is
+    **490% of a 50Hz frame**, so five frames in six would have been dropped.
+
+    After: the schedule is *told* which cells changed, so the cost follows the
+    work. Over a real sweep the median frame is about **18,700 T-states** and
+    the worst -- a frame where the beam steps, one in six -- is about
+    **63,400**, which is **90% of a frame**. Nothing is dropped.
     """
-    _machine, cost = portharness.light_run(blob, 2)
-    assert cost < FRAME_TSTATES, f"a frame costs {cost:,} T-states"
+    costs = [portharness.light_run(blob, frames, beam=REAL_SWEEP)[1]
+             for frames in range(2, len(REAL_SWEEP) + 1)]
+    worst = max(costs)
+    assert worst < FRAME_TSTATES, (
+        f"the worst frame of a sweep costs {worst:,} T-states and a 50Hz frame "
+        f"is {FRAME_TSTATES:,}")
 
 
-def test_what_a_light_frame_costs_today(blob):
-    """The two halves, recorded so #156 has a before to beat.
+def test_a_quiet_frame_is_inside_the_entity_ceiling(blob):
+    """Most frames the beam has not moved and nothing has crossed a threshold,
+    and those have to leave room for everything that is not drawing.
 
-    `beam_emit` writes the disc's 37 cells at **25,447 T-states**, 78% of the
-    ceiling -- most of it address arithmetic done four times a cell, since
-    `add_light` computes the charge's address, the journal's, and the index
-    cache's separately. `paint_changed` is **277,322**, which is the 704-cell
-    search for the 8 cells that moved.
-
-    Neither is asserted as a target; they are asserted as *recorded*, so that a
-    change which makes either dramatically worse fails here.
+    **About 18,700 T-states, 57% of `ENTITY_CEILING`.** The frames where the
+    beam steps are over it -- 193% -- and that is recorded rather than asserted
+    away: the ceiling is an internal budget for entities and the real bar, a
+    50Hz frame, is met above. What would close the gap is drawing fewer cells
+    per step, not finding them faster; the finding is now 232 T-states.
     """
-    _machine, emit = portharness.run("beam_emit", blob, limit=900_000)
-    _machine, paint = portharness.run("paint_changed", blob, limit=900_000)
-    assert emit < 40_000, f"beam_emit grew to {emit:,} T-states"
-    assert paint < 400_000, f"paint_changed grew to {paint:,} T-states"
+    import statistics
+    costs = [portharness.light_run(blob, frames, beam=REAL_SWEEP)[1]
+             for frames in range(2, len(REAL_SWEEP) + 1)]
+    assert statistics.median(costs) < ENTITY_CEILING, (
+        f"a median frame costs {statistics.median(costs):,.0f} T-states")
+
+
+def test_the_schedule_is_told_and_does_not_search(blob):
+    """`paint_changed`'s whole job is to walk one bucket, so its cost must not
+    scale with the field at all.
+
+    **232 T-states**, from 277,322 -- the 704-cell search it replaced. Asserted
+    well under any figure a search could achieve, so that a change which
+    reintroduces one fails here.
+    """
+    _machine, paint = portharness.timed(blob, "paint_changed", frames=40)
+    assert paint < 5_000, f"paint_changed costs {paint:,} T-states; it searches"
+    _machine, emit = portharness.timed(blob, "beam_emit", frames=40)
+    assert emit < 20_000, f"beam_emit grew to {emit:,} T-states"
+
+
+def test_a_cell_rewritten_before_its_due_frame_still_fades(blob):
+    """**The case a schedule of this shape gets wrong**, and the acceptance asks
+    for it by name.
+
+    A cell the beam writes again before its filed transition arrives has a new
+    due frame, and the old entry is still sitting in a bucket. If that stale
+    entry were acted on the cell would fade early; if filing a second entry
+    overwrote its link, every cell behind it in the chain would be orphaned and
+    never fade at all. Both happened while this was being built.
+
+    So: hold the beam on a cell for longer than the floor's own fade, then move
+    away, and check it goes out on time rather than early or never.
+    """
+    dwell = [(5, 12)] * 60          # far longer than `CHARGE_SWEEP`'s ten
+    away = [(25, 5)] * 60
+    cell = (5, 12)
+
+    def level(machine):
+        attr = machine.memory[portharness.ATTRS_AT + cell[1] * COLS + cell[0]]
+        if not attr:
+            return lighting.DARK
+        return lighting.LIT if attr & 0x40 else lighting.DIM
+
+    machine, _ = portharness.light_run(blob, 60, beam=dwell)
+    assert level(machine) == lighting.LIT, "the beam is on it"
+    # Five frames after the beam leaves it is still remembered...
+    machine, _ = portharness.light_run(blob, 65, beam=dwell + away)
+    assert level(machine) == lighting.DIM, "it went out while still remembered"
+    # ...and ten frames after, `CHARGE_SWEEP` is spent and it is gone.
+    machine, _ = portharness.light_run(blob, 75, beam=dwell + away)
+    assert level(machine) == lighting.DARK, "it outlived its wake"

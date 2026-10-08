@@ -147,6 +147,30 @@ def beam_path(frames: int, beam=None):
     return path[:frames]
 
 
+def timed(blob, label: str, frames: int = 2, beam=None,
+          limit: int = 2_000_000):
+    """What one call of `label` costs **on a machine that has been running**.
+
+    `run` starts from zeroed memory, which is fine for a routine that only reads
+    the generated tables and wrong for anything that reads state the game builds:
+    the schedule's "nothing filed" marker is `$FF`, so on zeroed memory every
+    bucket looks like it holds cell 0 and `paint_changed` walks a chain that does
+    not exist. So this arrives in the room, runs some frames, and then times one
+    call.
+    """
+    machine, _cost = light_run(blob, frames, beam=beam, limit=limit)
+    memory = machine.memory
+    memory[0x7FFE], memory[0x7FFF] = 0x00, 0x70
+    machine.registers[12] = 0x7FFE
+    machine.registers[PC] = symbol(label)
+    before = machine.registers[T]
+    for _ in range(limit):
+        machine.run()
+        if machine.registers[PC] == 0x7000:
+            return machine, machine.registers[T] - before
+    pytest.fail(f"{label} did not return inside {limit} instructions")
+
+
 def run(label: str, blob: bytes, limit: int = 200_000):
     """Call one routine by name and come back with the machine and its cost.
 
